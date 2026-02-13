@@ -9358,7 +9358,19 @@ void GuiApp::loadEverything(){
 
 //--------------------------------------------------------------
 void GuiApp::exit() {
-
+	// Save settings on exit
+	ofLogNotice("GuiApp") << "Saving settings on exit...";
+	
+	// Save to settings.json (GUI settings)
+	saveVideoOscSettings();
+	
+	// Also sync to SettingsManager for config.json
+	if (mainApp) {
+		// The ofApp::exit() will handle saving to config.json
+		// We just need to ensure our values are synced
+		ofLogNotice("GuiApp") << "Settings saved";
+	}
+	
 	// clean up
 	if (midiIn) {
 		midiIn->closePort();
@@ -56978,4 +56990,5 @@ void GuiApp::loadVideoOscSettings() {
     // and savedInput1SpoutName, savedInput2SpoutName
 #endif
     // for matching when the source lists become available
+
 }

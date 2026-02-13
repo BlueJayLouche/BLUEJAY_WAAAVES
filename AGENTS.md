@@ -23,7 +23,7 @@ src/
 ### Core Module (`src/Core/`)
 
 **SettingsManager** - Centralized configuration management
-- `DisplaySettings` - Resolution, FPS (configurable via XML)
+- `DisplaySettings` - Resolution, FPS (configurable via JSON)
 - `OscSettings` - OSC ports and addresses
 - `MidiSettings` - MIDI device configuration
 - `InputSourceSettings` - Input source types and indices
@@ -31,12 +31,12 @@ src/
 Usage:
 ```cpp
 auto& settings = dragonwaves::SettingsManager::getInstance();
-settings.load();  // Load from settings.xml
+settings.load();  // Load from config.json
 
 // Access display settings
 int width = settings.getDisplay().internalWidth;
 settings.getDisplay().targetFPS = 60;
-settings.save();  // Save to settings.xml
+settings.save();  // Save to config.json
 ```
 
 ### Inputs Module (`src/Inputs/`)
@@ -186,29 +186,98 @@ The original OSC addressing scheme is preserved:
 /gravity/preset/load               - Load preset trigger
 ```
 
-## Settings XML Format
+## Settings JSON Format
 
-```xml
-<settings>
-    <display>
-        <input1Width>640</input1Width>
-        <input1Height>480</input1Height>
-        <internalWidth>1280</internalWidth>
-        <internalHeight>720</internalHeight>
-        <targetFPS>30</targetFPS>
-    </display>
-    <osc>
-        <enabled>1</enabled>
-        <receivePort>7000</receivePort>
-        <sendIP>127.0.0.1</sendIP>
-        <sendPort>7001</sendPort>
-    </osc>
-    <midi>
-        <selectedPort>0</selectedPort>
-        <enabled>1</enabled>
-    </midi>
-</settings>
+Settings are stored in `config.json` (consolidated from the old XML format):
+
+```json
+{
+    "display": {
+        "input1Width": 640,
+        "input1Height": 480,
+        "input2Width": 640,
+        "input2Height": 480,
+        "internalWidth": 1280,
+        "internalHeight": 720,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "ndiSendWidth": 1280,
+        "ndiSendHeight": 720,
+        "targetFPS": 30
+    },
+    "osc": {
+        "enabled": false,
+        "receivePort": 7000,
+        "sendIP": "127.0.0.1",
+        "sendPort": 7001
+    },
+    "midi": {
+        "selectedPort": -1,
+        "deviceName": "",
+        "enabled": false
+    },
+    "inputSources": {
+        "input1SourceType": 1,
+        "input2SourceType": 1,
+        "input1DeviceID": 0,
+        "input2DeviceID": 1,
+        "input1NdiSourceIndex": 0,
+        "input2NdiSourceIndex": 0
+    },
+    "uiScaleIndex": 0
+}
 ```
+
+## Runtime Settings Reload
+
+The application supports **runtime reloading** of `config.json`. Changes made to the file while the app is running will be automatically detected and applied.
+
+### How It Works
+
+1. **File Watching**: `SettingsManager` monitors `config.json` for changes every 1 second
+2. **Automatic Reload**: When changes are detected, the file is reloaded and settings are updated
+3. **GUI Sync**: Changes are automatically synced to the GUI (control window)
+4. **Save on Exit**: All settings are automatically saved to `config.json` when the app closes
+
+### Usage
+
+```cpp
+// In ofApp::update() - already integrated
+SettingsManager::getInstance().update();  // Checks for file changes
+
+// Register callback for when settings change (optional)
+auto& settings = SettingsManager::getInstance();
+settings.onSettingsChanged([]() {
+    ofLogNotice("Settings") << "Settings were reloaded from disk!";
+});
+
+// Manual reload (if needed)
+settings.reload();
+
+// Disable file watching (if needed)
+settings.enableFileWatching(false);
+```
+
+### What Gets Reloaded
+
+When `config.json` changes at runtime, the following are updated:
+
+- **Display settings**: Input/output resolutions, target FPS
+- **Input sources**: Source types, device IDs, NDI/Spout indices
+- **OSC settings**: Ports, IP addresses
+- **MIDI settings**: Selected port, device name
+- **UI scale**: Interface scaling (200%, 250%, 300%)
+
+### Migration from XML
+
+If a legacy `settings.xml` file exists, it will be automatically migrated to `config.json` on first load. The XML file is preserved for backup but no longer used.
+
+### Notes
+
+- Resolution changes require reinitialization of video inputs and framebuffers
+- OSC settings changes trigger a reconnection
+- MIDI settings changes attempt to reconnect to the specified port
+- File modification time is tracked to avoid unnecessary reloads
 
 ## Preset System
 

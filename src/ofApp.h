@@ -34,6 +34,7 @@ class ofApp : public ofBaseApp{
 
 		void keyPressed(int key);
 		void keyReleased(int key);
+		void exit();
 
 
 		shared_ptr<GuiApp> gui;
@@ -621,6 +622,8 @@ class ofApp : public ofBaseApp{
 	
 	// Modular system helpers
 	void syncGuiToPipeline();
+	void syncGuiToSettingsManager();  // Sync GUI values to SettingsManager before saving
+	void syncSettingsManagerToGui();  // Sync SettingsManager values to GUI after file reload
 	void drawGeometryPatterns();
 	void sendOutputs();
 	void drawOutput();

@@ -53,7 +53,7 @@ void ofApp::setup(){
     
     // CRITICAL: Sync SettingsManager to GUI BEFORE InputManager setup
     // GuiApp::setup() runs before ofApp::setup() and loads settings.json,
-    // so we must overwrite those values with settings.xml values here
+    // so we must overwrite those values with config.json values here
     if (gui) {
         gui->input1SourceType = settings.getInputSources().input1SourceType;
         gui->input2SourceType = settings.getInputSources().input2SourceType;
@@ -65,7 +65,7 @@ void ofApp::setup(){
         gui->input1SpoutSourceIndex = settings.getInputSources().input1SpoutSourceIndex;
         gui->input2SpoutSourceIndex = settings.getInputSources().input2SpoutSourceIndex;
 #endif
-        ofLogNotice("ofApp") << "Synced input settings from settings.xml (SettingsManager) to GUI";
+        ofLogNotice("ofApp") << "Synced input settings from config.json (SettingsManager) to GUI";
     }
     
     // Initialize input manager
@@ -107,7 +107,7 @@ void ofApp::setup(){
     inputManager->configureInput1(input1Type, input1DeviceOrIndex);
     inputManager->configureInput2(input2Type, input2DeviceOrIndex);
     
-    ofLogNotice("ofApp") << "Configured inputs from settings.xml: Input1=" 
+    ofLogNotice("ofApp") << "Configured inputs from config.json: Input1=" 
                          << (int)input1Type << ":" << input1DeviceOrIndex 
                          << ", Input2=" << (int)input2Type << ":" << input2DeviceOrIndex;
     
@@ -132,6 +132,12 @@ void ofApp::setup(){
     // Initialize LFO thetas
     resetLfoThetas();
     
+    // Register callback for settings reload (file watching)
+    settings.onSettingsChanged([this]() {
+        ofLogNotice("ofApp") << "Settings file changed, syncing to GUI...";
+        this->syncSettingsManagerToGui();
+    });
+    
     // Legacy GUI reference for compatibility
     if (gui) {
         setupOsc();
@@ -142,6 +148,9 @@ void ofApp::setup(){
 
 //--------------------------------------------------------------
 void ofApp::update(){
+    // Update settings manager (file watching for runtime reload)
+    SettingsManager::getInstance().update();
+    
     // Update parameter manager (process OSC)
     ParameterManager::getInstance().update();
     
@@ -246,6 +255,128 @@ float ofApp::lfo(float amp, float rate, int shape) {
     }
     
     return amp * waveValue;
+}
+
+//--------------------------------------------------------------
+void ofApp::syncGuiToSettingsManager() {
+    if (!gui) return;
+    
+    auto& settings = SettingsManager::getInstance();
+    auto& displaySettings = settings.getDisplay();
+    auto& inputSettings = settings.getInputSources();
+    auto& oscSettings = settings.getOsc();
+    auto& midiSettings = settings.getMidi();
+    
+    // Sync display settings
+    displaySettings.input1Width = gui->input1Width;
+    displaySettings.input1Height = gui->input1Height;
+    displaySettings.input2Width = gui->input2Width;
+    displaySettings.input2Height = gui->input2Height;
+    displaySettings.internalWidth = gui->internalWidth;
+    displaySettings.internalHeight = gui->internalHeight;
+    displaySettings.outputWidth = gui->outputWidth;
+    displaySettings.outputHeight = gui->outputHeight;
+    displaySettings.ndiSendWidth = gui->ndiSendWidth;
+    displaySettings.ndiSendHeight = gui->ndiSendHeight;
+    displaySettings.targetFPS = gui->targetFPS;
+    
+    // Sync input source settings
+    inputSettings.input1SourceType = gui->input1SourceType;
+    inputSettings.input2SourceType = gui->input2SourceType;
+    inputSettings.input1DeviceID = gui->input1DeviceID;
+    inputSettings.input2DeviceID = gui->input2DeviceID;
+    inputSettings.input1NdiSourceIndex = gui->input1NdiSourceIndex;
+    inputSettings.input2NdiSourceIndex = gui->input2NdiSourceIndex;
+#if OFAPP_HAS_SPOUT
+    inputSettings.input1SpoutSourceIndex = gui->input1SpoutSourceIndex;
+    inputSettings.input2SpoutSourceIndex = gui->input2SpoutSourceIndex;
+#endif
+    
+    // Sync OSC settings
+    oscSettings.enabled = gui->oscEnabled;
+    oscSettings.receivePort = gui->oscReceivePort;
+    oscSettings.sendIP = std::string(gui->oscSendIP);
+    oscSettings.sendPort = gui->oscSendPort;
+    
+    // Sync MIDI settings
+    midiSettings.selectedPort = gui->selectedMidiPort;
+    midiSettings.deviceName = (gui->selectedMidiPort >= 0 && gui->selectedMidiPort < (int)gui->midiDeviceNames.size()) 
+        ? gui->midiDeviceNames[gui->selectedMidiPort] 
+        : "";
+    midiSettings.enabled = gui->midiConnected;
+    
+    // Sync UI scale
+    settings.setUIScaleIndex(gui->uiScaleIndex);
+    
+    ofLogNotice("ofApp") << "GUI settings synced to SettingsManager";
+}
+
+//--------------------------------------------------------------
+void ofApp::syncSettingsManagerToGui() {
+    if (!gui) return;
+    
+    auto& settings = SettingsManager::getInstance();
+    auto& displaySettings = settings.getDisplay();
+    auto& inputSettings = settings.getInputSources();
+    auto& oscSettings = settings.getOsc();
+    auto& midiSettings = settings.getMidi();
+    
+    // Sync display settings to GUI
+    gui->input1Width = displaySettings.input1Width;
+    gui->input1Height = displaySettings.input1Height;
+    gui->input2Width = displaySettings.input2Width;
+    gui->input2Height = displaySettings.input2Height;
+    gui->internalWidth = displaySettings.internalWidth;
+    gui->internalHeight = displaySettings.internalHeight;
+    gui->outputWidth = displaySettings.outputWidth;
+    gui->outputHeight = displaySettings.outputHeight;
+    gui->ndiSendWidth = displaySettings.ndiSendWidth;
+    gui->ndiSendHeight = displaySettings.ndiSendHeight;
+    gui->targetFPS = displaySettings.targetFPS;
+    
+    // Sync input source settings to GUI
+    gui->input1SourceType = inputSettings.input1SourceType;
+    gui->input2SourceType = inputSettings.input2SourceType;
+    gui->input1DeviceID = inputSettings.input1DeviceID;
+    gui->input2DeviceID = inputSettings.input2DeviceID;
+    gui->input1NdiSourceIndex = inputSettings.input1NdiSourceIndex;
+    gui->input2NdiSourceIndex = inputSettings.input2NdiSourceIndex;
+#if OFAPP_HAS_SPOUT
+    gui->input1SpoutSourceIndex = inputSettings.input1SpoutSourceIndex;
+    gui->input2SpoutSourceIndex = inputSettings.input2SpoutSourceIndex;
+#endif
+    
+    // Request input reinitialization
+    gui->reinitializeInputs = true;
+    
+    // Sync OSC settings to GUI
+    gui->oscEnabled = oscSettings.enabled;
+    gui->oscReceivePort = oscSettings.receivePort;
+    strncpy(gui->oscSendIP, oscSettings.sendIP.c_str(), sizeof(gui->oscSendIP) - 1);
+    gui->oscSendIP[sizeof(gui->oscSendIP) - 1] = '\0';  // Ensure null termination
+    gui->oscSendPort = oscSettings.sendPort;
+    
+    // Sync MIDI settings to GUI
+    gui->selectedMidiPort = midiSettings.selectedPort;
+    // Note: We don't override device name if port is already set correctly
+    
+    // Sync UI scale to GUI
+    gui->uiScaleIndex = settings.getUIScaleIndex();
+    
+    // Apply resolution/FPS changes if needed
+    if (settings.hasResolutionChanged()) {
+        gui->resolutionChangeRequested = true;
+        settings.clearResolutionChanged();
+    }
+    if (settings.hasFPSChanged()) {
+        gui->fpsChangeRequested = true;
+        settings.clearFPSChanged();
+    }
+    
+    // Reload OSC settings
+    gui->oscSettingsReloadRequested = true;
+    
+    ofLogNotice("ofApp") << "SettingsManager synced to GUI (config.json reloaded)";
 }
 
 //--------------------------------------------------------------
@@ -1152,7 +1283,7 @@ void ofApp::reinitializeInputs() {
 #endif
     
     settings.save();
-    ofLogNotice("ofApp") << "Input settings saved to settings.xml";
+    ofLogNotice("ofApp") << "Input settings saved to config.json";
     
     // Also save GUI's JSON settings to keep them in sync
     if (gui) {
@@ -1538,6 +1669,27 @@ void ofApp::keyPressed(int key){
 
 //--------------------------------------------------------------
 void ofApp::keyReleased(int key){
+}
+
+//--------------------------------------------------------------
+void ofApp::exit(){
+    // Save settings on exit
+    ofLogNotice("ofApp") << "Saving settings on exit...";
+    
+    // Sync current GUI values to SettingsManager
+    if (gui) {
+        syncGuiToSettingsManager();
+    }
+    
+    // Save to config.json
+    SettingsManager::getInstance().save();
+    
+    // Also save to settings.json for backward compatibility
+    if (gui) {
+        gui->saveVideoOscSettings();
+    }
+    
+    ofLogNotice("ofApp") << "Settings saved successfully";
 }
 
 //==============================================================================

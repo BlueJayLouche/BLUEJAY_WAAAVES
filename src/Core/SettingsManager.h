@@ -1,7 +1,10 @@
 #pragma once
 
 #include "ofMain.h"
-#include "ofxXmlSettings.h"
+#include "ofJson.h"
+#include "ofxXmlSettings.h"  // For migration only
+#include <functional>
+#include <ctime>
 
 // Cross-platform macros
 #if defined(TARGET_WIN32)
@@ -13,7 +16,7 @@
 namespace dragonwaves {
 
 //==============================================================================
-// Display Settings - Configurable post-compilation via XML
+// Display Settings - Configurable post-compilation via JSON
 //==============================================================================
 struct DisplaySettings {
     // Input resolutions
@@ -42,9 +45,13 @@ struct DisplaySettings {
     // Performance
     int targetFPS = 30;
     
-    // Getters/Setters for XML binding
+    // Getters/Setters for JSON binding
+    void loadFromJson(const ofJson& json);
+    void saveToJson(ofJson& json) const;
+    
+    // Legacy XML (for migration only)
     void loadFromXml(ofxXmlSettings& xml);
-    void saveToXml(ofxXmlSettings& xml);
+    void saveToXml(ofxXmlSettings& xml) const;
 };
 
 //==============================================================================
@@ -56,8 +63,13 @@ struct OscSettings {
     std::string sendIP = "127.0.0.1";
     int sendPort = 7001;
     
+    // JSON binding
+    void loadFromJson(const ofJson& json);
+    void saveToJson(ofJson& json) const;
+    
+    // Legacy XML (for migration only)
     void loadFromXml(ofxXmlSettings& xml);
-    void saveToXml(ofxXmlSettings& xml);
+    void saveToXml(ofxXmlSettings& xml) const;
 };
 
 //==============================================================================
@@ -68,8 +80,13 @@ struct MidiSettings {
     std::string deviceName = "";
     bool enabled = false;
     
+    // JSON binding
+    void loadFromJson(const ofJson& json);
+    void saveToJson(ofJson& json) const;
+    
+    // Legacy XML (for migration only)
     void loadFromXml(ofxXmlSettings& xml);
-    void saveToXml(ofxXmlSettings& xml);
+    void saveToXml(ofxXmlSettings& xml) const;
 };
 
 //==============================================================================
@@ -87,8 +104,13 @@ struct InputSourceSettings {
     int input2SpoutSourceIndex = 0;
 #endif
     
+    // JSON binding
+    void loadFromJson(const ofJson& json);
+    void saveToJson(ofJson& json) const;
+    
+    // Legacy XML (for migration only)
     void loadFromXml(ofxXmlSettings& xml);
-    void saveToXml(ofxXmlSettings& xml);
+    void saveToXml(ofxXmlSettings& xml) const;
 };
 
 //==============================================================================
@@ -101,10 +123,10 @@ public:
         return instance;
     }
     
-    // Load all settings from XML
+    // Load all settings from JSON (with automatic XML migration)
     void load();
     
-    // Save all settings to XML
+    // Save all settings to JSON
     void save();
     
     // Getters
@@ -115,7 +137,8 @@ public:
     
     // Paths
     std::string getPresetsPath() { return "presets/"; }
-    std::string getSettingsFile() { return "settings.xml"; }
+    std::string getSettingsFile() { return "config.json"; }  // Main config file (consolidated JSON)
+    std::string getLegacySettingsFile() { return "settings.xml"; }  // For migration
     
     // UI Settings
     int getUIScaleIndex() const { return uiScaleIndex; }
@@ -132,6 +155,21 @@ public:
     // Apply new display settings
     void applyDisplaySettings(const DisplaySettings& newSettings);
     
+    // File watching for runtime reload
+    void update();  // Call this every frame to check for file changes
+    void enableFileWatching(bool enable) { fileWatchingEnabled = enable; }
+    bool isFileWatchingEnabled() const { return fileWatchingEnabled; }
+    
+    // Callbacks for when settings change
+    using SettingsChangedCallback = std::function<void()>;
+    void onSettingsChanged(SettingsChangedCallback callback) { settingsChangedCallback = callback; }
+    
+    // Manual reload trigger
+    void reload();  // Reload from disk and notify listeners
+    
+    // Get file modification time
+    std::time_t getLastFileModificationTime() const { return lastFileModificationTime; }
+    
 private:
     SettingsManager() = default;
     ~SettingsManager() = default;
@@ -147,6 +185,21 @@ private:
     
     bool resolutionChanged = false;
     bool fpsChanged = false;
+    
+    // File watching
+    bool fileWatchingEnabled = true;
+    std::time_t lastFileModificationTime = 0;
+    std::string lastSettingsPath;
+    float fileCheckInterval = 1.0f;  // Check every 1 second
+    float timeSinceLastCheck = 0.0f;
+    
+    // Callbacks
+    SettingsChangedCallback settingsChangedCallback;
+    
+    // Helper methods
+    std::time_t getFileModificationTime(const std::string& path);
+    void updateLastModificationTime();
+    bool migrateFromXml();  // Migrate legacy XML settings to JSON
 };
 
 } // namespace dragonwaves

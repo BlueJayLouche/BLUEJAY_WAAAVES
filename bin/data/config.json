@@ -1,0 +1,35 @@
+{
+    "display": {
+        "input1Height": 480,
+        "input1Width": 640,
+        "input2Height": 480,
+        "input2Width": 640,
+        "internalHeight": 480,
+        "internalWidth": 640,
+        "ndiSendHeight": 720,
+        "ndiSendWidth": 1280,
+        "outputHeight": 720,
+        "outputWidth": 1280,
+        "targetFPS": 30
+    },
+    "inputSources": {
+        "input1DeviceID": 0,
+        "input1NdiSourceIndex": 0,
+        "input1SourceType": 1,
+        "input2DeviceID": 1,
+        "input2NdiSourceIndex": 0,
+        "input2SourceType": 1
+    },
+    "midi": {
+        "deviceName": "",
+        "enabled": false,
+        "selectedPort": -1
+    },
+    "osc": {
+        "enabled": false,
+        "receivePort": 7000,
+        "sendIP": "127.0.0.1",
+        "sendPort": 7001
+    },
+    "uiScaleIndex": 0
+}
