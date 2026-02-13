@@ -1,4 +1,54 @@
-flipping the m# Project-specific
+# macOS system files
+.DS_Store
+**/.DS_Store
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+
+# VS Code settings
+.vscode/
+
+# JetBrains IDE settings
+.idea/
+
+# Vim swap files
+*.swp
+*.swo
+*~
+
+# clangd compile commands
+compile_commands.json
+
+# Build artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exp
+*.ilk
+*.pdb
+
+# Compiled apps
+*.app/
+*.exe
+*.out
+
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+
+# Project-specific
 
 # There is actual data kept in bin/, alongside the built binary and application run log.
 # Exclude bin's contents, except include bin/data, and bin/data's contents.
