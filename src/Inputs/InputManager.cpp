@@ -59,16 +59,17 @@ void InputManager::setup(const DisplaySettings& settings) {
     videoInput1 = std::make_shared<VideoFileInput>();
     videoInput2 = std::make_shared<VideoFileInput>();
     
-    // Allocate slot FBOs
-    slot1.allocateFbo(settings.internalWidth, settings.internalHeight);
-    slot2.allocateFbo(settings.internalWidth, settings.internalHeight);
+    // Allocate slot FBOs at input resolution (not internal resolution)
+    slot1.allocateFbo(settings.input1Width, settings.input1Height);
+    slot2.allocateFbo(settings.input2Width, settings.input2Height);
     
     // Setup slots with default configuration (webcam)
     slot1.slotIndex = 1;
     slot2.slotIndex = 2;
     
-    ofLogNotice("InputManager") << "Setup complete. Internal resolution: " 
-                                 << settings.internalWidth << "x" << settings.internalHeight;
+    ofLogNotice("InputManager") << "Setup complete. Input resolutions: " 
+                                 << settings.input1Width << "x" << settings.input1Height << " (Input1), "
+                                 << settings.input2Width << "x" << settings.input2Height << " (Input2)";
 }
 
 void InputManager::update() {
@@ -242,9 +243,9 @@ InputType InputManager::getInput2Type() const {
 void InputManager::reinitialize(const DisplaySettings& settings) {
     displaySettings = settings;
     
-    // Reallocate FBOs
-    slot1.allocateFbo(settings.internalWidth, settings.internalHeight);
-    slot2.allocateFbo(settings.internalWidth, settings.internalHeight);
+    // Reallocate FBOs at input resolution
+    slot1.allocateFbo(settings.input1Width, settings.input1Height);
+    slot2.allocateFbo(settings.input2Width, settings.input2Height);
     
     // Reconfigure sources with new settings
     InputType type1 = slot1.configuredType;
@@ -285,8 +286,8 @@ std::vector<std::string> InputManager::getSpoutSourceNames() const {
 }
 
 void InputManager::allocateFbos() {
-    slot1.allocateFbo(displaySettings.internalWidth, displaySettings.internalHeight);
-    slot2.allocateFbo(displaySettings.internalWidth, displaySettings.internalHeight);
+    slot1.allocateFbo(displaySettings.input1Width, displaySettings.input1Height);
+    slot2.allocateFbo(displaySettings.input2Width, displaySettings.input2Height);
 }
 
 } // namespace dragonwaves
