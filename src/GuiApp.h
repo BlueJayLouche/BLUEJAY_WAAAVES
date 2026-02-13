@@ -227,13 +227,13 @@ public:
 	bool reinitializeInputs = false;
 	void refreshVideoDevices();
 
-	// NDI Input Settings
+	// Input Source Settings (matches InputType enum: 0=None, 1=Webcam, 2=NDI, 3=Spout, 4=Video)
 #if OFAPP_HAS_SPOUT
-	int input1SourceType = 0;  // 0 = Webcam, 1 = NDI, 2 = Spout
-	int input2SourceType = 0;  // 0 = Webcam, 1 = NDI, 2 = Spout
+	int input1SourceType = 1;  // Default to Webcam
+	int input2SourceType = 1;  // Default to Webcam
 #else
-	int input1SourceType = 0;  // 0 = Webcam, 1 = NDI
-	int input2SourceType = 0;  // 0 = Webcam, 1 = NDI
+	int input1SourceType = 1;  // Default to Webcam
+	int input2SourceType = 1;  // Default to Webcam
 #endif
 	std::vector<std::string> ndiSourceNames;
 	int input1NdiSourceIndex = 0;
@@ -1723,17 +1723,6 @@ public:
 	float lissajous1HueSpreadLfoRate = 0.0f;
 	int lissajous1HueSpreadLfoShape = 0;
 
-	// Chop parameters
-	float lissajous1Chop = 0.0f;
-	float lissajous1ChopRatio = 0.5f;
-	int   lissajous1ChopShape = 4;
-	float lissajous1ChopLfoAmp = 0.0f;
-	float lissajous1ChopLfoRate = 0.0f;
-	int   lissajous1ChopLfoShape = 0;
-	float lissajous1ChopRatioLfoAmp = 0.0f;
-	float lissajous1ChopRatioLfoRate = 0.0f;
-	int   lissajous1ChopRatioLfoShape = 0;
-
 
 	//BLOCK2 input
 	void block2ResetAll();
@@ -1943,17 +1932,6 @@ public:
 	float lissajous2HueSpreadLfoAmp = 0.0f;
 	float lissajous2HueSpreadLfoRate = 0.0f;
 	int lissajous2HueSpreadLfoShape = 0;
-
-	// Chop parameters
-	float lissajous2Chop = 0.0f;
-	float lissajous2ChopRatio = 0.5f;
-	int   lissajous2ChopShape = 4;
-	float lissajous2ChopLfoAmp = 0.0f;
-	float lissajous2ChopLfoRate = 0.0f;
-	int   lissajous2ChopLfoShape = 0;
-	float lissajous2ChopRatioLfoAmp = 0.0f;
-	float lissajous2ChopRatioLfoRate = 0.0f;
-	int   lissajous2ChopRatioLfoShape = 0;
 
 	//BLOCK3
 

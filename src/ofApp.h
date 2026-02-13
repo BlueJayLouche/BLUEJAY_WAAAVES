@@ -5,6 +5,7 @@
 #include "ofxOsc.h"
 #include "ofxNDIreceiver.h"
 #include "ofxNDIsender.h"
+#include "ShaderLoader.h"  // Cross-platform shader loading
 
 #if defined(TARGET_WIN32)
 #include "ofxSpout.h"
@@ -15,9 +16,18 @@
 
 #define ROOT_THREE 1.73205080757
 
+// Modular system includes
+#include "Inputs/InputManager.h"
+#include "ShaderPipeline/PipelineManager.h"
+#include "Output/OutputManager.h"
+#include "Geometry/GeometryRenderer.h"
+
 class ofApp : public ofBaseApp{
 
 	public:
+		ofApp();
+		~ofApp();
+		
 		void setup();
 		void update();
 		void draw();
@@ -28,6 +38,7 @@ class ofApp : public ofBaseApp{
 
 		shared_ptr<GuiApp> gui;
 		shared_ptr<ofAppBaseWindow> mainWindow;  // Reference to output window
+		bool isOutputFullscreen = false;         // Track fullscreen state
 
 		// OSC Communication
 		ofxOscReceiver oscReceiver;
@@ -553,7 +564,6 @@ class ofApp : public ofBaseApp{
 	void lissajousCurve1Draw();
 	void lissajousCurve2Draw();
 	float lissajousWave(float theta, int shape);
-	float chopEnvelope(float pos, int shape);
 
 	// Animation thetas
 	float lissajous1Theta = 0;
@@ -580,10 +590,8 @@ class ofApp : public ofBaseApp{
 	float lissajous1ColorSpeedLfoTheta = 0;
 	float lissajous1HueLfoTheta = 0;
 	float lissajous1HueSpreadLfoTheta = 0;
-	float lissajous1ChopLfoTheta = 0;
-	float lissajous1ChopRatioLfoTheta = 0;
 
-	// Block 2 LFO thetas
+	// Block 2 LFO thetas (16)
 	float lissajous2XFreqLfoTheta = 0;
 	float lissajous2YFreqLfoTheta = 0;
 	float lissajous2ZFreqLfoTheta = 0;
@@ -602,6 +610,22 @@ class ofApp : public ofBaseApp{
 	float lissajous2ColorSpeedLfoTheta = 0;
 	float lissajous2HueLfoTheta = 0;
 	float lissajous2HueSpreadLfoTheta = 0;
-	float lissajous2ChopLfoTheta = 0;
-	float lissajous2ChopRatioLfoTheta = 0;
+
+	// ============================================================
+	// MODULAR SYSTEM (New Architecture)
+	// ============================================================
+	std::unique_ptr<dragonwaves::InputManager> inputManager;
+	std::unique_ptr<dragonwaves::PipelineManager> pipeline;
+	std::unique_ptr<dragonwaves::OutputManager> outputManager;
+	std::unique_ptr<dragonwaves::GeometryManager> geometryManager;
+	
+	// Modular system helpers
+	void syncGuiToPipeline();
+	void drawGeometryPatterns();
+	void sendOutputs();
+	void drawOutput();
+	void clearFramebuffers();
+	void applyResolutionChange();
+	void updateLfos();
+	void resetLfoThetas();
 };

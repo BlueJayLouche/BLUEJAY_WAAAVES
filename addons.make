@@ -2,4 +2,4 @@ ofxImGui
 ofxMidi
 ofxNDI
 ofxOsc
-ofxSpout
+ofxXmlSettings

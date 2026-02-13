@@ -77,8 +77,15 @@ void GuiApp::setup(){
 	//lets do the buffering of a save state in the setup so we just have one on tap at all times
 	//but we might want to change this later to only happen as a one shot when called
 	//depends if it slows anything down, which is pretty unlikely
-	ofFile f1("gwJsonSaveStateTest1.json");
-	f1>>saveBuffer;
+	try {
+		ofFile f1("gwJsonSaveStateTest1.json");
+		if (f1.exists()) {
+			f1 >> saveBuffer;
+		}
+	} catch (const std::exception& e) {
+		ofLogWarning("GuiApp") << "Could not load gwJsonSaveStateTest1.json: " << e.what();
+		saveBuffer = ofJson::object();
+	}
 
 	//test that we read correctly
 	if(printSaveBuffer==1){
@@ -143,6 +150,9 @@ void GuiApp::indexSaveStateNames(){
 //test out directory inquiry
 	string path= "saveStates";//implicitly within data.  can we add an alias to put save states the desktop
 	ofDirectory dir(path);
+	if (!dir.exists()) {
+		ofDirectory::createDirectory(path, false, true);
+	}
 	dir.allowExt("json");//only look for json files
 	dir.listDir();//this populates the ofDirectory object with all the filenames
 	dir.sort();
@@ -272,6 +282,9 @@ void GuiApp::scanBanks() {
 	bankNamesChar.clear();
 
 	ofDirectory presetsDir("presets");
+	if (!presetsDir.exists()) {
+		ofDirectory::createDirectory("presets", false, true);
+	}
 	presetsDir.listDir();
 
 	for (int i = 0; i < presetsDir.size(); i++) {
@@ -810,7 +823,7 @@ void GuiApp::draw(){
 	ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, (ImVec4)ImColor::HSV(.0f, 0.6f, 0.2f));
 
 	// Generate dynamic title bar that fills the window width
-	std::string centerText = "|*||D*R*A*G*O*N**W*A*A*A*V*E*S v1.0||*|";
+	std::string centerText = "|*||B*L*U*E*J*A*Y**W*A*A*A*V*E*S v1.0||*|";
 	std::string pattern = "--++--++";
 	float charWidth = ImGui::GetFontSize() * 0.5f; // Approximate character width
 	float windowWidth = ofGetWindowWidth();
@@ -2457,11 +2470,6 @@ void GuiApp::draw(){
 											ImGuiSliderFloatOSC("colorSpd ##liss1", &lissajous1ColorSpeed, 0.0, 1.0, "/gravity/block1/fb1/lissajous/colorSpeed");
 											ImGuiSliderFloatOSC("hue      ##liss1", &lissajous1Hue, 0.0, 1.0, "/gravity/block1/fb1/lissajous/hue");
 											ImGuiSliderFloatOSC("hueSpread##liss1", &lissajous1HueSpread, 0.0, 1.0, "/gravity/block1/fb1/lissajous/hueSpread");
-											ImGuiSliderFloatOSC("chop     ##liss1", &lissajous1Chop, 0.0, 1.0, "/gravity/block1/fb1/lissajous/chop");
-											ImGuiSliderFloatOSC("chopRatio##liss1", &lissajous1ChopRatio, 0.0, 1.0, "/gravity/block1/fb1/lissajous/chopRatio");
-											if (ImGui::Combo("chopShape##liss1", &lissajous1ChopShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
-												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/chopShape", static_cast<float>(lissajous1ChopShape));
-											}
 											ImGui::Separator();
 											ImGui::Text("Speed LFO");
 											ImGuiSliderFloatOSC("amp ##speedlfo1", &lissajous1SpeedLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/speedAmp");
@@ -2504,18 +2512,6 @@ void GuiApp::draw(){
 											ImGuiSliderFloatOSC("rate##huespreadlfo1", &lissajous1HueSpreadLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/hueSpreadRate");
 											if (ImGui::Combo("shape##huespreadlfo1", &lissajous1HueSpreadLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/hueSpreadShape", static_cast<float>(lissajous1HueSpreadLfoShape));
-											}
-											ImGui::Text("Chop LFO");
-											ImGuiSliderFloatOSC("amp ##choplfo1", &lissajous1ChopLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/chopAmp");
-											ImGuiSliderFloatOSC("rate##choplfo1", &lissajous1ChopLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/chopRate");
-											if (ImGui::Combo("shape##choplfo1", &lissajous1ChopLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
-												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/chopShape", static_cast<float>(lissajous1ChopLfoShape));
-											}
-											ImGui::Text("ChopRatio LFO");
-											ImGuiSliderFloatOSC("amp ##chopratiolfo1", &lissajous1ChopRatioLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/chopRatioAmp");
-											ImGuiSliderFloatOSC("rate##chopratiolfo1", &lissajous1ChopRatioLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/chopRatioRate");
-											if (ImGui::Combo("shape##chopratiolfo1", &lissajous1ChopRatioLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
-												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/chopRatioShape", static_cast<float>(lissajous1ChopRatioLfoShape));
 											}
 											ImGui::TreePop();
 										}
@@ -3595,11 +3591,6 @@ void GuiApp::draw(){
 											ImGuiSliderFloatOSC("colorSpd ##liss2", &lissajous2ColorSpeed, 0.0, 1.0, "/gravity/block2/fb2/lissajous/colorSpeed");
 											ImGuiSliderFloatOSC("hue      ##liss2", &lissajous2Hue, 0.0, 1.0, "/gravity/block2/fb2/lissajous/hue");
 											ImGuiSliderFloatOSC("hueSpread##liss2", &lissajous2HueSpread, 0.0, 1.0, "/gravity/block2/fb2/lissajous/hueSpread");
-											ImGuiSliderFloatOSC("chop     ##liss2", &lissajous2Chop, 0.0, 1.0, "/gravity/block2/fb2/lissajous/chop");
-											ImGuiSliderFloatOSC("chopRatio##liss2", &lissajous2ChopRatio, 0.0, 1.0, "/gravity/block2/fb2/lissajous/chopRatio");
-											if (ImGui::Combo("chopShape##liss2", &lissajous2ChopShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
-												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/chopShape", static_cast<float>(lissajous2ChopShape));
-											}
 											ImGui::Separator();
 											ImGui::Text("Speed LFO");
 											ImGuiSliderFloatOSC("amp ##speedlfo2", &lissajous2SpeedLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/speedAmp");
@@ -3642,18 +3633,6 @@ void GuiApp::draw(){
 											ImGuiSliderFloatOSC("rate##huespreadlfo2", &lissajous2HueSpreadLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/hueSpreadRate");
 											if (ImGui::Combo("shape##huespreadlfo2", &lissajous2HueSpreadLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/hueSpreadShape", static_cast<float>(lissajous2HueSpreadLfoShape));
-											}
-											ImGui::Text("Chop LFO");
-											ImGuiSliderFloatOSC("amp ##choplfo2", &lissajous2ChopLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/chopAmp");
-											ImGuiSliderFloatOSC("rate##choplfo2", &lissajous2ChopLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/chopRate");
-											if (ImGui::Combo("shape##choplfo2", &lissajous2ChopLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
-												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/chopShape", static_cast<float>(lissajous2ChopLfoShape));
-											}
-											ImGui::Text("ChopRatio LFO");
-											ImGuiSliderFloatOSC("amp ##chopratiolfo2", &lissajous2ChopRatioLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/chopRatioAmp");
-											ImGuiSliderFloatOSC("rate##chopratiolfo2", &lissajous2ChopRatioLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/chopRatioRate");
-											if (ImGui::Combo("shape##chopratiolfo2", &lissajous2ChopRatioLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
-												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/chopRatioShape", static_cast<float>(lissajous2ChopRatioLfoShape));
 											}
 											ImGui::TreePop();
 										}
@@ -6112,24 +6091,24 @@ void GuiApp::draw(){
 				ImGui::Text("INPUT 1");
 				ImGui::Spacing();
 
-				// Source type selector
-				if (ImGui::RadioButton("Webcam##1", input1SourceType == 0)) {
-					input1SourceType = 0;
+				// Source type selector (matches InputType enum: 1=Webcam, 2=NDI, 3=Spout)
+				if (ImGui::RadioButton("Webcam##1", input1SourceType == 1)) {
+					input1SourceType = 1;
 				}
 				ImGui::SameLine();
-				if (ImGui::RadioButton("NDI##1", input1SourceType == 1)) {
-					input1SourceType = 1;
+				if (ImGui::RadioButton("NDI##1", input1SourceType == 2)) {
+					input1SourceType = 2;
 				}
 #if OFAPP_HAS_SPOUT
 				ImGui::SameLine();
-				if (ImGui::RadioButton("Spout##1", input1SourceType == 2)) {
-					input1SourceType = 2;
+				if (ImGui::RadioButton("Spout##1", input1SourceType == 3)) {
+					input1SourceType = 3;
 				}
 #endif
 
 				// Show appropriate dropdown based on source type
 				ImGui::SetNextItemWidth(columnWidth);
-				if (input1SourceType == 0) {
+				if (input1SourceType == 1) {
 					// Webcam dropdown
 					if (videoDeviceNames.size() > 0) {
 						if (ImGui::BeginCombo("##input1device",
@@ -6148,7 +6127,7 @@ void GuiApp::draw(){
 					} else {
 						ImGui::Text("No webcams found");
 					}
-				} else if (input1SourceType == 1) {
+				} else if (input1SourceType == 2) {
 					// NDI dropdown
 					if (ndiSourceNames.size() > 0) {
 						if (ImGui::BeginCombo("##input1ndi",
@@ -6198,24 +6177,24 @@ void GuiApp::draw(){
 				ImGui::Text("INPUT 2");
 				ImGui::Spacing();
 
-				// Source type selector
-				if (ImGui::RadioButton("Webcam##2", input2SourceType == 0)) {
-					input2SourceType = 0;
+				// Source type selector (matches InputType enum: 1=Webcam, 2=NDI, 3=Spout)
+				if (ImGui::RadioButton("Webcam##2", input2SourceType == 1)) {
+					input2SourceType = 1;
 				}
 				ImGui::SameLine();
-				if (ImGui::RadioButton("NDI##2", input2SourceType == 1)) {
-					input2SourceType = 1;
+				if (ImGui::RadioButton("NDI##2", input2SourceType == 2)) {
+					input2SourceType = 2;
 				}
 #if OFAPP_HAS_SPOUT
 				ImGui::SameLine();
-				if (ImGui::RadioButton("Spout##2", input2SourceType == 2)) {
-					input2SourceType = 2;
+				if (ImGui::RadioButton("Spout##2", input2SourceType == 3)) {
+					input2SourceType = 3;
 				}
 #endif
 
 				// Show appropriate dropdown based on source type
 				ImGui::SetNextItemWidth(columnWidth);
-				if (input2SourceType == 0) {
+				if (input2SourceType == 1) {
 					// Webcam dropdown
 					if (videoDeviceNames.size() > 0) {
 						if (ImGui::BeginCombo("##input2device",
@@ -6234,7 +6213,7 @@ void GuiApp::draw(){
 					} else {
 						ImGui::Text("No webcams found");
 					}
-				} else if (input2SourceType == 1) {
+				} else if (input2SourceType == 2) {
 					// NDI dropdown
 					if (ndiSourceNames.size() > 0) {
 						if (ImGui::BeginCombo("##input2ndi",
@@ -6377,7 +6356,7 @@ void GuiApp::draw(){
 				ImGui::SetNextItemWidth(resInputWidth);
 				ImGui::InputScalar("##intHeight", ImGuiDataType_S32, &internalHeight);
 				ImGui::SameLine(columnWidth + 20);
-				ImGui::Text("Comp/Geo:");
+				ImGui::Text("Output:");
 				ImGui::SameLine();
 				ImGui::SetNextItemWidth(resInputWidth);
 				ImGui::InputScalar("##outWidth", ImGuiDataType_S32, &outputWidth);
@@ -7690,9 +7669,6 @@ void GuiApp::saveEverything(){
 	saveBuffer["BLOCK_1"]["b1Lissajous"]["colorSpeed"]=lissajous1ColorSpeed;
 	saveBuffer["BLOCK_1"]["b1Lissajous"]["hue"]=lissajous1Hue;
 	saveBuffer["BLOCK_1"]["b1Lissajous"]["hueSpread"]=lissajous1HueSpread;
-	saveBuffer["BLOCK_1"]["b1Lissajous"]["chop"]=lissajous1Chop;
-	saveBuffer["BLOCK_1"]["b1Lissajous"]["chopRatio"]=lissajous1ChopRatio;
-	saveBuffer["BLOCK_1"]["b1Lissajous"]["chopShape"]=lissajous1ChopShape;
 	saveBuffer["BLOCK_1"]["b1Lissajous"]["xShape"]=lissajous1XShape;
 	saveBuffer["BLOCK_1"]["b1Lissajous"]["yShape"]=lissajous1YShape;
 	saveBuffer["BLOCK_1"]["b1Lissajous"]["zShape"]=lissajous1ZShape;
@@ -7751,12 +7727,6 @@ void GuiApp::saveEverything(){
 	saveBuffer["BLOCK_1"]["b1LissajousLfo"]["hueSpreadAmp"]=lissajous1HueSpreadLfoAmp;
 	saveBuffer["BLOCK_1"]["b1LissajousLfo"]["hueSpreadRate"]=lissajous1HueSpreadLfoRate;
 	saveBuffer["BLOCK_1"]["b1LissajousLfo"]["hueSpreadShape"]=lissajous1HueSpreadLfoShape;
-	saveBuffer["BLOCK_1"]["b1LissajousLfo"]["chopAmp"]=lissajous1ChopLfoAmp;
-	saveBuffer["BLOCK_1"]["b1LissajousLfo"]["chopRate"]=lissajous1ChopLfoRate;
-	saveBuffer["BLOCK_1"]["b1LissajousLfo"]["chopShape"]=lissajous1ChopLfoShape;
-	saveBuffer["BLOCK_1"]["b1LissajousLfo"]["chopRatioAmp"]=lissajous1ChopRatioLfoAmp;
-	saveBuffer["BLOCK_1"]["b1LissajousLfo"]["chopRatioRate"]=lissajous1ChopRatioLfoRate;
-	saveBuffer["BLOCK_1"]["b1LissajousLfo"]["chopRatioShape"]=lissajous1ChopRatioLfoShape;
 
 	//extra things to add
 
@@ -7843,9 +7813,6 @@ void GuiApp::saveEverything(){
 	saveBuffer["BLOCK_2"]["b2Lissajous"]["colorSpeed"]=lissajous2ColorSpeed;
 	saveBuffer["BLOCK_2"]["b2Lissajous"]["hue"]=lissajous2Hue;
 	saveBuffer["BLOCK_2"]["b2Lissajous"]["hueSpread"]=lissajous2HueSpread;
-	saveBuffer["BLOCK_2"]["b2Lissajous"]["chop"]=lissajous2Chop;
-	saveBuffer["BLOCK_2"]["b2Lissajous"]["chopRatio"]=lissajous2ChopRatio;
-	saveBuffer["BLOCK_2"]["b2Lissajous"]["chopShape"]=lissajous2ChopShape;
 	saveBuffer["BLOCK_2"]["b2Lissajous"]["xShape"]=lissajous2XShape;
 	saveBuffer["BLOCK_2"]["b2Lissajous"]["yShape"]=lissajous2YShape;
 	saveBuffer["BLOCK_2"]["b2Lissajous"]["zShape"]=lissajous2ZShape;
@@ -7904,12 +7871,6 @@ void GuiApp::saveEverything(){
 	saveBuffer["BLOCK_2"]["b2LissajousLfo"]["hueSpreadAmp"]=lissajous2HueSpreadLfoAmp;
 	saveBuffer["BLOCK_2"]["b2LissajousLfo"]["hueSpreadRate"]=lissajous2HueSpreadLfoRate;
 	saveBuffer["BLOCK_2"]["b2LissajousLfo"]["hueSpreadShape"]=lissajous2HueSpreadLfoShape;
-	saveBuffer["BLOCK_2"]["b2LissajousLfo"]["chopAmp"]=lissajous2ChopLfoAmp;
-	saveBuffer["BLOCK_2"]["b2LissajousLfo"]["chopRate"]=lissajous2ChopLfoRate;
-	saveBuffer["BLOCK_2"]["b2LissajousLfo"]["chopShape"]=lissajous2ChopLfoShape;
-	saveBuffer["BLOCK_2"]["b2LissajousLfo"]["chopRatioAmp"]=lissajous2ChopRatioLfoAmp;
-	saveBuffer["BLOCK_2"]["b2LissajousLfo"]["chopRatioRate"]=lissajous2ChopRatioLfoRate;
-	saveBuffer["BLOCK_2"]["b2LissajousLfo"]["chopRatioShape"]=lissajous2ChopRatioLfoShape;
 
 	//extra things to add
 
@@ -9011,9 +8972,6 @@ void GuiApp::loadEverything(){
 		lissajous1ColorSpeed=loadBuffer["BLOCK_1"]["b1Lissajous"]["colorSpeed"];
 		lissajous1Hue=loadBuffer["BLOCK_1"]["b1Lissajous"]["hue"];
 		lissajous1HueSpread=loadBuffer["BLOCK_1"]["b1Lissajous"]["hueSpread"];
-		lissajous1Chop=loadBuffer["BLOCK_1"]["b1Lissajous"].value("chop", 0.0f);
-		lissajous1ChopRatio=loadBuffer["BLOCK_1"]["b1Lissajous"].value("chopRatio", 0.5f);
-		lissajous1ChopShape=loadBuffer["BLOCK_1"]["b1Lissajous"].value("chopShape", 4);
 		lissajous1XShape=loadBuffer["BLOCK_1"]["b1Lissajous"]["xShape"];
 		lissajous1YShape=loadBuffer["BLOCK_1"]["b1Lissajous"]["yShape"];
 		lissajous1ZShape=loadBuffer["BLOCK_1"]["b1Lissajous"]["zShape"];
@@ -9073,12 +9031,6 @@ void GuiApp::loadEverything(){
 		lissajous1HueSpreadLfoAmp=loadBuffer["BLOCK_1"]["b1LissajousLfo"]["hueSpreadAmp"];
 		lissajous1HueSpreadLfoRate=loadBuffer["BLOCK_1"]["b1LissajousLfo"]["hueSpreadRate"];
 		lissajous1HueSpreadLfoShape=loadBuffer["BLOCK_1"]["b1LissajousLfo"]["hueSpreadShape"];
-		lissajous1ChopLfoAmp=loadBuffer["BLOCK_1"]["b1LissajousLfo"].value("chopAmp", 0.0f);
-		lissajous1ChopLfoRate=loadBuffer["BLOCK_1"]["b1LissajousLfo"].value("chopRate", 0.0f);
-		lissajous1ChopLfoShape=loadBuffer["BLOCK_1"]["b1LissajousLfo"].value("chopShape", 0);
-		lissajous1ChopRatioLfoAmp=loadBuffer["BLOCK_1"]["b1LissajousLfo"].value("chopRatioAmp", 0.0f);
-		lissajous1ChopRatioLfoRate=loadBuffer["BLOCK_1"]["b1LissajousLfo"].value("chopRatioRate", 0.0f);
-		lissajous1ChopRatioLfoShape=loadBuffer["BLOCK_1"]["b1LissajousLfo"].value("chopRatioShape", 0);
 	}
 
 	//extra things to add
@@ -9189,9 +9141,6 @@ void GuiApp::loadEverything(){
 		lissajous2ColorSpeed=loadBuffer["BLOCK_2"]["b2Lissajous"]["colorSpeed"];
 		lissajous2Hue=loadBuffer["BLOCK_2"]["b2Lissajous"]["hue"];
 		lissajous2HueSpread=loadBuffer["BLOCK_2"]["b2Lissajous"]["hueSpread"];
-		lissajous2Chop=loadBuffer["BLOCK_2"]["b2Lissajous"].value("chop", 0.0f);
-		lissajous2ChopRatio=loadBuffer["BLOCK_2"]["b2Lissajous"].value("chopRatio", 0.5f);
-		lissajous2ChopShape=loadBuffer["BLOCK_2"]["b2Lissajous"].value("chopShape", 4);
 		lissajous2XShape=loadBuffer["BLOCK_2"]["b2Lissajous"]["xShape"];
 		lissajous2YShape=loadBuffer["BLOCK_2"]["b2Lissajous"]["yShape"];
 		lissajous2ZShape=loadBuffer["BLOCK_2"]["b2Lissajous"]["zShape"];
@@ -9251,12 +9200,6 @@ void GuiApp::loadEverything(){
 		lissajous2HueSpreadLfoAmp=loadBuffer["BLOCK_2"]["b2LissajousLfo"]["hueSpreadAmp"];
 		lissajous2HueSpreadLfoRate=loadBuffer["BLOCK_2"]["b2LissajousLfo"]["hueSpreadRate"];
 		lissajous2HueSpreadLfoShape=loadBuffer["BLOCK_2"]["b2LissajousLfo"]["hueSpreadShape"];
-		lissajous2ChopLfoAmp=loadBuffer["BLOCK_2"]["b2LissajousLfo"].value("chopAmp", 0.0f);
-		lissajous2ChopLfoRate=loadBuffer["BLOCK_2"]["b2LissajousLfo"].value("chopRate", 0.0f);
-		lissajous2ChopLfoShape=loadBuffer["BLOCK_2"]["b2LissajousLfo"].value("chopShape", 0);
-		lissajous2ChopRatioLfoAmp=loadBuffer["BLOCK_2"]["b2LissajousLfo"].value("chopRatioAmp", 0.0f);
-		lissajous2ChopRatioLfoRate=loadBuffer["BLOCK_2"]["b2LissajousLfo"].value("chopRatioRate", 0.0f);
-		lissajous2ChopRatioLfoShape=loadBuffer["BLOCK_2"]["b2LissajousLfo"].value("chopRatioShape", 0);
 	}
 
 	//extra things to add
@@ -9489,53 +9432,15 @@ void GuiApp::keyReleased(int key) {
 //--------------------------------------------------------------
 //--------------------------------------------------------------
 void GuiApp::midiSetup(){
-	midiIn = nullptr;
-
-	// Platform-specific API selection to avoid crashes
-	// On Linux, ALSA auto-detect can segfault if ALSA libs are missing,
-	// so we try each API explicitly and catch failures
-#ifdef TARGET_LINUX
-	// Try ALSA first, then JACK
-	ofxMidiApi apisToTry[] = {MIDI_API_ALSA, MIDI_API_JACK};
-	const char* apiNames[] = {"ALSA", "JACK"};
-	int numApis = 2;
-#elif defined(TARGET_OSX)
-	ofxMidiApi apisToTry[] = {MIDI_API_COREMIDI};
-	const char* apiNames[] = {"CoreMIDI"};
-	int numApis = 1;
-#elif defined(TARGET_WIN32)
-	ofxMidiApi apisToTry[] = {MIDI_API_WINDOWS_MM};
-	const char* apiNames[] = {"WinMM"};
-	int numApis = 1;
-#else
-	ofxMidiApi apisToTry[] = {MIDI_API_DEFAULT};
-	const char* apiNames[] = {"Default"};
-	int numApis = 1;
-#endif
-
-	for (int a = 0; a < numApis; a++) {
-		try {
-			midiIn = new ofxMidiIn("GravityWaaaves", apisToTry[a]);
-			ofLogNotice("MIDI") << "Created MIDI input using " << apiNames[a] << " API";
-			break;
-		} catch (std::exception &error) {
-			ofLogWarning("MIDI") << apiNames[a] << " API failed: " << error.what();
-			midiIn = nullptr;
-		} catch (...) {
-			ofLogWarning("MIDI") << apiNames[a] << " API failed with unknown error";
-			midiIn = nullptr;
-		}
-	}
-
-	if (!midiIn) {
-		ofLogError("MIDI") << "No MIDI API available. Running without MIDI support.";
-		return;
-	}
-
 	try {
+		// Use default API: auto-detects WinMM on Windows, CoreMIDI on macOS, ALSA on Linux
+		midiIn = new ofxMidiIn("GravityWaaaves");
+		ofLogNotice("MIDI") << "Created MIDI input using default platform API";
+
 		refreshMidiPorts();
 
 		if (midiDeviceNames.size() > 0) {
+			// If no saved selection or saved index out of range, default to port 0
 			if (selectedMidiPort < 0 || selectedMidiPort >= (int)midiDeviceNames.size()) {
 				selectedMidiPort = 0;
 			}
@@ -9546,7 +9451,7 @@ void GuiApp::midiSetup(){
 			ofLogNotice("MIDI") << "Connect a USB MIDI controller and restart to enable MIDI";
 		}
 	} catch (std::exception &error) {
-		ofLogError("MIDI") << "MIDI port setup failed: " << error.what();
+		ofLogError("MIDI") << "MIDI initialization failed: " << error.what();
 		ofLogNotice("MIDI") << "Running without MIDI support";
 	}
 }
@@ -9798,9 +9703,6 @@ void GuiApp::fb1ResetAll(){
 	lissajous1ColorSpeedLfoAmp = 0.0f; lissajous1ColorSpeedLfoRate = 0.0f; lissajous1ColorSpeedLfoShape = 0;
 	lissajous1HueLfoAmp = 0.0f; lissajous1HueLfoRate = 0.0f; lissajous1HueLfoShape = 0;
 	lissajous1HueSpreadLfoAmp = 0.0f; lissajous1HueSpreadLfoRate = 0.0f; lissajous1HueSpreadLfoShape = 0;
-	lissajous1Chop = 0.0f; lissajous1ChopRatio = 0.5f; lissajous1ChopShape = 4;
-	lissajous1ChopLfoAmp = 0.0f; lissajous1ChopLfoRate = 0.0f; lissajous1ChopLfoShape = 0;
-	lissajous1ChopRatioLfoAmp = 0.0f; lissajous1ChopRatioLfoRate = 0.0f; lissajous1ChopRatioLfoShape = 0;
 }
 
 //-----------------------------------------------------------------------------------
@@ -9890,9 +9792,6 @@ void GuiApp::fb2ResetAll(){
 	lissajous2ColorSpeedLfoAmp = 0.0f; lissajous2ColorSpeedLfoRate = 0.0f; lissajous2ColorSpeedLfoShape = 0;
 	lissajous2HueLfoAmp = 0.0f; lissajous2HueLfoRate = 0.0f; lissajous2HueLfoShape = 0;
 	lissajous2HueSpreadLfoAmp = 0.0f; lissajous2HueSpreadLfoRate = 0.0f; lissajous2HueSpreadLfoShape = 0;
-	lissajous2Chop = 0.0f; lissajous2ChopRatio = 0.5f; lissajous2ChopShape = 4;
-	lissajous2ChopLfoAmp = 0.0f; lissajous2ChopLfoRate = 0.0f; lissajous2ChopLfoShape = 0;
-	lissajous2ChopRatioLfoAmp = 0.0f; lissajous2ChopRatioLfoRate = 0.0f; lissajous2ChopRatioLfoShape = 0;
 }
 //---------------------------------------------------------------------------------------
 void GuiApp::block3ResetAll(){
@@ -56056,9 +55955,6 @@ void GuiApp::registerBlock1OscParameters() {
     registerOscParam("/gravity/block1/fb1/lissajous/colorSpeed", &lissajous1ColorSpeed);
     registerOscParam("/gravity/block1/fb1/lissajous/hue", &lissajous1Hue);
     registerOscParam("/gravity/block1/fb1/lissajous/hueSpread", &lissajous1HueSpread);
-    registerOscParam("/gravity/block1/fb1/lissajous/chop", &lissajous1Chop);
-    registerOscParam("/gravity/block1/fb1/lissajous/chopRatio", &lissajous1ChopRatio);
-    registerOscParam("/gravity/block1/fb1/lissajous/chopShape", &lissajous1ChopShape);
     registerOscParam("/gravity/block1/fb1/lissajous/xShape", &lissajous1XShape);
     registerOscParam("/gravity/block1/fb1/lissajous/yShape", &lissajous1YShape);
     registerOscParam("/gravity/block1/fb1/lissajous/zShape", &lissajous1ZShape);
@@ -56117,12 +56013,6 @@ void GuiApp::registerBlock1OscParameters() {
     registerOscParam("/gravity/block1/fb1/lissajous/lfo/hueSpreadAmp", &lissajous1HueSpreadLfoAmp);
     registerOscParam("/gravity/block1/fb1/lissajous/lfo/hueSpreadRate", &lissajous1HueSpreadLfoRate);
     registerOscParam("/gravity/block1/fb1/lissajous/lfo/hueSpreadShape", &lissajous1HueSpreadLfoShape);
-    registerOscParam("/gravity/block1/fb1/lissajous/lfo/chopAmp", &lissajous1ChopLfoAmp);
-    registerOscParam("/gravity/block1/fb1/lissajous/lfo/chopRate", &lissajous1ChopLfoRate);
-    registerOscParam("/gravity/block1/fb1/lissajous/lfo/chopShape", &lissajous1ChopLfoShape);
-    registerOscParam("/gravity/block1/fb1/lissajous/lfo/chopRatioAmp", &lissajous1ChopRatioLfoAmp);
-    registerOscParam("/gravity/block1/fb1/lissajous/lfo/chopRatioRate", &lissajous1ChopRatioLfoRate);
-    registerOscParam("/gravity/block1/fb1/lissajous/lfo/chopRatioShape", &lissajous1ChopRatioLfoShape);
 
     ofLogNotice("OSC") << "Block 1 registration complete. Parameters: " << oscRegistry.size();
 }
@@ -56343,9 +56233,6 @@ void GuiApp::registerBlock2OscParameters() {
     registerOscParam("/gravity/block2/fb2/lissajous/colorSpeed", &lissajous2ColorSpeed);
     registerOscParam("/gravity/block2/fb2/lissajous/hue", &lissajous2Hue);
     registerOscParam("/gravity/block2/fb2/lissajous/hueSpread", &lissajous2HueSpread);
-    registerOscParam("/gravity/block2/fb2/lissajous/chop", &lissajous2Chop);
-    registerOscParam("/gravity/block2/fb2/lissajous/chopRatio", &lissajous2ChopRatio);
-    registerOscParam("/gravity/block2/fb2/lissajous/chopShape", &lissajous2ChopShape);
     registerOscParam("/gravity/block2/fb2/lissajous/xShape", &lissajous2XShape);
     registerOscParam("/gravity/block2/fb2/lissajous/yShape", &lissajous2YShape);
     registerOscParam("/gravity/block2/fb2/lissajous/zShape", &lissajous2ZShape);
@@ -56404,12 +56291,6 @@ void GuiApp::registerBlock2OscParameters() {
     registerOscParam("/gravity/block2/fb2/lissajous/lfo/hueSpreadAmp", &lissajous2HueSpreadLfoAmp);
     registerOscParam("/gravity/block2/fb2/lissajous/lfo/hueSpreadRate", &lissajous2HueSpreadLfoRate);
     registerOscParam("/gravity/block2/fb2/lissajous/lfo/hueSpreadShape", &lissajous2HueSpreadLfoShape);
-    registerOscParam("/gravity/block2/fb2/lissajous/lfo/chopAmp", &lissajous2ChopLfoAmp);
-    registerOscParam("/gravity/block2/fb2/lissajous/lfo/chopRate", &lissajous2ChopLfoRate);
-    registerOscParam("/gravity/block2/fb2/lissajous/lfo/chopShape", &lissajous2ChopLfoShape);
-    registerOscParam("/gravity/block2/fb2/lissajous/lfo/chopRatioAmp", &lissajous2ChopRatioLfoAmp);
-    registerOscParam("/gravity/block2/fb2/lissajous/lfo/chopRatioRate", &lissajous2ChopRatioLfoRate);
-    registerOscParam("/gravity/block2/fb2/lissajous/lfo/chopRatioShape", &lissajous2ChopRatioLfoShape);
 
     ofLogNotice("OSC") << "Block 2 registration complete. Total parameters: " << oscRegistry.size();
 }
