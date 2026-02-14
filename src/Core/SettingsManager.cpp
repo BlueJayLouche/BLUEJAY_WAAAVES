@@ -225,6 +225,8 @@ void SettingsManager::load() {
             osc.loadFromJson(json);
             midi.loadFromJson(json);
             inputSources.loadFromJson(json);
+            audio.loadFromJson(json);
+            tempo.loadFromJson(json);
             
             // UI settings
             if (json.contains("uiScaleIndex")) {
@@ -268,6 +270,8 @@ void SettingsManager::reload() {
     OscSettings oldOsc = osc;
     MidiSettings oldMidi = midi;
     InputSourceSettings oldInputSources = inputSources;
+    AudioSettings oldAudio = audio;
+    TempoSettings oldTempo = tempo;
     int oldUiScaleIndex = uiScaleIndex;
     
     // Reload from disk
@@ -278,6 +282,8 @@ void SettingsManager::reload() {
     bool oscChanged = (memcmp(&oldOsc, &osc, sizeof(OscSettings)) != 0);
     bool midiChanged = (memcmp(&oldMidi, &midi, sizeof(MidiSettings)) != 0);
     bool inputSourcesChanged = (memcmp(&oldInputSources, &inputSources, sizeof(InputSourceSettings)) != 0);
+    bool audioChanged = (memcmp(&oldAudio, &audio, sizeof(AudioSettings)) != 0);
+    bool tempoChanged = (memcmp(&oldTempo, &tempo, sizeof(TempoSettings)) != 0);
     bool uiScaleChanged = (oldUiScaleIndex != uiScaleIndex);
     
     // Check for resolution/FPS changes
@@ -296,12 +302,14 @@ void SettingsManager::reload() {
         fpsChanged = true;
     }
     
-    if (displayChanged || oscChanged || midiChanged || inputSourcesChanged || uiScaleChanged) {
+    if (displayChanged || oscChanged || midiChanged || inputSourcesChanged || audioChanged || tempoChanged || uiScaleChanged) {
         ofLogNotice("SettingsManager") << "Settings reloaded. Changes detected:";
         if (displayChanged) ofLogNotice("SettingsManager") << "  - Display settings changed";
         if (oscChanged) ofLogNotice("SettingsManager") << "  - OSC settings changed";
         if (midiChanged) ofLogNotice("SettingsManager") << "  - MIDI settings changed";
         if (inputSourcesChanged) ofLogNotice("SettingsManager") << "  - Input sources changed";
+        if (audioChanged) ofLogNotice("SettingsManager") << "  - Audio settings changed";
+        if (tempoChanged) ofLogNotice("SettingsManager") << "  - Tempo settings changed";
         if (uiScaleChanged) ofLogNotice("SettingsManager") << "  - UI scale changed";
         
         // Notify listeners
@@ -337,6 +345,8 @@ void SettingsManager::save() {
     osc.saveToJson(json);
     midi.saveToJson(json);
     inputSources.saveToJson(json);
+    audio.saveToJson(json);
+    tempo.saveToJson(json);
     
     // UI settings
     json["uiScaleIndex"] = uiScaleIndex;
@@ -483,6 +493,120 @@ void InputSourceSettings::saveToXml(ofxXmlSettings& xml) const {
     xml.setValue("input1SpoutSourceIndex", input1SpoutSourceIndex);
     xml.setValue("input2SpoutSourceIndex", input2SpoutSourceIndex);
 #endif
+    xml.popTag();
+}
+
+//==============================================================================
+// AudioSettings
+//==============================================================================
+void AudioSettings::loadFromJson(const ofJson& json) {
+    if (json.contains("audio") && json["audio"].is_object()) {
+        const auto& audio = json["audio"];
+        enabled = audio.value("enabled", false);
+        inputDevice = audio.value("inputDevice", 0);
+        sampleRate = audio.value("sampleRate", 44100);
+        bufferSize = audio.value("bufferSize", 512);
+        fftSize = audio.value("fftSize", 1024);
+        numBins = audio.value("numBins", 128);
+        smoothing = audio.value("smoothing", 0.5f);
+        normalization = audio.value("normalization", true);
+        amplitude = audio.value("amplitude", 1.0f);
+        peakDecay = audio.value("peakDecay", 0.95f);
+    }
+}
+
+void AudioSettings::saveToJson(ofJson& json) const {
+    json["audio"]["enabled"] = enabled;
+    json["audio"]["inputDevice"] = inputDevice;
+    json["audio"]["sampleRate"] = sampleRate;
+    json["audio"]["bufferSize"] = bufferSize;
+    json["audio"]["fftSize"] = fftSize;
+    json["audio"]["numBins"] = numBins;
+    json["audio"]["smoothing"] = smoothing;
+    json["audio"]["normalization"] = normalization;
+    json["audio"]["amplitude"] = amplitude;
+    json["audio"]["peakDecay"] = peakDecay;
+}
+
+void AudioSettings::loadFromXml(ofxXmlSettings& xml) {
+    xml.pushTag("audio");
+    enabled = xml.getValue("enabled", 0) == 1;
+    inputDevice = xml.getValue("inputDevice", 0);
+    sampleRate = xml.getValue("sampleRate", 44100);
+    bufferSize = xml.getValue("bufferSize", 512);
+    fftSize = xml.getValue("fftSize", 1024);
+    numBins = xml.getValue("numBins", 128);
+    smoothing = xml.getValue("smoothing", 0.5f);
+    normalization = xml.getValue("normalization", 1) == 1;
+    amplitude = xml.getValue("amplitude", 1.0f);
+    peakDecay = xml.getValue("peakDecay", 0.95f);
+    xml.popTag();
+}
+
+void AudioSettings::saveToXml(ofxXmlSettings& xml) const {
+    xml.addTag("audio");
+    xml.pushTag("audio");
+    xml.setValue("enabled", enabled ? 1 : 0);
+    xml.setValue("inputDevice", inputDevice);
+    xml.setValue("sampleRate", sampleRate);
+    xml.setValue("bufferSize", bufferSize);
+    xml.setValue("numBins", numBins);
+    xml.setValue("fftSize", fftSize);
+    xml.setValue("smoothing", smoothing);
+    xml.setValue("normalization", normalization ? 1 : 0);
+    xml.setValue("amplitude", amplitude);
+    xml.setValue("peakDecay", peakDecay);
+    xml.popTag();
+}
+
+//==============================================================================
+// TempoSettings
+//==============================================================================
+void TempoSettings::loadFromJson(const ofJson& json) {
+    if (json.contains("tempo") && json["tempo"].is_object()) {
+        const auto& tempo = json["tempo"];
+        bpm = tempo.value("bpm", 120.0f);
+        enabled = tempo.value("enabled", true);
+        tapHistorySize = tempo.value("tapHistorySize", 8);
+        minBpm = tempo.value("minBpm", 20.0f);
+        maxBpm = tempo.value("maxBpm", 300.0f);
+        autoResetTap = tempo.value("autoResetTap", true);
+        tapTimeout = tempo.value("tapTimeout", 2.0f);
+    }
+}
+
+void TempoSettings::saveToJson(ofJson& json) const {
+    json["tempo"]["bpm"] = bpm;
+    json["tempo"]["enabled"] = enabled;
+    json["tempo"]["tapHistorySize"] = tapHistorySize;
+    json["tempo"]["minBpm"] = minBpm;
+    json["tempo"]["maxBpm"] = maxBpm;
+    json["tempo"]["autoResetTap"] = autoResetTap;
+    json["tempo"]["tapTimeout"] = tapTimeout;
+}
+
+void TempoSettings::loadFromXml(ofxXmlSettings& xml) {
+    xml.pushTag("tempo");
+    bpm = xml.getValue("bpm", 120.0f);
+    enabled = xml.getValue("enabled", 1) == 1;
+    tapHistorySize = xml.getValue("tapHistorySize", 8);
+    minBpm = xml.getValue("minBpm", 20.0f);
+    maxBpm = xml.getValue("maxBpm", 300.0f);
+    autoResetTap = xml.getValue("autoResetTap", 1) == 1;
+    tapTimeout = xml.getValue("tapTimeout", 2.0f);
+    xml.popTag();
+}
+
+void TempoSettings::saveToXml(ofxXmlSettings& xml) const {
+    xml.addTag("tempo");
+    xml.pushTag("tempo");
+    xml.setValue("bpm", bpm);
+    xml.setValue("enabled", enabled ? 1 : 0);
+    xml.setValue("tapHistorySize", tapHistorySize);
+    xml.setValue("minBpm", minBpm);
+    xml.setValue("maxBpm", maxBpm);
+    xml.setValue("autoResetTap", autoResetTap ? 1 : 0);
+    xml.setValue("tapTimeout", tapTimeout);
     xml.popTag();
 }
 

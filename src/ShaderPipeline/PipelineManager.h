@@ -4,6 +4,8 @@
 #include "Block2Shader.h"
 #include "Block3Shader.h"
 #include "../Core/SettingsManager.h"
+#include "../Audio/AudioAnalyzer.h"
+#include "../Tempo/TempoManager.h"
 
 namespace dragonwaves {
 
@@ -96,6 +98,18 @@ public:
     int getFB1DelayTime() const { return fb1DelayTime; }
     int getFB2DelayTime() const { return fb2DelayTime; }
     
+    // Audio and Tempo modulation
+    void setAudioAnalyzer(AudioAnalyzer* analyzer) { audioAnalyzer = analyzer; }
+    void setTempoManager(TempoManager* tempo) { tempoManager = tempo; }
+    AudioAnalyzer* getAudioAnalyzer() { return audioAnalyzer; }
+    TempoManager* getTempoManager() { return tempoManager; }
+    
+    // Process with modulations
+    void updateModulations(float deltaTime);
+    
+    // Get modulated value for GUI feedback (returns 0 if not computed yet)
+    float getModulatedValue(int blockNum, const std::string& paramName) const;
+    
 private:
     Block1Shader block1;
     Block2Shader block2;
@@ -122,6 +136,11 @@ private:
     void updateBlock3Mesh(int width, int height);
     
     void allocateDummyTexture();
+    
+    // External modulation sources
+    AudioAnalyzer* audioAnalyzer = nullptr;
+    TempoManager* tempoManager = nullptr;
+    float lastFrameTime = 0.0f;
 };
 
 } // namespace dragonwaves

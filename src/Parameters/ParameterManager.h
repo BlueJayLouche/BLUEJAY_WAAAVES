@@ -104,7 +104,11 @@ public:
     
 private:
     ParameterManager() = default;
-    ~ParameterManager() = default;
+    ~ParameterManager() {
+        // Ensure proper cleanup on destruction
+        closeMidi();
+        close();
+    }
     ParameterManager(const ParameterManager&) = delete;
     ParameterManager& operator=(const ParameterManager&) = delete;
     

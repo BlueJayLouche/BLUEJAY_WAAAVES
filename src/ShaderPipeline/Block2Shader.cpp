@@ -1,9 +1,11 @@
 #include "Block2Shader.h"
+#include "Block3Shader.h"  // For ParamModulation
 
 namespace dragonwaves {
 
 Block2Shader::Block2Shader()
     : ShaderBlock("Block2", "shader2") {
+    initializeModulations();
 }
 
 void Block2Shader::setup(int width, int height) {
@@ -149,6 +151,188 @@ void Block2Shader::setFeedbackTexture(ofTexture& tex) {
 
 void Block2Shader::setTemporalFilterTexture(ofTexture& tex) {
     temporalTex = &tex;
+}
+
+//==============================================================================
+// Modulation Support
+//==============================================================================
+void Block2Shader::initializeModulations() {
+    // Block2 input adjust
+    modulations["block2InputXDisplace"] = ParamModulation();
+    modulations["block2InputYDisplace"] = ParamModulation();
+    modulations["block2InputZDisplace"] = ParamModulation();
+    modulations["block2InputRotate"] = ParamModulation();
+    modulations["block2InputHueAttenuate"] = ParamModulation();
+    modulations["block2InputSaturationAttenuate"] = ParamModulation();
+    modulations["block2InputBrightAttenuate"] = ParamModulation();
+    modulations["block2InputPosterize"] = ParamModulation();
+    modulations["block2InputKaleidoscopeAmount"] = ParamModulation();
+    modulations["block2InputKaleidoscopeSlice"] = ParamModulation();
+    modulations["block2InputBlurAmount"] = ParamModulation();
+    modulations["block2InputBlurRadius"] = ParamModulation();
+    modulations["block2InputSharpenAmount"] = ParamModulation();
+    modulations["block2InputSharpenRadius"] = ParamModulation();
+    modulations["block2InputFiltersBoost"] = ParamModulation();
+    
+    // FB2 feedback
+    modulations["fb2MixAmount"] = ParamModulation();
+    modulations["fb2KeyValueRed"] = ParamModulation();
+    modulations["fb2KeyValueGreen"] = ParamModulation();
+    modulations["fb2KeyValueBlue"] = ParamModulation();
+    modulations["fb2KeyThreshold"] = ParamModulation();
+    modulations["fb2KeySoft"] = ParamModulation();
+    modulations["fb2XDisplace"] = ParamModulation();
+    modulations["fb2YDisplace"] = ParamModulation();
+    modulations["fb2ZDisplace"] = ParamModulation();
+    modulations["fb2Rotate"] = ParamModulation();
+    modulations["fb2ShearMatrix1"] = ParamModulation();
+    modulations["fb2ShearMatrix2"] = ParamModulation();
+    modulations["fb2ShearMatrix3"] = ParamModulation();
+    modulations["fb2ShearMatrix4"] = ParamModulation();
+    modulations["fb2KaleidoscopeAmount"] = ParamModulation();
+    modulations["fb2KaleidoscopeSlice"] = ParamModulation();
+    
+    // FB2 color
+    modulations["fb2HueOffset"] = ParamModulation();
+    modulations["fb2SaturationOffset"] = ParamModulation();
+    modulations["fb2BrightOffset"] = ParamModulation();
+    modulations["fb2HueAttenuate"] = ParamModulation();
+    modulations["fb2SaturationAttenuate"] = ParamModulation();
+    modulations["fb2BrightAttenuate"] = ParamModulation();
+    modulations["fb2HuePowmap"] = ParamModulation();
+    modulations["fb2SaturationPowmap"] = ParamModulation();
+    modulations["fb2BrightPowmap"] = ParamModulation();
+    modulations["fb2HueShaper"] = ParamModulation();
+    modulations["fb2Posterize"] = ParamModulation();
+    
+    // FB2 filters
+    modulations["fb2BlurAmount"] = ParamModulation();
+    modulations["fb2BlurRadius"] = ParamModulation();
+    modulations["fb2SharpenAmount"] = ParamModulation();
+    modulations["fb2SharpenRadius"] = ParamModulation();
+    modulations["fb2TemporalFilter1Amount"] = ParamModulation();
+    modulations["fb2TemporalFilter1Resonance"] = ParamModulation();
+    modulations["fb2TemporalFilter2Amount"] = ParamModulation();
+    modulations["fb2TemporalFilter2Resonance"] = ParamModulation();
+    modulations["fb2FiltersBoost"] = ParamModulation();
+}
+
+ParamModulation* Block2Shader::getModulation(const std::string& paramName) {
+    auto it = modulations.find(paramName);
+    if (it != modulations.end()) {
+        return &(it->second);
+    }
+    return nullptr;
+}
+
+float Block2Shader::getModulatedValue(const std::string& paramName) const {
+    auto it = lastModulatedValues.find(paramName);
+    if (it != lastModulatedValues.end()) {
+        return it->second;
+    }
+    return 0.0f;
+}
+
+void Block2Shader::applyModulations(const AudioAnalyzer& audioAnalyzer, const TempoManager& tempo, float deltaTime) {
+    if (!audioAnalyzer.isEnabled() && !tempo.isEnabled()) return;
+    
+    auto& p = params;
+    
+    // Helper lambda to apply modulation
+    auto applyMod = [&](const std::string& name, float& value) {
+        auto* mod = getModulation(name);
+        if (mod) {
+            value = mod->apply(value, audioAnalyzer, tempo, deltaTime);
+            lastModulatedValues[name] = value;
+        }
+    };
+    
+    // Block2 input adjust
+    applyMod("block2InputXDisplace", p.block2InputXDisplace);
+    applyMod("block2InputYDisplace", p.block2InputYDisplace);
+    applyMod("block2InputZDisplace", p.block2InputZDisplace);
+    applyMod("block2InputRotate", p.block2InputRotate);
+    applyMod("block2InputHueAttenuate", p.block2InputHueAttenuate);
+    applyMod("block2InputSaturationAttenuate", p.block2InputSaturationAttenuate);
+    applyMod("block2InputBrightAttenuate", p.block2InputBrightAttenuate);
+    applyMod("block2InputPosterize", p.block2InputPosterize);
+    applyMod("block2InputKaleidoscopeAmount", p.block2InputKaleidoscopeAmount);
+    applyMod("block2InputKaleidoscopeSlice", p.block2InputKaleidoscopeSlice);
+    applyMod("block2InputBlurAmount", p.block2InputBlurAmount);
+    applyMod("block2InputBlurRadius", p.block2InputBlurRadius);
+    applyMod("block2InputSharpenAmount", p.block2InputSharpenAmount);
+    applyMod("block2InputSharpenRadius", p.block2InputSharpenRadius);
+    applyMod("block2InputFiltersBoost", p.block2InputFiltersBoost);
+    
+    // FB2 feedback
+    applyMod("fb2MixAmount", p.fb2MixAmount);
+    applyMod("fb2KeyValueRed", p.fb2KeyValueRed);
+    applyMod("fb2KeyValueGreen", p.fb2KeyValueGreen);
+    applyMod("fb2KeyValueBlue", p.fb2KeyValueBlue);
+    applyMod("fb2KeyThreshold", p.fb2KeyThreshold);
+    applyMod("fb2KeySoft", p.fb2KeySoft);
+    applyMod("fb2XDisplace", p.fb2XDisplace);
+    applyMod("fb2YDisplace", p.fb2YDisplace);
+    applyMod("fb2ZDisplace", p.fb2ZDisplace);
+    applyMod("fb2Rotate", p.fb2Rotate);
+    applyMod("fb2ShearMatrix1", p.fb2ShearMatrix1);
+    applyMod("fb2ShearMatrix2", p.fb2ShearMatrix2);
+    applyMod("fb2ShearMatrix3", p.fb2ShearMatrix3);
+    applyMod("fb2ShearMatrix4", p.fb2ShearMatrix4);
+    applyMod("fb2KaleidoscopeAmount", p.fb2KaleidoscopeAmount);
+    applyMod("fb2KaleidoscopeSlice", p.fb2KaleidoscopeSlice);
+    
+    // FB2 color
+    applyMod("fb2HueOffset", p.fb2HueOffset);
+    applyMod("fb2SaturationOffset", p.fb2SaturationOffset);
+    applyMod("fb2BrightOffset", p.fb2BrightOffset);
+    applyMod("fb2HueAttenuate", p.fb2HueAttenuate);
+    applyMod("fb2SaturationAttenuate", p.fb2SaturationAttenuate);
+    applyMod("fb2BrightAttenuate", p.fb2BrightAttenuate);
+    applyMod("fb2HuePowmap", p.fb2HuePowmap);
+    applyMod("fb2SaturationPowmap", p.fb2SaturationPowmap);
+    applyMod("fb2BrightPowmap", p.fb2BrightPowmap);
+    applyMod("fb2HueShaper", p.fb2HueShaper);
+    applyMod("fb2Posterize", p.fb2Posterize);
+    
+    // FB2 filters
+    applyMod("fb2BlurAmount", p.fb2BlurAmount);
+    applyMod("fb2BlurRadius", p.fb2BlurRadius);
+    applyMod("fb2SharpenAmount", p.fb2SharpenAmount);
+    applyMod("fb2SharpenRadius", p.fb2SharpenRadius);
+    applyMod("fb2TemporalFilter1Amount", p.fb2TemporalFilter1Amount);
+    applyMod("fb2TemporalFilter1Resonance", p.fb2TemporalFilter1Resonance);
+    applyMod("fb2TemporalFilter2Amount", p.fb2TemporalFilter2Amount);
+    applyMod("fb2TemporalFilter2Resonance", p.fb2TemporalFilter2Resonance);
+    applyMod("fb2FiltersBoost", p.fb2FiltersBoost);
+}
+
+float Block2Shader::getEffectiveValue(const std::string& paramName, float baseValue, 
+                                      const AudioAnalyzer& audioAnalyzer, const TempoManager& tempo, float deltaTime) {
+    auto* mod = getModulation(paramName);
+    if (mod) {
+        float result = mod->apply(baseValue, audioAnalyzer, tempo, deltaTime);
+        lastModulatedValues[paramName] = result;
+        return result;
+    }
+    lastModulatedValues[paramName] = baseValue;
+    return baseValue;
+}
+
+void Block2Shader::loadModulations(const ofJson& json) {
+    for (auto& [key, value] : modulations) {
+        if (json.contains(key)) {
+            value.loadFromJson(json[key]);
+        }
+    }
+}
+
+ofJson Block2Shader::saveModulations() const {
+    ofJson json;
+    for (const auto& [key, value] : modulations) {
+        value.saveToJson(json[key]);
+    }
+    return json;
 }
 
 } // namespace dragonwaves

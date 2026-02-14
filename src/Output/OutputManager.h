@@ -85,6 +85,11 @@ private:
     int width = 0;
     int height = 0;
     mutable std::mutex mtx;
+    
+public:
+    // Static flag to track if we're in the process of shutting down
+    // This helps avoid calling NDI functions when the library may be unloading
+    static bool isShuttingDown;
 };
 
 //==============================================================================

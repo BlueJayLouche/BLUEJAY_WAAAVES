@@ -69,6 +69,8 @@ int main() {
     mainApp->mainWindow = mainWindow;
     guiApp->guiWindow = guiWindow;
     
+    // Note: Audio and Tempo references will be set in ofApp::setup() after they're created
+    
     ofRunApp(guiWindow, guiApp);
     ofRunApp(mainWindow, mainApp);
     ofRunMainLoop();

@@ -19,6 +19,8 @@
 // ===== END OSC MACRO =====
 
 #include "ofApp.h"
+#include "Audio/AudioAnalyzer.h"
+#include "Tempo/TempoManager.h"
 
 #include "iostream"
 
@@ -2851,6 +2853,13 @@ void GuiApp::draw(){
 
 					ImGui::EndTabBar();
 				}
+				
+				// ===== AUDIO REACTIVITY BUTTON =====
+				ImGui::Separator();
+				ImGui::Spacing();
+				if (ImGui::Button("Audio Reactivity (Block 1)", ImVec2(220, 30))) {
+					showBlock1AudioPanel = !showBlock1AudioPanel;
+				}
 
 				ImGui::EndTabItem();
 			}//end block1tabItem
@@ -3969,6 +3978,14 @@ void GuiApp::draw(){
 					}
 					ImGui::EndTabBar();
 				}//end block 2 tab bar
+				
+				// ===== AUDIO REACTIVITY BUTTON =====
+				ImGui::Separator();
+				ImGui::Spacing();
+				if (ImGui::Button("Audio Reactivity (Block 2)", ImVec2(220, 30))) {
+					showBlock2AudioPanel = !showBlock2AudioPanel;
+				}
+				
 				ImGui::EndTabItem();
 			}//end block2tab
 
@@ -6019,9 +6036,105 @@ void GuiApp::draw(){
 					}//end finalmix lfo
 					ImGui::EndTabBar();
 				}
+				
+				// ===== AUDIO & BPM PANEL BUTTONS =====
+				ImGui::Separator();
+				ImGui::Spacing();
+				if (ImGui::Button("Audio Reactivity (Block 3)", ImVec2(220, 30))) {
+					showBlock3AudioPanel = !showBlock3AudioPanel;
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("BPM / Tempo Panel", ImVec2(200, 30))) {
+					showBpmPanel = !showBpmPanel;
+				}
+				
 				ImGui::EndTabItem();
 			}//end block3
        		ImGui::PopStyleColor(12);
+			
+			// ========== AUDIO TAB ==========
+			if (ImGui::BeginTabItem("AUDIO")) {
+				ImGui::Text("Audio & FFT Settings");
+				ImGui::Separator();
+				ImGui::Spacing();
+				
+				// Audio enable/disable
+				if (ImGui::Checkbox("Enable Audio Analysis", &audioEnabled)) {
+					if (audioAnalyzerRef) {
+						audioAnalyzerRef->setEnabled(audioEnabled);
+					}
+				}
+				
+				if (audioEnabled) {
+					ImGui::Separator();
+					
+					// Device selection
+					if (ImGui::Button("Refresh Devices")) {
+						refreshAudioDeviceList();
+					}
+					
+					if (!audioDeviceNames.empty()) {
+						std::vector<const char*> devices;
+						for (const auto& name : audioDeviceNames) {
+							devices.push_back(name.c_str());
+						}
+						if (ImGui::Combo("Input Device", &audioInputDevice, devices.data(), devices.size())) {
+							if (audioAnalyzerRef) {
+								audioAnalyzerRef->setDevice(audioInputDevice);
+							}
+						}
+					}
+					
+					ImGui::Separator();
+					
+					// Amplitude control
+					if (ImGui::SliderFloat("Global Amplitude", &audioAmplitude, 0.0f, 10.0f)) {
+						if (audioAnalyzerRef) {
+							audioAnalyzerRef->setAmplitude(audioAmplitude);
+						}
+					}
+					
+					// Smoothing control
+					if (ImGui::SliderFloat("Smoothing", &audioSmoothing, 0.0f, 0.99f)) {
+						if (audioAnalyzerRef) {
+							audioAnalyzerRef->setSmoothing(audioSmoothing);
+						}
+					}
+					
+					// Normalization toggle
+					if (ImGui::Checkbox("Auto Normalize", &audioNormalization)) {
+						if (audioAnalyzerRef) {
+							audioAnalyzerRef->setNormalization(audioNormalization);
+						}
+					}
+					
+					ImGui::Separator();
+					
+					// FFT Settings
+					ImGui::Text("FFT Settings");
+					static int numBins = 128;
+					if (ImGui::SliderInt("FFT Bins", &numBins, 16, 512)) {
+						// Round to power of 2
+						numBins = pow(2, round(log2(numBins)));
+						if (audioAnalyzerRef) {
+							audioAnalyzerRef->settings.numBins = numBins;
+							// Need to restart to apply
+							audioAnalyzerRef->close();
+							audioAnalyzerRef->setup(audioAnalyzerRef->settings);
+						}
+					}
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("Number of FFT bins (power of 2). Requires restart to apply.");
+					}
+					
+					ImGui::Separator();
+					
+					// FFT Visualization
+					drawFftVisualization();
+				}
+				
+				ImGui::EndTabItem();
+			}//end audio
 
 			// VIDEO SETTINGS TAB
 			if (ImGui::BeginTabItem("VIDEO SETTINGS")) {
@@ -6706,7 +6819,10 @@ void GuiApp::draw(){
 	ImGui::End();
 	ImGui::PopStyleColor(3); // Title bar colors
 	//ofxImGui::EndWindow(mainSettings);
-
+	
+	// Draw floating panels
+	drawAudioPanel();
+	drawBpmPanel();
 
 	gui.end();
 }
@@ -9357,27 +9473,719 @@ void GuiApp::loadEverything(){
 
 
 //--------------------------------------------------------------
-void GuiApp::exit() {
-	// Save settings on exit
-	ofLogNotice("GuiApp") << "Saving settings on exit...";
+// AUDIO PANEL IMPLEMENTATION
+//--------------------------------------------------------------
+void GuiApp::drawAudioPanel() {
+	// Draw three separate windows for each block
+	drawBlock1AudioPanel();
+	drawBlock2AudioPanel();
+	drawBlock3AudioPanel();
+}
+
+void GuiApp::drawBlock1AudioPanel() {
+	if (!showBlock1AudioPanel) return;
 	
-	// Save to settings.json (GUI settings)
-	saveVideoOscSettings();
+	ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
+	if (ImGui::Begin("Audio Reactivity: Block 1", &showBlock1AudioPanel, flags)) {
+		if (audioEnabled && audioAnalyzerRef) {
+			drawFftVisualizationCompact();
+			ImGui::Separator();
+			drawAudioModulationSectionForBlock(0, "Block 1");
+		} else {
+			ImGui::TextDisabled("Audio analysis disabled.\nEnable in AUDIO tab.");
+		}
+		ImGui::End();
+	}
+}
+
+void GuiApp::drawBlock2AudioPanel() {
+	if (!showBlock2AudioPanel) return;
 	
-	// Also sync to SettingsManager for config.json
-	if (mainApp) {
-		// The ofApp::exit() will handle saving to config.json
-		// We just need to ensure our values are synced
-		ofLogNotice("GuiApp") << "Settings saved";
+	ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
+	if (ImGui::Begin("Audio Reactivity: Block 2", &showBlock2AudioPanel, flags)) {
+		if (audioEnabled && audioAnalyzerRef) {
+			drawFftVisualizationCompact();
+			ImGui::Separator();
+			drawAudioModulationSectionForBlock(1, "Block 2");
+		} else {
+			ImGui::TextDisabled("Audio analysis disabled.\nEnable in AUDIO tab.");
+		}
+		ImGui::End();
+	}
+}
+
+void GuiApp::drawBlock3AudioPanel() {
+	if (!showBlock3AudioPanel) return;
+	
+	ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
+	if (ImGui::Begin("Audio Reactivity: Block 3", &showBlock3AudioPanel, flags)) {
+		if (audioEnabled && audioAnalyzerRef) {
+			drawFftVisualizationCompact();
+			ImGui::Separator();
+			drawAudioModulationSectionForBlock(2, "Block 3");
+		} else {
+			ImGui::TextDisabled("Audio analysis disabled.\nEnable in AUDIO tab.");
+		}
+		ImGui::End();
+	}
+}
+
+void GuiApp::drawFftVisualization() {
+	ImGui::Text("FFT Bands (8):");
+	
+	// Get FFT values from analyzer
+	if (audioAnalyzerRef && audioEnabled) {
+		for (int i = 0; i < 8; i++) {
+			fftBars[i] = audioAnalyzerRef->getBand(i);
+		}
 	}
 	
-	// clean up
+	// Show volume for debugging
+	if (audioAnalyzerRef) {
+		ImGui::Text("Volume: %.4f", audioAnalyzerRef->getVolume());
+	}
+	
+	// Draw bars
+	const char* bandNames[8] = {"Sub", "Bass", "LoMid", "Mid", "HiMid", "High", "VHigh", "Presence"};
+	
+	for (int i = 0; i < 8; i++) {
+		// Create a progress bar for each band
+		float hue = (float)i / 8.0f * 0.33f; // Color gradient from red to green
+		ImVec4 color = ImColor::HSV(hue, 0.8f, 0.8f);
+		
+		ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
+		ImGui::ProgressBar(fftBars[i], ImVec2(-1, 0), "");
+		ImGui::PopStyleColor();
+		
+		if (ImGui::IsItemHovered()) {
+			ImGui::SetTooltip("%s: %.3f", bandNames[i], fftBars[i]);
+		}
+	}
+}
+
+void GuiApp::drawFftVisualizationCompact() {
+	// Get FFT values from analyzer
+	if (audioAnalyzerRef && audioEnabled) {
+		for (int i = 0; i < 8; i++) {
+			fftBars[i] = audioAnalyzerRef->getBand(i);
+		}
+	}
+	
+	// Draw compact bars horizontally
+	const char* bandNames[8] = {"Sub", "Bass", "LoMid", "Mid", "HiMid", "High", "VHigh", "Presence"};
+	
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
+	
+	for (int i = 0; i < 8; i++) {
+		// Create a progress bar for each band with smaller height
+		float hue = (float)i / 8.0f * 0.33f; // Color gradient from red to green
+		ImVec4 color = ImColor::HSV(hue, 0.8f, 0.8f);
+		
+		ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
+		// Smaller height (12 pixels) and show band name on the right
+		char label[32];
+		snprintf(label, sizeof(label), "%s", bandNames[i]);
+		ImGui::ProgressBar(fftBars[i], ImVec2(-1, 12), label);
+		ImGui::PopStyleColor();
+		
+		if (ImGui::IsItemHovered()) {
+			ImGui::SetTooltip("%s: %.3f", bandNames[i], fftBars[i]);
+		}
+	}
+	
+	ImGui::PopStyleVar();
+	
+	// Show volume on one line
+	if (audioAnalyzerRef) {
+		ImGui::Text("Vol: %.3f", audioAnalyzerRef->getVolume());
+	}
+}
+
+void GuiApp::drawAudioModulationSection() {
+	// Default to showing Block 3 (for backwards compatibility)
+	drawAudioModulationSectionForBlock(2, "Block 3");
+}
+
+void GuiApp::drawAudioModulationSectionForBlock(int blockIndex, const char* blockName) {
+	char headerTitle[64];
+	snprintf(headerTitle, sizeof(headerTitle), "Parameter Modulation (%s)", blockName);
+	
+	if (ImGui::CollapsingHeader(headerTitle)) {
+		// Get parameters for the specified block
+		int paramCount = 0;
+		const char** paramNames = nullptr;
+		
+		switch (blockIndex) {
+			case 0:
+				paramNames = getBlock1ParamNames(paramCount);
+				break;
+			case 1:
+				paramNames = getBlock2ParamNames(paramCount);
+				break;
+			case 2:
+			default:
+				paramNames = getBlock3ParamNames(paramCount);
+				break;
+		}
+		
+		// Clamp selected param to valid range
+		if (selectedModulationParam >= paramCount) {
+			selectedModulationParam = 0;
+		}
+		
+		ImGui::Combo("Parameter", &selectedModulationParam, paramNames, paramCount);
+		
+		if (selectedModulationParam >= 0 && selectedModulationParam < paramCount) {
+			// Use a unique index for each block+param combination
+			int modIndex = blockIndex * 100 + selectedModulationParam;
+			if (modIndex >= 300) modIndex = 299; // Clamp to array size
+			
+			AudioModulationGui& mod = paramAudioModulations[modIndex];
+			mod.blockIndex = blockIndex + 1; // Store which block this is for
+			
+			ImGui::Checkbox("Enable Audio Mod", &mod.enabled);
+			
+			if (mod.enabled) {
+				const char* bandNames[8] = {
+					"Sub Bass (20-60Hz)",
+					"Bass (60-120Hz)",
+					"Low Mid (120-250Hz)",
+					"Mid (250-500Hz)",
+					"High Mid (500-2kHz)",
+					"High (2k-4kHz)",
+					"Very High (4k-8kHz)",
+					"Presence (8k-16kHz)"
+				};
+				
+				ImGui::Combo("FFT Band", &mod.fftBand, bandNames, 8);
+				
+				// Calculate and display range scale for this parameter
+				std::string paramName(paramNames[selectedModulationParam]);
+				switch (blockIndex) {
+					case 0: mod.rangeScale = getBlock1ParamRangeScale(paramName); break;
+					case 1: mod.rangeScale = getBlock2ParamRangeScale(paramName); break;
+					case 2: mod.rangeScale = getBlock3ParamRangeScale(paramName); break;
+				}
+				
+				// Show appropriate slider range based on parameter type
+				bool isNormalized = (mod.rangeScale <= 2.0f);
+				bool isXDisplace = (paramName.find("XDisplace") != std::string::npos);
+				bool isYDisplace = (paramName.find("YDisplace") != std::string::npos);
+				
+				if (isNormalized) {
+					ImGui::SliderFloat("Mod Amount", &mod.amount, -1.0f, 1.0f);
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("Normalized modulation amount\n1.0 = full parameter range (e.g., 0-1 for sharpen)\nTry 0.1-0.5 for subtle, 1.0 for full range");
+					}
+				} else if (isXDisplace) {
+					ImGui::SliderFloat("Mod Amount", &mod.amount, -(float)internalWidth, (float)internalWidth);
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("Modulation amount in pixels\nTry 10-100 for subtle, %.0f+ for extreme effects", internalWidth * 0.5f);
+					}
+				} else if (isYDisplace) {
+					ImGui::SliderFloat("Mod Amount", &mod.amount, -(float)internalHeight, (float)internalHeight);
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("Modulation amount in pixels\nTry 10-100 for subtle, %.0f+ for extreme effects", internalHeight * 0.5f);
+					}
+				} else {
+					ImGui::SliderFloat("Mod Amount", &mod.amount, -1000.0f, 1000.0f);
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("Modulation amount in parameter units\nTry 10-100 for subtle, 500+ for extreme effects");
+					}
+				}
+				
+				if (ImGui::Button("Apply")) {
+					applyAudioModulations();
+				}
+				
+				// Show current modulated value if available
+				if (mainApp && selectedModulationParam >= 0) {
+					float modulated = mainApp->getModulatedValue(blockIndex + 1, paramName);
+					if (modulated != 0.0f) {
+						ImGui::Text("Current modulated value: %.3f", modulated);
+					}
+				}
+			}
+		}
+		
+		// Show active modulations (filtered by block)
+		char activeHeader[64];
+		snprintf(activeHeader, sizeof(activeHeader), "Active Modulations (%s)", blockName);
+		if (ImGui::CollapsingHeader(activeHeader)) {
+			// Only show modulations for the current block
+			for (int i = 0; i < paramCount && i < 100; i++) {
+				int modIndex = blockIndex * 100 + i;
+				if (modIndex >= 300) break;
+				
+				if (paramAudioModulations[modIndex].enabled) {
+					ImGui::PushID(modIndex);
+					ImGui::Text("%s: Band %d @ %.2f", paramNames[i], 
+								paramAudioModulations[modIndex].fftBand, 
+								paramAudioModulations[modIndex].amount);
+					ImGui::SameLine();
+					if (ImGui::Button("Remove")) {
+						paramAudioModulations[modIndex].enabled = false;
+						if (mainApp) {
+							mainApp->applyAudioModulationToParam(blockIndex + 1, paramNames[i], false, 0, 0.0f, 1.0f);
+						}
+					}
+					ImGui::PopID();
+				}
+			}
+		}
+	}
+}
+
+//--------------------------------------------------------------
+// BPM PANEL IMPLEMENTATION
+//--------------------------------------------------------------
+void GuiApp::drawBpmPanel() {
+	if (!showBpmPanel) return;
+	
+	ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
+	if (ImGui::Begin("BPM / Tempo", &showBpmPanel, flags)) {
+		
+		// BPM Enable
+		if (ImGui::Checkbox("Enable Tempo", &bpmEnabled)) {
+			if (tempoManagerRef) {
+				tempoManagerRef->setEnabled(bpmEnabled);
+			}
+		}
+		
+		ImGui::Separator();
+		
+		if (bpmEnabled) {
+			// BPM Input with nudge buttons
+			ImGui::PushItemWidth(80);
+			if (ImGui::InputFloat("BPM", &bpm, 0.0f, 0.0f, "%.1f")) {
+				bpm = ofClamp(bpm, 20.0f, 300.0f);
+				if (tempoManagerRef) {
+					tempoManagerRef->setBpm(bpm);
+				}
+			}
+			ImGui::PopItemWidth();
+			
+			ImGui::SameLine();
+			if (ImGui::Button("-")) {
+				bpm -= 1.0f;
+				bpm = ofClamp(bpm, 20.0f, 300.0f);
+				if (tempoManagerRef) {
+					tempoManagerRef->setBpm(bpm);
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("+")) {
+				bpm += 1.0f;
+				bpm = ofClamp(bpm, 20.0f, 300.0f);
+				if (tempoManagerRef) {
+					tempoManagerRef->setBpm(bpm);
+				}
+			}
+			
+			// Tap Tempo button
+			ImGui::SameLine();
+			if (ImGui::Button("TAP", ImVec2(60, 0))) {
+				if (tempoManagerRef) {
+					tempoManagerRef->tap();
+					bpm = tempoManagerRef->getBpm();
+				}
+			}
+			
+			// Play/Pause
+			if (bpmPlaying) {
+				if (ImGui::Button("Pause", ImVec2(80, 0))) {
+					bpmPlaying = false;
+					if (tempoManagerRef) {
+						tempoManagerRef->setPlaying(false);
+					}
+				}
+			} else {
+				if (ImGui::Button("Play", ImVec2(80, 0))) {
+					bpmPlaying = true;
+					if (tempoManagerRef) {
+						tempoManagerRef->setPlaying(true);
+					}
+				}
+			}
+			
+			ImGui::Separator();
+			
+			// Beat indicator
+			drawBeatIndicator();
+			
+			ImGui::Separator();
+			
+			// BPM modulation section
+			drawBpmModulationSection();
+		}
+		
+		ImGui::End();
+	}
+}
+
+void GuiApp::drawBeatIndicator() {
+	ImGui::Text("Beat:");
+	
+	// Get beat info from tempo manager
+	float beatPhase = 0.0f;
+	if (tempoManagerRef && bpmEnabled) {
+		beatPhase = tempoManagerRef->getBeatPhase();
+	}
+	
+	// Draw circular indicator
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
+	ImVec2 pos = ImGui::GetCursorScreenPos();
+	float radius = 20.0f;
+	ImVec2 center(pos.x + radius, pos.y + radius);
+	
+	// Background circle
+	drawList->AddCircleFilled(center, radius, IM_COL32(50, 50, 50, 255));
+	
+	// Beat flash (brighter on beat)
+	float flash = 1.0f - beatPhase;
+	flash = pow(flash, 4); // Sharper flash
+	int alpha = (int)(flash * 255);
+	drawList->AddCircleFilled(center, radius * 0.8f, IM_COL32(255, 255, 0, alpha));
+	
+	// Advance cursor
+	ImGui::Dummy(ImVec2(radius * 2 + 10, radius * 2));
+	
+	// Progress bar for beat phase
+	ImGui::ProgressBar(beatPhase, ImVec2(-1, 0), "");
+}
+
+void GuiApp::drawBpmModulationSection() {
+	if (ImGui::CollapsingHeader("Parameter BPM Sync")) {
+		ImGui::Text("Select parameter to sync:");
+		
+		int paramCount = 0;
+		const char** paramNames = getBlock3ParamNames(paramCount);
+		
+		ImGui::Combo("Parameter##BPM", &selectedBpmParam, paramNames, paramCount);
+		
+		if (selectedBpmParam >= 0 && selectedBpmParam < paramCount) {
+			BpmModulationGui& mod = paramBpmModulations[selectedBpmParam];
+			
+			ImGui::Checkbox("Enable BPM Sync", &mod.enabled);
+			
+			if (mod.enabled) {
+				const char* divisions[] = {
+					"1/16 beat", "1/8 beat", "1/4 beat", "1/2 beat",
+					"1 beat", "2 beats", "4 beats", "8 beats"
+				};
+				ImGui::Combo("Division", &mod.division, divisions, 8);
+				
+				const char* waveforms[] = {
+					"Sine", "Triangle", "Saw", "Square", "Random"
+				};
+				ImGui::Combo("Waveform", &mod.waveform, waveforms, 5);
+				
+				ImGui::SliderFloat("Phase Offset", &mod.phase, 0.0f, 1.0f);
+				ImGui::SliderFloat("Min Value", &mod.minValue, -1.0f, 1.0f);
+				ImGui::SliderFloat("Max Value", &mod.maxValue, -1.0f, 1.0f);
+				
+				if (ImGui::Button("Apply##BPM")) {
+					applyBpmModulations();
+				}
+			}
+		}
+		
+		// Show active BPM modulations
+		if (ImGui::CollapsingHeader("Active BPM Syncs")) {
+			for (int i = 0; i < paramCount; i++) {
+				if (paramBpmModulations[i].enabled) {
+					const char* divisions[] = {"1/16", "1/8", "1/4", "1/2", "1", "2", "4", "8"};
+					ImGui::Text("%s: %s beat", paramNames[i], divisions[paramBpmModulations[i].division]);
+				}
+			}
+		}
+	}
+}
+
+const char** GuiApp::getBlock3ParamNames(int& count) {
+	// These must match exactly with Block3Shader::initializeModulations()
+	static const char* names[] = {
+		// Block 1 Geo (0-9)
+		"block1XDisplace", "block1YDisplace", "block1ZDisplace", "block1Rotate",
+		"block1ShearMatrix1", "block1ShearMatrix2", "block1ShearMatrix3", "block1ShearMatrix4",
+		"block1KaleidoscopeAmount", "block1KaleidoscopeSlice",
+		// Block 1 Colorize (10-24)
+		"block1ColorizeHueBand1", "block1ColorizeSaturationBand1", "block1ColorizeBrightBand1",
+		"block1ColorizeHueBand2", "block1ColorizeSaturationBand2", "block1ColorizeBrightBand2",
+		"block1ColorizeHueBand3", "block1ColorizeSaturationBand3", "block1ColorizeBrightBand3",
+		"block1ColorizeHueBand4", "block1ColorizeSaturationBand4", "block1ColorizeBrightBand4",
+		"block1ColorizeHueBand5", "block1ColorizeSaturationBand5", "block1ColorizeBrightBand5",
+		// Block 1 Filters (25-30)
+		"block1BlurAmount", "block1BlurRadius", "block1SharpenAmount",
+		"block1SharpenRadius", "block1FiltersBoost", "block1Dither",
+		// Block 2 Geo (31-40)
+		"block2XDisplace", "block2YDisplace", "block2ZDisplace", "block2Rotate",
+		"block2ShearMatrix1", "block2ShearMatrix2", "block2ShearMatrix3", "block2ShearMatrix4",
+		"block2KaleidoscopeAmount", "block2KaleidoscopeSlice",
+		// Block 2 Colorize (41-55)
+		"block2ColorizeHueBand1", "block2ColorizeSaturationBand1", "block2ColorizeBrightBand1",
+		"block2ColorizeHueBand2", "block2ColorizeSaturationBand2", "block2ColorizeBrightBand2",
+		"block2ColorizeHueBand3", "block2ColorizeSaturationBand3", "block2ColorizeBrightBand3",
+		"block2ColorizeHueBand4", "block2ColorizeSaturationBand4", "block2ColorizeBrightBand4",
+		"block2ColorizeHueBand5", "block2ColorizeSaturationBand5", "block2ColorizeBrightBand5",
+		// Block 2 Filters (56-61)
+		"block2BlurAmount", "block2BlurRadius", "block2SharpenAmount",
+		"block2SharpenRadius", "block2FiltersBoost", "block2Dither",
+		// Matrix Mix (62-70)
+		"matrixMixBgRedIntoFgRed", "matrixMixBgGreenIntoFgRed", "matrixMixBgBlueIntoFgRed",
+		"matrixMixBgRedIntoFgGreen", "matrixMixBgGreenIntoFgGreen", "matrixMixBgBlueIntoFgGreen",
+		"matrixMixBgRedIntoFgBlue", "matrixMixBgGreenIntoFgBlue", "matrixMixBgBlueIntoFgBlue",
+		// Final Mix (71-76)
+		"finalMixAmount", "finalKeyValueRed", "finalKeyValueGreen", "finalKeyValueBlue",
+		"finalKeyThreshold", "finalKeySoft"
+	};
+	count = sizeof(names) / sizeof(names[0]);
+	return names;
+}
+
+const char** GuiApp::getBlock1ParamNames(int& count) {
+	static const char* names[] = {
+		// Channel 1 Adjust (0-13)
+		"ch1XDisplace", "ch1YDisplace", "ch1ZDisplace", "ch1Rotate",
+		"ch1HueAttenuate", "ch1SaturationAttenuate", "ch1BrightAttenuate", "ch1Posterize",
+		"ch1KaleidoscopeAmount", "ch1KaleidoscopeSlice",
+		"ch1BlurAmount", "ch1BlurRadius", "ch1SharpenAmount", "ch1SharpenRadius", "ch1FiltersBoost",
+		// Channel 2 Mix and Key (15-20)
+		"ch2MixAmount", "ch2KeyValueRed", "ch2KeyValueGreen", "ch2KeyValueBlue",
+		"ch2KeyThreshold", "ch2KeySoft",
+		// Channel 2 Adjust (21-35)
+		"ch2XDisplace", "ch2YDisplace", "ch2ZDisplace", "ch2Rotate",
+		"ch2HueAttenuate", "ch2SaturationAttenuate", "ch2BrightAttenuate", "ch2Posterize",
+		"ch2KaleidoscopeAmount", "ch2KaleidoscopeSlice",
+		"ch2BlurAmount", "ch2BlurRadius", "ch2SharpenAmount", "ch2SharpenRadius", "ch2FiltersBoost",
+		// FB1 Feedback (36-51)
+		"fb1MixAmount", "fb1KeyValueRed", "fb1KeyValueGreen", "fb1KeyValueBlue",
+		"fb1KeyThreshold", "fb1KeySoft",
+		"fb1XDisplace", "fb1YDisplace", "fb1ZDisplace", "fb1Rotate",
+		"fb1ShearMatrix1", "fb1ShearMatrix2", "fb1ShearMatrix3", "fb1ShearMatrix4",
+		"fb1KaleidoscopeAmount", "fb1KaleidoscopeSlice",
+		// FB1 Color (52-62)
+		"fb1HueOffset", "fb1SaturationOffset", "fb1BrightOffset",
+		"fb1HueAttenuate", "fb1SaturationAttenuate", "fb1BrightAttenuate",
+		"fb1HuePowmap", "fb1SaturationPowmap", "fb1BrightPowmap",
+		"fb1HueShaper", "fb1Posterize",
+		// FB1 Filters (63-71)
+		"fb1BlurAmount", "fb1BlurRadius", "fb1SharpenAmount", "fb1SharpenRadius",
+		"fb1TemporalFilter1Amount", "fb1TemporalFilter1Resonance",
+		"fb1TemporalFilter2Amount", "fb1TemporalFilter2Resonance", "fb1FiltersBoost"
+	};
+	count = sizeof(names) / sizeof(names[0]);
+	return names;
+}
+
+float GuiApp::getBlock1ParamRangeScale(const std::string& paramName) {
+	// Displace params
+	if (paramName.find("XDisplace") != std::string::npos) return 1280.0f;
+	if (paramName.find("YDisplace") != std::string::npos) return 720.0f;
+	if (paramName.find("ZDisplace") != std::string::npos) return 2.0f;
+	if (paramName.find("Rotate") != std::string::npos) return PI;
+	
+	// Attenuate/Bright: 0-2 range
+	if (paramName.find("Attenuate") != std::string::npos) return 2.0f;
+	if (paramName.find("Bright") != std::string::npos && paramName.find("Offset") != std::string::npos) return 2.0f;
+	
+	// Saturation: -1 to 1 for offset, 0-2 for attenuate
+	if (paramName.find("SaturationOffset") != std::string::npos) return 2.0f;
+	
+	// Hue: -1 to 1 range for offset
+	if (paramName.find("HueOffset") != std::string::npos) return 2.0f;
+	
+	// Powmap/Shaper: 0-4 typical
+	if (paramName.find("Powmap") != std::string::npos) return 4.0f;
+	if (paramName.find("Shaper") != std::string::npos) return 4.0f;
+	
+	// Posterize: 2-32
+	if (paramName.find("Posterize") != std::string::npos) return 32.0f;
+	
+	// Kaleidoscope: 0-1 normalized
+	if (paramName.find("Kaleidoscope") != std::string::npos) return 1.0f;
+	
+	// Filters
+	if (paramName.find("BlurAmount") != std::string::npos) return 1.0f;
+	if (paramName.find("BlurRadius") != std::string::npos) return 10.0f;
+	if (paramName.find("SharpenAmount") != std::string::npos) return 1.0f;
+	if (paramName.find("SharpenRadius") != std::string::npos) return 10.0f;
+	if (paramName.find("FiltersBoost") != std::string::npos) return 2.0f;
+	if (paramName.find("TemporalFilter") != std::string::npos) return 1.0f;
+	
+	// Mix/Key: 0-1 normalized
+	if (paramName.find("MixAmount") != std::string::npos) return 1.0f;
+	if (paramName.find("Key") != std::string::npos) return 1.0f;
+	
+	// Shear matrix: -1 to 1
+	if (paramName.find("ShearMatrix") != std::string::npos) return 2.0f;
+	
+	return 1.0f;
+}
+
+const char** GuiApp::getBlock2ParamNames(int& count) {
+	static const char* names[] = {
+		// Block2 Input Adjust (0-14)
+		"block2InputXDisplace", "block2InputYDisplace", "block2InputZDisplace", "block2InputRotate",
+		"block2InputHueAttenuate", "block2InputSaturationAttenuate", "block2InputBrightAttenuate", "block2InputPosterize",
+		"block2InputKaleidoscopeAmount", "block2InputKaleidoscopeSlice",
+		"block2InputBlurAmount", "block2InputBlurRadius", "block2InputSharpenAmount", "block2InputSharpenRadius", "block2InputFiltersBoost",
+		// FB2 Feedback (15-30)
+		"fb2MixAmount", "fb2KeyValueRed", "fb2KeyValueGreen", "fb2KeyValueBlue",
+		"fb2KeyThreshold", "fb2KeySoft",
+		"fb2XDisplace", "fb2YDisplace", "fb2ZDisplace", "fb2Rotate",
+		"fb2ShearMatrix1", "fb2ShearMatrix2", "fb2ShearMatrix3", "fb2ShearMatrix4",
+		"fb2KaleidoscopeAmount", "fb2KaleidoscopeSlice",
+		// FB2 Color (31-41)
+		"fb2HueOffset", "fb2SaturationOffset", "fb2BrightOffset",
+		"fb2HueAttenuate", "fb2SaturationAttenuate", "fb2BrightAttenuate",
+		"fb2HuePowmap", "fb2SaturationPowmap", "fb2BrightPowmap",
+		"fb2HueShaper", "fb2Posterize",
+		// FB2 Filters (42-51)
+		"fb2BlurAmount", "fb2BlurRadius", "fb2SharpenAmount", "fb2SharpenRadius",
+		"fb2TemporalFilter1Amount", "fb2TemporalFilter1Resonance",
+		"fb2TemporalFilter2Amount", "fb2TemporalFilter2Resonance", "fb2FiltersBoost"
+	};
+	count = sizeof(names) / sizeof(names[0]);
+	return names;
+}
+
+float GuiApp::getBlock2ParamRangeScale(const std::string& paramName) {
+	// Same ranges as Block1
+	return getBlock1ParamRangeScale(paramName);
+}
+
+float GuiApp::getBlock3ParamRangeScale(const std::string& paramName) {
+	// Return scale factor so that amount=1.0 = full parameter range
+	// Displace params: ~1280 pixel range
+	if (paramName.find("XDisplace") != std::string::npos) return 1280.0f;
+	if (paramName.find("YDisplace") != std::string::npos) return 720.0f;
+	if (paramName.find("ZDisplace") != std::string::npos) return 2.0f;  // 1-2 range typically
+	if (paramName.find("Rotate") != std::string::npos) return PI;  // -PI to PI
+	
+	// Shear matrix: typically 0-1 or -1 to 1
+	if (paramName.find("ShearMatrix") != std::string::npos) return 2.0f;
+	
+	// Kaleidoscope: 0-1 normalized
+	if (paramName.find("Kaleidoscope") != std::string::npos) return 1.0f;
+	
+	// Hue: 0-1 (normalized angle)
+	if (paramName.find("Hue") != std::string::npos) return 1.0f;
+	
+	// Saturation/Brightness: 0-2 typical range
+	if (paramName.find("Saturation") != std::string::npos) return 2.0f;
+	if (paramName.find("Bright") != std::string::npos) return 2.0f;
+	
+	// Filter amounts: 0-1 normalized
+	if (paramName.find("BlurAmount") != std::string::npos) return 1.0f;
+	if (paramName.find("BlurRadius") != std::string::npos) return 10.0f;  // Can be larger
+	if (paramName.find("SharpenAmount") != std::string::npos) return 1.0f;
+	if (paramName.find("SharpenRadius") != std::string::npos) return 10.0f;
+	if (paramName.find("FiltersBoost") != std::string::npos) return 2.0f;
+	if (paramName.find("Dither") != std::string::npos) return 1.0f;
+	
+	// Matrix mix: -2 to 2 typical
+	if (paramName.find("matrixMix") != std::string::npos) return 4.0f;
+	
+	// Final mix: 0-1 normalized
+	if (paramName.find("finalMixAmount") != std::string::npos) return 1.0f;
+	if (paramName.find("finalKey") != std::string::npos) return 1.0f;
+	
+	// Default: assume normalized 0-1
+	return 1.0f;
+}
+
+void GuiApp::refreshAudioDeviceList() {
+	if (audioAnalyzerRef) {
+		audioDeviceNames = audioAnalyzerRef->getDeviceList();
+	}
+}
+
+void GuiApp::applyAudioModulations() {
+	// Apply all enabled audio modulations to all blocks
+	if (!mainApp) return;
+	
+	// Block 1
+	int count1 = 0;
+	const char** names1 = getBlock1ParamNames(count1);
+	for (int i = 0; i < count1 && i < 100; i++) {
+		int modIndex = 0 * 100 + i;
+		const auto& mod = paramAudioModulations[modIndex];
+		if (mod.enabled) {
+			float rangeScale = getBlock1ParamRangeScale(names1[i]);
+			mainApp->applyAudioModulationToParam(1, names1[i], mod.enabled, mod.fftBand, mod.amount, rangeScale);
+		}
+	}
+	
+	// Block 2
+	int count2 = 0;
+	const char** names2 = getBlock2ParamNames(count2);
+	for (int i = 0; i < count2 && i < 100; i++) {
+		int modIndex = 1 * 100 + i;
+		const auto& mod = paramAudioModulations[modIndex];
+		if (mod.enabled) {
+			float rangeScale = getBlock2ParamRangeScale(names2[i]);
+			mainApp->applyAudioModulationToParam(2, names2[i], mod.enabled, mod.fftBand, mod.amount, rangeScale);
+		}
+	}
+	
+	// Block 3
+	int count3 = 0;
+	const char** names3 = getBlock3ParamNames(count3);
+	for (int i = 0; i < count3 && i < 100; i++) {
+		int modIndex = 2 * 100 + i;
+		const auto& mod = paramAudioModulations[modIndex];
+		if (mod.enabled) {
+			float rangeScale = getBlock3ParamRangeScale(names3[i]);
+			mainApp->applyAudioModulationToParam(3, names3[i], mod.enabled, mod.fftBand, mod.amount, rangeScale);
+		}
+	}
+	
+	ofLogNotice("GuiApp") << "Audio modulations applied to all blocks";
+}
+
+void GuiApp::applyBpmModulations() {
+	// Apply all enabled BPM modulations to Block3Shader
+	if (!mainApp) return;
+	
+	int paramCount = 0;
+	const char** paramNames = getBlock3ParamNames(paramCount);
+	
+	for (int i = 0; i < paramCount; i++) {
+		const auto& mod = paramBpmModulations[i];
+		if (mod.enabled) {
+			mainApp->applyBpmModulationToParam(paramNames[i], mod.enabled, mod.division, 
+				mod.waveform, mod.phase, mod.minValue, mod.maxValue);
+		}
+	}
+	
+	ofLogNotice("GuiApp") << "BPM modulations applied";
+}
+
+//--------------------------------------------------------------
+void GuiApp::exit() {
+	ofLogNotice("GuiApp") << "exit() called - beginning cleanup...";
+	
+	// Save to settings.json (GUI settings)
+	// Do this BEFORE clearing mainApp pointer
+	saveVideoOscSettings();
+	ofLogNotice("GuiApp") << "GUI settings saved to settings.json";
+	
+	// IMPORTANT: Clear the mainApp pointer to prevent accessing destroyed ofApp
+	// ofApp's exit() is called before GuiApp's exit(), so mainApp is likely invalid now
+	mainApp = nullptr;
+	ofLogNotice("GuiApp") << "mainApp pointer cleared (ofApp already destroyed)";
+	
+	// Clean up MIDI
 	if (midiIn) {
 		midiIn->closePort();
 		midiIn->removeListener(this);
 		delete midiIn;
 		midiIn = nullptr;
+		ofLogNotice("GuiApp") << "MIDI cleaned up";
 	}
+	
+	ofLogNotice("GuiApp") << "exit() completed successfully";
 }
 
 //--------------------------------------------------------------

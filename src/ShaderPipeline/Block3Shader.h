@@ -1,8 +1,24 @@
 #pragma once
 
 #include "ShaderBlock.h"
+#include "../Audio/AudioAnalyzer.h"
+#include "../Tempo/TempoManager.h"
 
 namespace dragonwaves {
+
+//==============================================================================
+// Parameter modulation info - links a parameter to audio/BPM modulation
+//==============================================================================
+struct ParamModulation {
+    AudioModulation audio;
+    BpmModulation bpm;
+    
+    // Apply modulations to a base value
+    float apply(float baseValue, const AudioAnalyzer& audioAnalyzer, const TempoManager& tempo, float deltaTime);
+    
+    void loadFromJson(const ofJson& json);
+    void saveToJson(ofJson& json) const;
+};
 
 //==============================================================================
 // Block 3: Final mixing with matrix mixer and colorization
@@ -146,10 +162,40 @@ public:
     
     Params params;
     
+    // Modulation mappings for all parameters
+    // Access via getModulation("paramName")
+    std::unordered_map<std::string, ParamModulation> modulations;
+    
+    // Initialize modulation mappings
+    void initializeModulations();
+    
+    // Get modulation for a parameter
+    ParamModulation* getModulation(const std::string& paramName);
+    
+    // Get current modulated value (for GUI feedback)
+    float getModulatedValue(const std::string& paramName) const;
+    
+    // Apply all modulations (call before process())
+    void applyModulations(const AudioAnalyzer& audioAnalyzer, const TempoManager& tempo, float deltaTime);
+    
+    // Get effective value (base + modulations)
+    float getEffectiveValue(const std::string& paramName, float baseValue, const AudioAnalyzer& audioAnalyzer, const TempoManager& tempo, float deltaTime);
+    
+    // Serialization
+    void loadModulations(const ofJson& json);
+    ofJson saveModulations() const;
+    
 private:
     ofTexture* block1Tex = nullptr;
     ofTexture* block2Tex = nullptr;
     ofTexture dummyTex;
+    
+    // Store last computed modulated values for GUI feedback
+    mutable std::unordered_map<std::string, float> lastModulatedValues;
 };
 
 } // namespace dragonwaves
+
+// Backwards compatibility
+typedef dragonwaves::Block3Shader Block3Shader;
+typedef dragonwaves::ParamModulation ParamModulation;

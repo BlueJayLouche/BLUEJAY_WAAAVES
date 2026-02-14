@@ -1,4 +1,16 @@
 {
+    "audio": {
+        "amplitude": 1.0,
+        "bufferSize": 512,
+        "enabled": false,
+        "fftSize": 1024,
+        "inputDevice": 0,
+        "normalization": true,
+        "numBins": 128,
+        "peakDecay": 0.949999988079071,
+        "sampleRate": 44100,
+        "smoothing": 0.5
+    },
     "display": {
         "input1Height": 480,
         "input1Width": 640,
@@ -10,13 +22,13 @@
         "ndiSendWidth": 1280,
         "outputHeight": 720,
         "outputWidth": 1280,
-        "targetFPS": 30
+        "targetFPS": 50
     },
     "inputSources": {
-        "input1DeviceID": 0,
+        "input1DeviceID": 1,
         "input1NdiSourceIndex": 0,
-        "input1SourceType": 1,
-        "input2DeviceID": 1,
+        "input1SourceType": 2,
+        "input2DeviceID": 2,
         "input2NdiSourceIndex": 0,
         "input2SourceType": 1
     },
@@ -30,6 +42,15 @@
         "receivePort": 7000,
         "sendIP": "127.0.0.1",
         "sendPort": 7001
+    },
+    "tempo": {
+        "autoResetTap": true,
+        "bpm": 120.0,
+        "enabled": true,
+        "maxBpm": 300.0,
+        "minBpm": 20.0,
+        "tapHistorySize": 8,
+        "tapTimeout": 2.0
     },
     "uiScaleIndex": 0
 }

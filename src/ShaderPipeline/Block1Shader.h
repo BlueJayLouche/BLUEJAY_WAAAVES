@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ShaderBlock.h"
+#include "Block3Shader.h"  // For ParamModulation
 
 namespace dragonwaves {
 
@@ -164,12 +165,37 @@ public:
     float input1XYFix[2] = {0.0f, 0.0f};
     float input2XYFix[2] = {0.0f, 0.0f};
     
+    // Modulation mappings for all parameters
+    std::unordered_map<std::string, ParamModulation> modulations;
+    
+    // Initialize modulation mappings
+    void initializeModulations();
+    
+    // Get modulation for a parameter
+    ParamModulation* getModulation(const std::string& paramName);
+    
+    // Get current modulated value (for GUI feedback)
+    float getModulatedValue(const std::string& paramName) const;
+    
+    // Apply all modulations (call before process())
+    void applyModulations(const AudioAnalyzer& audioAnalyzer, const TempoManager& tempo, float deltaTime);
+    
+    // Get effective value (base + modulations)
+    float getEffectiveValue(const std::string& paramName, float baseValue, const AudioAnalyzer& audioAnalyzer, const TempoManager& tempo, float deltaTime);
+    
+    // Serialization
+    void loadModulations(const ofJson& json);
+    ofJson saveModulations() const;
+    
 private:
     ofTexture* ch1Tex = nullptr;
     ofTexture* ch2Tex = nullptr;
     ofTexture* fbTex = nullptr;
     ofTexture* temporalTex = nullptr;
     ofTexture dummyTex;
+    
+    // Store last computed modulated values for GUI feedback
+    mutable std::unordered_map<std::string, float> lastModulatedValues;
 };
 
 } // namespace dragonwaves

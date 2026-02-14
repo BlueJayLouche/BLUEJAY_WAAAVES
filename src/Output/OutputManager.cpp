@@ -1,6 +1,10 @@
 #include "OutputManager.h"
+#include <GLFW/glfw3.h>  // For glfwGetCurrentContext()
 
 namespace dragonwaves {
+
+// Static member definition for shutdown tracking
+bool NdiOutputSender::isShuttingDown = false;
 
 //==============================================================================
 // AsyncPixelTransfer
@@ -31,7 +35,20 @@ void AsyncPixelTransfer::setup(int w, int h) {
 void AsyncPixelTransfer::cleanup() {
     if (!initialized) return;
     
-    glDeleteBuffers(2, pbo);
+    // Check if we have a valid OpenGL context before deleting buffers
+    // This prevents crashes during application shutdown
+    if (glfwGetCurrentContext() == nullptr) {
+        ofLogWarning("AsyncPixelTransfer") << "No OpenGL context - skipping PBO cleanup";
+        pbo[0] = 0;
+        pbo[1] = 0;
+        initialized = false;
+        return;
+    }
+    
+    // Only delete if we have valid buffer IDs
+    if (pbo[0] != 0 || pbo[1] != 0) {
+        glDeleteBuffers(2, pbo);
+    }
     pbo[0] = 0;
     pbo[1] = 0;
     initialized = false;
@@ -90,16 +107,54 @@ NdiOutputSender::NdiOutputSender(const std::string& name)
     : OutputSender(name) {
 }
 
-NdiOutputSender::~NdiOutputSender() {
-    // Explicit cleanup without locking - mutex may be in bad state during destruction
-    try {
-        if (active) {
+// Forward declaration for safer cleanup
+namespace {
+    // Helper to safely release NDI sender without throwing
+    void safeReleaseNdiSender(ofxNDIsender& sender, bool& activeFlag) {
+        if (!activeFlag) return;
+        
+        // Use a separate try-catch for each operation
+        try {
+            // Set active to false first to prevent re-entry
+            activeFlag = false;
+            
+            // Attempt to release the sender
+            // This may throw if the NDI library is in a bad state
             sender.ReleaseSender();
-            active = false;
+        } catch (const std::exception& e) {
+            ofLogWarning("NdiOutputSender") << "Exception during sender release: " << e.what();
+        } catch (...) {
+            ofLogWarning("NdiOutputSender") << "Unknown exception during sender release";
         }
-        pboTransfer.cleanup();
-    } catch (...) {
-        // Ignore exceptions during destruction
+    }
+}
+
+NdiOutputSender::~NdiOutputSender() {
+    // SAFETY: Do NOT call ReleaseSender() in the destructor.
+    // 
+    // The destructor is called during object destruction (stack unwinding).
+    // If ReleaseSender() throws an exception here, std::terminate() is called,
+    // which aborts the entire process.
+    //
+    // ReleaseSender() should have been called in close() during ofApp::exit()
+    // before we get here. If close() wasn't called (e.g., uncaught exception),
+    // we simply mark the sender as inactive and let the OS clean up.
+    //
+    // This is safe because:
+    // 1. The NDI sender stops sending when 'active' is false
+    // 2. The OS reclaims all resources when the process exits
+    // 3. A "resource leak" on process exit is harmless
+    
+    active = false;
+    enabled = false;
+    
+    // Only clean up PBO if we have a valid context and aren't shutting down
+    if (!isShuttingDown) {
+        try {
+            pboTransfer.cleanup();
+        } catch (...) {
+            // Ignore PBO cleanup errors
+        }
     }
 }
 
@@ -153,12 +208,36 @@ void NdiOutputSender::send(ofTexture& texture) {
 }
 
 void NdiOutputSender::close() {
-    std::lock_guard<std::mutex> lock(mtx);
-    if (active) {
-        sender.ReleaseSender();
-        active = false;
+    // Mark as inactive first - this stops any new send() calls
+    bool wasActive = active;
+    active = false;
+    enabled = false;
+    
+    // Clean up PBO first (safer operation)
+    if (!isShuttingDown) {
+        try {
+            pboTransfer.cleanup();
+        } catch (...) {
+            ofLogWarning("NdiOutputSender") << "Exception during PBO cleanup in close()";
+        }
     }
-    pboTransfer.cleanup();
+    
+    // Try to release the NDI sender during normal close()
+    // This is called from ofApp::exit(), not from destructor
+    if (wasActive && !isShuttingDown) {
+        ofLogNotice("NdiOutputSender") << "Releasing NDI sender...";
+        try {
+            sender.ReleaseSender();
+            ofLogNotice("NdiOutputSender") << "NDI sender released successfully";
+        } catch (const std::exception& e) {
+            ofLogWarning("NdiOutputSender") << "Exception during ReleaseSender: " << e.what();
+        } catch (...) {
+            ofLogWarning("NdiOutputSender") << "Unknown exception during ReleaseSender";
+        }
+    } else {
+        ofLogNotice("NdiOutputSender") << "Skipping ReleaseSender (wasActive=" 
+                                       << wasActive << ", isShuttingDown=" << isShuttingDown << ")";
+    }
 }
 
 void NdiOutputSender::setEnabled(bool e) {
@@ -391,17 +470,76 @@ void OutputManager::reinitialize(const DisplaySettings& settings) {
 }
 
 void OutputManager::close() {
-    if (ndiBlock1) ndiBlock1->close();
-    if (ndiBlock2) ndiBlock2->close();
-    if (ndiBlock3) ndiBlock3->close();
+    ofLogNotice("OutputManager") << "Closing all output senders...";
+    
+    // Set the shutdown flag to prevent NDI senders from trying to release
+    // during destruction when the NDI library may be unloading
+    NdiOutputSender::isShuttingDown = true;
+    
+    // Disable all senders first to stop any ongoing operations
+    // This prevents the send() method from being called
+    if (ndiBlock1) ndiBlock1->setEnabled(false);
+    if (ndiBlock2) ndiBlock2->setEnabled(false);
+    if (ndiBlock3) ndiBlock3->setEnabled(false);
     
 #if SPOUT_AVAILABLE
-    if (spoutBlock1) spoutBlock1->close();
-    if (spoutBlock2) spoutBlock2->close();
-    if (spoutBlock3) spoutBlock3->close();
+    if (spoutBlock1) spoutBlock1->setEnabled(false);
+    if (spoutBlock2) spoutBlock2->setEnabled(false);
+    if (spoutBlock3) spoutBlock3->setEnabled(false);
 #endif
     
+    // Wait for any pending NDI operations to complete
+    // This is critical - NDI has internal threads that can crash if we exit too quickly
+    ofLogNotice("OutputManager") << "Waiting for NDI threads to settle...";
+    ofSleepMillis(100);
+    
+    // Call close() on each sender - but note that NdiOutputSender::close()
+    // now skips ReleaseSender() to avoid crashes
+    ofLogNotice("OutputManager") << "Closing NDI senders (without ReleaseSender)...";
+    
+    try {
+        if (ndiBlock1) ndiBlock1->close();
+    } catch (...) {
+        // Ignore - we're shutting down anyway
+    }
+    
+    try {
+        if (ndiBlock2) ndiBlock2->close();
+    } catch (...) {
+        // Ignore - we're shutting down anyway
+    }
+    
+    try {
+        if (ndiBlock3) ndiBlock3->close();
+    } catch (...) {
+        // Ignore - we're shutting down anyway
+    }
+    
+#if SPOUT_AVAILABLE
+    try {
+        if (spoutBlock1) spoutBlock1->close();
+    } catch (...) {
+        // Ignore
+    }
+    
+    try {
+        if (spoutBlock2) spoutBlock2->close();
+    } catch (...) {
+        // Ignore
+    }
+    
+    try {
+        if (spoutBlock3) spoutBlock3->close();
+    } catch (...) {
+        // Ignore
+    }
+#endif
+    
+    // DO NOT reset the unique_ptrs here - let ofApp::exit() do that
+    // after we're sure the NDI threads have settled
+    
     initialized = false;
+    ofLogNotice("OutputManager") << "All output senders marked for cleanup (NDI resources will be cleaned up by OS)";
 }
 
 } // namespace dragonwaves

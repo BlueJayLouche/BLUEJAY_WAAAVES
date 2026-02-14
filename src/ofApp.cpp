@@ -24,15 +24,9 @@ ofApp::ofApp() {
 
 //--------------------------------------------------------------
 ofApp::~ofApp() {
-    // Explicit cleanup to ensure proper destruction order
-    // Reset modular components first (they use NDI/Spout)
-    geometryManager.reset();
-    outputManager.reset();
-    pipeline.reset();
-    inputManager.reset();
-    
-    // Close OSC
-    oscReceiver.stop();
+    // Destructor should be minimal - all cleanup happens in exit()
+    // The unique_ptrs will be automatically destroyed in reverse order of declaration
+    // Note: DO NOT access singletons here as they may already be destroyed
 }
 
 //--------------------------------------------------------------
@@ -111,6 +105,12 @@ void ofApp::setup(){
                          << (int)input1Type << ":" << input1DeviceOrIndex 
                          << ", Input2=" << (int)input2Type << ":" << input2DeviceOrIndex;
     
+    // Initial sync of NDI source names to GUI
+    if (gui) {
+        gui->ndiSourceNames = inputManager->getNdiSourceNames();
+        ofLogNotice("ofApp") << "Initial NDI source list: " << gui->ndiSourceNames.size() << " sources";
+    }
+    
     // Initialize shader pipeline
     pipeline = std::make_unique<PipelineManager>();
     pipeline->setup(settings.getDisplay());
@@ -123,11 +123,34 @@ void ofApp::setup(){
     geometryManager = std::make_unique<GeometryManager>();
     geometryManager->setup();
     
+    // Initialize audio analyzer
+    audioAnalyzer = std::make_unique<AudioAnalyzer>();
+    audioAnalyzer->setup(settings.getAudio());
+    
+    // Initialize tempo manager
+    tempoManager = std::make_unique<TempoManager>();
+    tempoManager->setup(settings.getTempo());
+    
+    // Connect to pipeline
+    if (pipeline) {
+        pipeline->setAudioAnalyzer(audioAnalyzer.get());
+        pipeline->setTempoManager(tempoManager.get());
+    }
+    
+    // Connect to GUI
+    if (gui) {
+        gui->setAudioAnalyzer(audioAnalyzer.get());
+        gui->setTempoManager(tempoManager.get());
+    }
+    
     // Initialize preset manager
     PresetManager::getInstance().setup();
     
     // Setup OSC/Parameter manager
     ParameterManager::getInstance().setup(settings.getOsc());
+    
+    // Register Audio and Tempo parameters with OSC
+    registerAudioTempoOscParams();
     
     // Initialize LFO thetas
     resetLfoThetas();
@@ -163,6 +186,9 @@ void ofApp::update(){
     // Check for source refresh
     if (gui && gui->refreshNdiSources) {
         inputManager->refreshNdiSources();
+        // Sync the refreshed source names to the GUI
+        gui->ndiSourceNames = inputManager->getNdiSourceNames();
+        ofLogNotice("ofApp") << "NDI sources refreshed: " << gui->ndiSourceNames.size() << " sources found";
         gui->refreshNdiSources = false;
     }
     
@@ -194,6 +220,17 @@ void ofApp::update(){
     // Update geometry patterns
     geometryManager->update();
     
+    // Update audio analyzer
+    if (audioAnalyzer) {
+        audioAnalyzer->update();
+    }
+    
+    // Update tempo manager
+    if (tempoManager) {
+        float deltaTime = ofGetLastFrameTime();
+        tempoManager->update(deltaTime);
+    }
+    
     // Process OSC messages (legacy)
     if (oscEnabled) {
         processOscMessages();
@@ -206,6 +243,11 @@ void ofApp::draw(){
     
     // Sync parameters from GUI to pipeline
     syncGuiToPipeline();
+    
+    // Apply audio/BPM modulations (after GUI sync, before shader processing)
+    if (pipeline && (audioAnalyzer || tempoManager)) {
+        pipeline->updateModulations(ofGetLastFrameTime());
+    }
     
     // Set input textures
     pipeline->setInput1Texture(inputManager->getInput1Texture());
@@ -776,6 +818,11 @@ void ofApp::syncGuiToPipeline() {
     block1YDisplace += lfo(block1YDisplaceC * gui->block1Geo1Lfo1[2], block1YDisplaceTheta, gui->block1Geo1Lfo1Shape[1]);
     block1ZDisplace += lfo(block1ZDisplaceC * gui->block1Geo1Lfo1[4], block1ZDisplaceTheta, gui->block1Geo1Lfo1Shape[2]);
     block1Rotate += lfo(block1RotateC * gui->block1Geo1Lfo1[6], block1RotateTheta, gui->block1Geo1Lfo1Shape[3]);
+    
+    static int syncDebugCounter = 0;
+    if (syncDebugCounter++ % 60 == 0) {
+        ofLogNotice("syncGuiToPipeline") << "Setting block1XDisplace=" << block1XDisplace;
+    }
     
     block3.params.block1XDisplace = block1XDisplace;
     block3.params.block1YDisplace = block1YDisplace;
@@ -1673,7 +1720,16 @@ void ofApp::keyReleased(int key){
 
 //--------------------------------------------------------------
 void ofApp::exit(){
-    // Save settings on exit
+    ofLogNotice("ofApp") << "exit() called - beginning cleanup...";
+    
+    // IMPORTANT: Close singletons first before saving settings
+    // to prevent them from accessing destroyed resources
+    
+    // 1. Close ParameterManager (OSC/MIDI) - prevents callbacks during shutdown
+    ParameterManager::getInstance().close();
+    ofLogNotice("ofApp") << "ParameterManager closed";
+    
+    // 2. Save settings on exit (after closing OSC to prevent race conditions)
     ofLogNotice("ofApp") << "Saving settings on exit...";
     
     // Sync current GUI values to SettingsManager
@@ -1690,6 +1746,57 @@ void ofApp::exit(){
     }
     
     ofLogNotice("ofApp") << "Settings saved successfully";
+    
+    // 3. Clean up modular components in reverse order of creation
+    // This ensures proper cleanup of GPU resources and NDI/Spout
+    ofLogNotice("ofApp") << "Cleaning up modular components...";
+    
+    // Audio analyzer - close sound stream before reset
+    if (audioAnalyzer) {
+        audioAnalyzer->close();
+    }
+    audioAnalyzer.reset();
+    ofLogNotice("ofApp") << "AudioAnalyzer cleaned up";
+    
+    // Tempo manager
+    tempoManager.reset();
+    ofLogNotice("ofApp") << "TempoManager cleaned up";
+    
+    // Geometry manager depends on OpenGL - clean up before pipeline
+    geometryManager.reset();
+    ofLogNotice("ofApp") << "GeometryManager cleaned up";
+    
+    // Output manager uses NDI/Spout - explicitly close before reset to ensure
+    // proper cleanup order and prevent NDI thread termination issues
+    if (outputManager) {
+        ofLogNotice("ofApp") << "Closing OutputManager...";
+        outputManager->close();
+        ofLogNotice("ofApp") << "OutputManager closed";
+        
+        // Add a longer delay to let NDI threads settle before destroying the sender objects
+        // This is critical - destroying NDI senders while their internal threads are active
+        // causes crashes that cannot be caught with try-catch
+        ofLogNotice("ofApp") << "Waiting for NDI cleanup...";
+        ofSleepMillis(200);
+        
+        // Now it's safe to destroy the OutputManager
+        outputManager.reset();
+        ofLogNotice("ofApp") << "OutputManager cleaned up";
+    }
+    
+    // Pipeline contains FBOs and shaders
+    pipeline.reset();
+    ofLogNotice("ofApp") << "PipelineManager cleaned up";
+    
+    // Input manager last (may have active camera/NDI sources)
+    inputManager.reset();
+    ofLogNotice("ofApp") << "InputManager cleaned up";
+    
+    // 4. Stop legacy OSC receiver
+    oscReceiver.stop();
+    ofLogNotice("ofApp") << "Legacy OSC receiver stopped";
+    
+    ofLogNotice("ofApp") << "exit() completed successfully";
 }
 
 //==============================================================================
@@ -1738,3 +1845,166 @@ void ofApp::sendOscBlock2Fb2() {}
 void ofApp::sendOscBlock3B1() {}
 void ofApp::sendOscBlock3B2() {}
 void ofApp::sendOscBlock3MatrixAndFinal() {}
+
+//--------------------------------------------------------------
+// Audio and Tempo OSC Parameters
+//--------------------------------------------------------------
+void ofApp::registerAudioTempoOscParams() {
+    using namespace dragonwaves;
+    auto& pm = ParameterManager::getInstance();
+    
+    // Audio parameter group
+    auto audioGroup = std::make_shared<ParameterGroup>("Audio", "/gravity/audio");
+    
+    // Audio enable
+    audioGroup->addParameter(std::make_shared<Parameter<bool>>(
+        "enabled", "/gravity/audio/enabled", &audioAnalyzer->settings.enabled));
+    
+    // FFT bands (read-only outputs)
+    static float fftBands[8] = {0};
+    for (int i = 0; i < 8; i++) {
+        audioGroup->addParameter(std::make_shared<Parameter<float>>(
+            "fftBand" + std::to_string(i), "/gravity/audio/fftBand" + std::to_string(i), &fftBands[i], 0.0f, 1.0f));
+    }
+    
+    // Audio controls
+    audioGroup->addParameter(std::make_shared<Parameter<float>>(
+        "amplitude", "/gravity/audio/amplitude", &audioAnalyzer->settings.amplitude, 0.0f, 10.0f));
+    audioGroup->addParameter(std::make_shared<Parameter<float>>(
+        "smoothing", "/gravity/audio/smoothing", &audioAnalyzer->settings.smoothing, 0.0f, 0.99f));
+    audioGroup->addParameter(std::make_shared<Parameter<bool>>(
+        "normalization", "/gravity/audio/normalization", &audioAnalyzer->settings.normalization));
+    
+    pm.registerGroup(audioGroup);
+    
+    // Tempo parameter group
+    auto tempoGroup = std::make_shared<ParameterGroup>("Tempo", "/gravity/tempo");
+    
+    // BPM
+    tempoGroup->addParameter(std::make_shared<Parameter<float>>(
+        "bpm", "/gravity/tempo/bpm", &tempoManager->settings.bpm, 20.0f, 300.0f));
+    
+    // Tempo controls
+    tempoGroup->addParameter(std::make_shared<Parameter<bool>>(
+        "enabled", "/gravity/tempo/enabled", &tempoManager->settings.enabled));
+    tempoGroup->addParameter(std::make_shared<Parameter<bool>>(
+        "play", "/gravity/tempo/play", nullptr));  // Trigger only
+    
+    // Beat phase (read-only output)
+    static float beatPhase = 0.0f;
+    tempoGroup->addParameter(std::make_shared<Parameter<float>>(
+        "beatPhase", "/gravity/tempo/beatPhase", &beatPhase, 0.0f, 1.0f));
+    
+    pm.registerGroup(tempoGroup);
+    
+    ofLogNotice("ofApp") << "Audio and Tempo OSC parameters registered";
+}
+
+bool ofApp::processOscAudioParams(const string& address, float value) {
+    if (!audioAnalyzer) return false;
+    
+    if (address == "/gravity/audio/enabled") {
+        audioAnalyzer->setEnabled(value > 0.5f);
+        return true;
+    }
+    else if (address == "/gravity/audio/amplitude") {
+        audioAnalyzer->setAmplitude(value);
+        return true;
+    }
+    else if (address == "/gravity/audio/smoothing") {
+        audioAnalyzer->setSmoothing(value);
+        return true;
+    }
+    else if (address == "/gravity/audio/normalization") {
+        audioAnalyzer->setNormalization(value > 0.5f);
+        return true;
+    }
+    
+    return false;
+}
+
+bool ofApp::processOscTempoParams(const string& address, float value) {
+    if (!tempoManager) return false;
+    
+    if (address == "/gravity/tempo/bpm") {
+        tempoManager->setBpm(value);
+        return true;
+    }
+    else if (address == "/gravity/tempo/enabled") {
+        tempoManager->setEnabled(value > 0.5f);
+        return true;
+    }
+    else if (address == "/gravity/tempo/play") {
+        tempoManager->setPlaying(value > 0.5f);
+        return true;
+    }
+    else if (address == "/gravity/tempo/tap") {
+        tempoManager->tap();
+        return true;
+    }
+    
+    return false;
+}
+
+//--------------------------------------------------------------
+// Apply audio/BPM modulations from GUI to Block3Shader
+//--------------------------------------------------------------
+void ofApp::applyAudioModulationToParam(int blockNum, const std::string& paramName, bool enabled, int fftBand, float amount, float rangeScale) {
+    if (!pipeline) return;
+    
+    ParamModulation* mod = nullptr;
+    std::string blockName;
+    
+    switch (blockNum) {
+        case 1:
+            mod = pipeline->getBlock1().getModulation(paramName);
+            blockName = "Block1";
+            break;
+        case 2:
+            mod = pipeline->getBlock2().getModulation(paramName);
+            blockName = "Block2";
+            break;
+        case 3:
+        default:
+            mod = pipeline->getBlock3().getModulation(paramName);
+            blockName = "Block3";
+            break;
+    }
+    
+    if (mod) {
+        mod->audio.enabled = enabled;
+        mod->audio.fftBand = fftBand;
+        mod->audio.amount = amount;
+        mod->audio.rangeScale = rangeScale;
+        ofLogNotice("ofApp") << "Applied audio modulation to " << blockName << "." << paramName 
+                             << ": enabled=" << enabled << ", band=" << fftBand 
+                             << ", amount=" << amount << ", rangeScale=" << rangeScale;
+    } else {
+        ofLogWarning("ofApp") << "Could not find modulation for " << blockName << ":" << paramName;
+    }
+}
+
+void ofApp::applyBpmModulationToParam(const std::string& paramName, bool enabled, int division, int waveform, float phase, float minVal, float maxVal) {
+    if (!pipeline) return;
+    
+    auto& block3 = pipeline->getBlock3();
+    auto* mod = block3.getModulation(paramName);
+    
+    if (mod) {
+        mod->bpm.enabled = enabled;
+        mod->bpm.divisionIndex = division;
+        mod->bpm.waveform = waveform;
+        mod->bpm.phase = phase;
+        mod->bpm.minValue = minVal;
+        mod->bpm.maxValue = maxVal;
+        ofLogNotice("ofApp") << "Applied BPM modulation to " << paramName 
+                             << ": enabled=" << enabled << ", division=" << division << ", waveform=" << waveform;
+    } else {
+        ofLogWarning("ofApp") << "Could not find modulation for parameter: " << paramName;
+    }
+}
+
+float ofApp::getModulatedValue(int blockNum, const std::string& paramName) const {
+    if (!pipeline) return 0.0f;
+    return pipeline->getModulatedValue(blockNum, paramName);
+}

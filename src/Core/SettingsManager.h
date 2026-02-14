@@ -114,6 +114,49 @@ struct InputSourceSettings {
 };
 
 //==============================================================================
+// Audio Settings
+//==============================================================================
+struct AudioSettings {
+    bool enabled = false;
+    int inputDevice = 0;
+    int sampleRate = 44100;
+    int bufferSize = 512;
+    int fftSize = 1024;
+    int numBins = 128;             // Number of FFT bins (configurable)
+    float smoothing = 0.5f;
+    bool normalization = true;
+    float amplitude = 1.0f;
+    float peakDecay = 0.95f;
+    
+    void loadFromJson(const ofJson& json);
+    void saveToJson(ofJson& json) const;
+    
+    // Legacy XML (for migration only)
+    void loadFromXml(ofxXmlSettings& xml);
+    void saveToXml(ofxXmlSettings& xml) const;
+};
+
+//==============================================================================
+// Tempo Settings
+//==============================================================================
+struct TempoSettings {
+    float bpm = 120.0f;
+    bool enabled = true;
+    int tapHistorySize = 8;
+    float minBpm = 20.0f;
+    float maxBpm = 300.0f;
+    bool autoResetTap = true;
+    float tapTimeout = 2.0f;
+    
+    void loadFromJson(const ofJson& json);
+    void saveToJson(ofJson& json) const;
+    
+    // Legacy XML (for migration only)
+    void loadFromXml(ofxXmlSettings& xml);
+    void saveToXml(ofxXmlSettings& xml) const;
+};
+
+//==============================================================================
 // Settings Manager - Centralized configuration management
 //==============================================================================
 class SettingsManager {
@@ -134,6 +177,8 @@ public:
     OscSettings& getOsc() { return osc; }
     MidiSettings& getMidi() { return midi; }
     InputSourceSettings& getInputSources() { return inputSources; }
+    AudioSettings& getAudio() { return audio; }
+    TempoSettings& getTempo() { return tempo; }
     
     // Paths
     std::string getPresetsPath() { return "presets/"; }
@@ -180,6 +225,8 @@ private:
     OscSettings osc;
     MidiSettings midi;
     InputSourceSettings inputSources;
+    AudioSettings audio;
+    TempoSettings tempo;
     
     int uiScaleIndex = 0;  // 0=200%, 1=250%, 2=300%
     

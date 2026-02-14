@@ -29,6 +29,12 @@ class ofApp;
 #define OFAPP_HAS_SPOUT 0
 #endif
 
+// Forward declarations for Audio and Tempo
+namespace dragonwaves {
+    class AudioAnalyzer;
+    class TempoManager;
+}
+
 #define PARAMETER_ARRAY_LENGTH 16
 
 // OSC Parameter types
@@ -2180,6 +2186,105 @@ public:
 
 	// Attributions popup
 	bool showAttributionsPopup = false;
+
+	// ============== AUDIO REACTIVITY ==============
+	// Audio panel visibility
+	bool showAudioPanel = false;
+	bool showBlock1AudioPanel = false;
+	bool showBlock2AudioPanel = false;
+	bool showBlock3AudioPanel = false;
+	
+	// Audio settings (mirrored from AudioAnalyzer)
+	bool audioEnabled = false;
+	int audioInputDevice = 0;
+	float audioAmplitude = 1.0f;
+	float audioSmoothing = 0.5f;
+	bool audioNormalization = true;
+	
+	// FFT visualization (8 bands)
+	float fftBars[8] = {0};
+	
+	// Audio modulation for Block 3 parameters
+	// Each parameter can have: enabled, fft band (0-7), amount (-1 to 1)
+	struct AudioModulationGui {
+		bool enabled = false;
+		int fftBand = 0;
+		float amount = 0.0f;
+		float rangeScale = 1.0f;  // Scale factor for parameter range
+		int blockIndex = 3;       // Which block (1, 2, or 3)
+	};
+	
+	// Selected parameter for modulation (dropdown index)
+	int selectedAudioBlock = 2;  // 0=Block1, 1=Block2, 2=Block3 (default)
+	int selectedModulationParam = 0;
+	AudioModulationGui paramAudioModulations[300]; // Enough for all blocks (3 x 100 max params per block)
+	
+	// Audio device list
+	std::vector<std::string> audioDeviceNames;
+	bool refreshAudioDevices = false;
+	void refreshAudioDeviceList();
+	
+	// ============== BPM / TEMPO ==============
+	// BPM panel visibility
+	bool showBpmPanel = false;
+	
+	// BPM settings (mirrored from TempoManager)
+	float bpm = 120.0f;
+	bool bpmEnabled = true;
+	bool bpmPlaying = true;
+	
+	// Beat indicator
+	float beatFlash = 0.0f;  // For visual flash on beat
+	
+	// BPM modulation for Block 3 parameters
+	struct BpmModulationGui {
+		bool enabled = false;
+		int division = 2;  // 0=1/16, 1=1/8, 2=1/4, 3=1/2, 4=1, 5=2, 6=4, 7=8
+		int waveform = 0;  // 0=sine, 1=triangle, 2=saw, 3=square, 4=random
+		float phase = 0.0f;
+		float minValue = 0.0f;
+		float maxValue = 1.0f;
+	};
+	
+	// Selected parameter for BPM modulation
+	int selectedBpmParam = 0;
+	BpmModulationGui paramBpmModulations[60]; // Enough for all Block 3 params
+	
+	// Reference to audio/tempo managers (set from ofApp)
+	dragonwaves::AudioAnalyzer* audioAnalyzerRef = nullptr;
+	dragonwaves::TempoManager* tempoManagerRef = nullptr;
+	void setAudioAnalyzer(dragonwaves::AudioAnalyzer* analyzer) { audioAnalyzerRef = analyzer; }
+	void setTempoManager(dragonwaves::TempoManager* tempo) { tempoManagerRef = tempo; }
+	
+	// Draw audio panels (one per block)
+	void drawAudioPanel();
+	void drawBlock1AudioPanel();
+	void drawBlock2AudioPanel();
+	void drawBlock3AudioPanel();
+	void drawFftVisualization();
+	void drawFftVisualizationCompact();
+	void drawAudioModulationSection();
+	void drawAudioModulationSectionForBlock(int blockIndex, const char* blockName);
+	
+	// Draw BPM panel
+	void drawBpmPanel();
+	void drawBeatIndicator();
+	void drawBpmModulationSection();
+	
+	// Get parameter names for all blocks
+	const char** getBlock1ParamNames(int& count);
+	const char** getBlock2ParamNames(int& count);
+	const char** getBlock3ParamNames(int& count);
+	
+	// Get parameter range scale (for normalized modulation)
+	// Returns scale factor so amount=1.0 = full parameter range
+	float getBlock1ParamRangeScale(const std::string& paramName);
+	float getBlock2ParamRangeScale(const std::string& paramName);
+	float getBlock3ParamRangeScale(const std::string& paramName);
+	
+	// Apply modulations to mainApp
+	void applyAudioModulations();
+	void applyBpmModulations();
 
 };
 

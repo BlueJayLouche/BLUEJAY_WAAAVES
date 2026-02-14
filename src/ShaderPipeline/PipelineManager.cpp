@@ -258,6 +258,12 @@ void PipelineManager::processFrame() {
     block3.getShader().begin();
     block3.process();
     
+    // Debug: verify params value right before drawing
+    static int processDebugCounter = 0;
+    if (processDebugCounter++ % 60 == 0) {
+        ofLogNotice("processFrame") << "Before draw: block1XDisplace=" << block3.params.block1XDisplace;
+    }
+    
     // Draw cached mesh (avoid recreation every frame)
     block3Mesh.draw();
     
@@ -337,6 +343,43 @@ void PipelineManager::setFB1DelayTime(int frames) {
 
 void PipelineManager::setFB2DelayTime(int frames) {
     fb2DelayTime = ofClamp(frames, 1, DelayBuffer::MAX_FRAMES - 1);
+}
+
+void PipelineManager::updateModulations(float deltaTime) {
+    if (!audioAnalyzer && !tempoManager) return;
+    
+    // Update audio analyzer
+    if (audioAnalyzer) {
+        audioAnalyzer->update();
+    }
+    
+    // Update tempo manager
+    if (tempoManager) {
+        tempoManager->update(deltaTime);
+    }
+    
+    // Create dummy objects if not available (modulation will be 0)
+    static AudioAnalyzer dummyAudio;
+    static TempoManager dummyTempo;
+    const AudioAnalyzer& audio = audioAnalyzer ? *audioAnalyzer : dummyAudio;
+    const TempoManager& tempo = tempoManager ? *tempoManager : dummyTempo;
+    
+    // Apply modulations to Block1 parameters
+    block1.applyModulations(audio, tempo, deltaTime);
+    
+    // Apply modulations to Block2 parameters
+    block2.applyModulations(audio, tempo, deltaTime);
+    
+    // Apply modulations to Block3 parameters
+    block3.applyModulations(audio, tempo, deltaTime);
+}
+
+float PipelineManager::getModulatedValue(int blockNum, const std::string& paramName) const {
+    switch (blockNum) {
+        case 1: return block1.getModulatedValue(paramName);
+        case 2: return block2.getModulatedValue(paramName);
+        case 3: default: return block3.getModulatedValue(paramName);
+    }
 }
 
 } // namespace dragonwaves

@@ -21,6 +21,8 @@
 #include "ShaderPipeline/PipelineManager.h"
 #include "Output/OutputManager.h"
 #include "Geometry/GeometryRenderer.h"
+#include "Audio/AudioAnalyzer.h"
+#include "Tempo/TempoManager.h"
 
 class ofApp : public ofBaseApp{
 
@@ -74,6 +76,18 @@ class ofApp : public ofBaseApp{
 		bool processOscLfoParamsBlock3B2AndMatrix(const string& address, float value);
 		bool processOscResetCommands(const string& address);
 		bool processOscPresetCommands(const string& address, const ofxOscMessage& m);
+		bool processOscAudioParams(const string& address, float value);
+		bool processOscTempoParams(const string& address, float value);
+		
+		// Register Audio and Tempo OSC parameters
+		void registerAudioTempoOscParams();
+		
+		// Apply audio/BPM modulations from GUI to Block3Shader
+		void applyAudioModulationToParam(int blockNum, const std::string& paramName, bool enabled, int fftBand, float amount, float rangeScale = 1.0f);
+		void applyBpmModulationToParam(const std::string& paramName, bool enabled, int division, int waveform, float phase, float minVal, float maxVal);
+		
+		// Get modulated value for GUI visual feedback
+		float getModulatedValue(int blockNum, const std::string& paramName) const;
 
 	//globals
 	// Input resolutions
@@ -619,6 +633,10 @@ class ofApp : public ofBaseApp{
 	std::unique_ptr<dragonwaves::PipelineManager> pipeline;
 	std::unique_ptr<dragonwaves::OutputManager> outputManager;
 	std::unique_ptr<dragonwaves::GeometryManager> geometryManager;
+	
+	// Audio and Tempo
+	std::unique_ptr<dragonwaves::AudioAnalyzer> audioAnalyzer;
+	std::unique_ptr<dragonwaves::TempoManager> tempoManager;
 	
 	// Modular system helpers
 	void syncGuiToPipeline();
