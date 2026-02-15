@@ -24,6 +24,59 @@
 
 #include "iostream"
 
+// ============== LFO TEMPO SYNC ==============
+// Beat division names for dropdown: 1/16, 1/8, 1/4, 1/2, 1, 2, 4, 8 beats
+const char* GuiApp::beatDivisionNames[8] = {"1/16", "1/8", "1/4", "1/2", "1", "2", "4", "8"};
+
+// Helper function to draw LFO rate slider with sync toggle
+bool GuiApp::drawLfoRateWithSync(const char* label, float* rateValue, bool* syncEnabled, int* divisionIndex, const char* oscAddress) {
+	bool changed = false;
+	const float CONTROL_WIDTH = 200.0f;  // Fixed width for both modes
+	
+	// Sync toggle button
+	ImGui::PushStyleColor(ImGuiCol_Button, *syncEnabled ? IM_COL32(0, 200, 100, 255) : IM_COL32(80, 80, 80, 255));
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, *syncEnabled ? IM_COL32(0, 230, 120, 255) : IM_COL32(100, 100, 100, 255));
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, *syncEnabled ? IM_COL32(0, 180, 90, 255) : IM_COL32(120, 120, 120, 255));
+	
+	char syncLabel[64];
+	snprintf(syncLabel, sizeof(syncLabel), "%s##sync", *syncEnabled ? "SYNC" : "FREE");
+	
+	if (ImGui::Button(syncLabel, ImVec2(45, 0))) {
+		*syncEnabled = !(*syncEnabled);
+		changed = true;
+	}
+	ImGui::PopStyleColor(3);
+	
+	if (ImGui::IsItemHovered()) {
+		ImGui::SetTooltip(*syncEnabled ? "Tempo Sync: ON (click for FREE)" : "Tempo Sync: OFF (click for SYNC)");
+	}
+	
+	ImGui::SameLine();
+	
+	// Use consistent width for both modes to prevent layout shifting
+	ImGui::SetNextItemWidth(CONTROL_WIDTH);
+	
+	if (*syncEnabled) {
+		// Show division dropdown when sync is enabled
+		if (ImGui::Combo(label, divisionIndex, beatDivisionNames, 8)) {
+			changed = true;
+		}
+		// Store division as rate value (for saving/loading)
+		// Map 0-7 to normalized 0-1 range
+		*rateValue = (*divisionIndex) / 7.0f;
+	} else {
+		// Show rate slider when sync is disabled
+		if (ImGui::SliderFloat(label, rateValue, -1.0f, 1.0f)) {
+			changed = true;
+			if (mainApp && oscAddress) {
+				mainApp->sendOscParameter(oscAddress, *rateValue);
+			}
+		}
+	}
+	
+	return changed;
+}
+
 #define MIDI_MAGIC 63.50f
 #define PARAMETER_THRESHOLD .035f
 
@@ -75,6 +128,60 @@ void GuiApp::setup(){
 	// Initialize OSC settings
 	updateLocalIP();
 	allArrayClear();
+	
+	// Initialize LFO sync arrays to false (disabled by default)
+	for (int i = 0; i < PARAMETER_ARRAY_LENGTH; i++) {
+		ch1AdjustLfoSync[i] = false;
+		ch1AdjustLfoDivision[i] = 2; // Default to 1/4
+		ch2MixAndKeyLfoSync[i] = false;
+		ch2MixAndKeyLfoDivision[i] = 2;
+		ch2AdjustLfoSync[i] = false;
+		ch2AdjustLfoDivision[i] = 2;
+		fb1MixAndKeyLfoSync[i] = false;
+		fb1MixAndKeyLfoDivision[i] = 2;
+		fb1Geo1Lfo1Sync[i] = false;
+		fb1Geo1Lfo1Division[i] = 2;
+		fb1Geo1Lfo2Sync[i] = false;
+		fb1Geo1Lfo2Division[i] = 2;
+		fb1Color1Lfo1Sync[i] = false;
+		fb1Color1Lfo1Division[i] = 2;
+		block2InputAdjustLfoSync[i] = false;
+		block2InputAdjustLfoDivision[i] = 2;
+		fb2MixAndKeyLfoSync[i] = false;
+		fb2MixAndKeyLfoDivision[i] = 2;
+		fb2Geo1Lfo1Sync[i] = false;
+		fb2Geo1Lfo1Division[i] = 2;
+		fb2Geo1Lfo2Sync[i] = false;
+		fb2Geo1Lfo2Division[i] = 2;
+		fb2Color1Lfo1Sync[i] = false;
+		fb2Color1Lfo1Division[i] = 2;
+		block1Geo1Lfo1Sync[i] = false;
+		block1Geo1Lfo1Division[i] = 2;
+		block1Geo1Lfo2Sync[i] = false;
+		block1Geo1Lfo2Division[i] = 2;
+		block1ColorizeLfo1Sync[i] = false;
+		block1ColorizeLfo1Division[i] = 2;
+		block1ColorizeLfo2Sync[i] = false;
+		block1ColorizeLfo2Division[i] = 2;
+		block1ColorizeLfo3Sync[i] = false;
+		block1ColorizeLfo3Division[i] = 2;
+		block2Geo1Lfo1Sync[i] = false;
+		block2Geo1Lfo1Division[i] = 2;
+		block2Geo1Lfo2Sync[i] = false;
+		block2Geo1Lfo2Division[i] = 2;
+		block2ColorizeLfo1Sync[i] = false;
+		block2ColorizeLfo1Division[i] = 2;
+		block2ColorizeLfo2Sync[i] = false;
+		block2ColorizeLfo2Division[i] = 2;
+		block2ColorizeLfo3Sync[i] = false;
+		block2ColorizeLfo3Division[i] = 2;
+		matrixMixLfo1Sync[i] = false;
+		matrixMixLfo1Division[i] = 2;
+		matrixMixLfo2Sync[i] = false;
+		matrixMixLfo2Division[i] = 2;
+		finalMixAndKeyLfoSync[i] = false;
+		finalMixAndKeyLfoDivision[i] = 2;
+	}
 
 	//lets do the buffering of a save state in the setup so we just have one on tap at all times
 	//but we might want to change this later to only happen as a one shot when called
@@ -1698,8 +1805,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("x <-> a      ##ch1", &ch1AdjustLfo[0], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/xDisplaceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x <-> r      ##ch1", &ch1AdjustLfo[1], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/xDisplaceRate");
+								drawLfoRateWithSync("x <-> r      ##ch1", &ch1AdjustLfo[1], &ch1AdjustLfoSync[1], &ch1AdjustLfoDivision[1], "/gravity/block1/ch1/lfo/xDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch1xShape", &ch1AdjustLfoShape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1710,8 +1816,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("y <-> a      ##ch1", &ch1AdjustLfo[2], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/yDisplaceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y <-> r      ##ch1", &ch1AdjustLfo[3], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/yDisplaceRate");
+								drawLfoRateWithSync("y <-> r      ##ch1", &ch1AdjustLfo[3], &ch1AdjustLfoSync[3], &ch1AdjustLfoDivision[3], "/gravity/block1/ch1/lfo/yDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch1yShape", &ch1AdjustLfoShape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1722,8 +1827,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("z <-> a      ##ch1", &ch1AdjustLfo[4], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/zDisplaceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("z <-> r      ##ch1", &ch1AdjustLfo[5], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/zDisplaceRate");
+								drawLfoRateWithSync("z <-> r      ##ch1", &ch1AdjustLfo[5], &ch1AdjustLfoSync[5], &ch1AdjustLfoDivision[5], "/gravity/block1/ch1/lfo/zDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch1zShape", &ch1AdjustLfoShape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1734,8 +1838,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("rotate <-> a ##ch1", &ch1AdjustLfo[6], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/rotateAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("rotate <-> r ##ch1", &ch1AdjustLfo[7], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/rotateRate");
+								drawLfoRateWithSync("rotate <-> r ##ch1", &ch1AdjustLfo[7], &ch1AdjustLfoSync[7], &ch1AdjustLfoDivision[7], "/gravity/block1/ch1/lfo/rotateRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch1rotateShape", &ch1AdjustLfoShape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1746,8 +1849,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("hue ^^ a     ##ch1", &ch1AdjustLfo[8], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/hueOffsetAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("hue ^^ r     ##ch1", &ch1AdjustLfo[9], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/hueOffsetRate");
+								drawLfoRateWithSync("hue ^^ r     ##ch1", &ch1AdjustLfo[9], &ch1AdjustLfoSync[9], &ch1AdjustLfoDivision[9], "/gravity/block1/ch1/lfo/hueOffsetRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch1hueShape", &ch1AdjustLfoShape[4], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1758,8 +1860,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("sat ^^ a     ##ch1", &ch1AdjustLfo[10], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/saturationOffsetAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("sat ^^ r     ##ch1", &ch1AdjustLfo[11], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/saturationOffsetRate");
+								drawLfoRateWithSync("sat ^^ r     ##ch1", &ch1AdjustLfo[11], &ch1AdjustLfoSync[11], &ch1AdjustLfoDivision[11], "/gravity/block1/ch1/lfo/saturationOffsetRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch1satShape", &ch1AdjustLfoShape[5], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1770,8 +1871,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("bri ^^ a     ##ch1", &ch1AdjustLfo[12], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/brightOffsetAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("bri ^^ r     ##ch1", &ch1AdjustLfo[13], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/brightOffsetRate");
+								drawLfoRateWithSync("bri ^^ r     ##ch1", &ch1AdjustLfo[13], &ch1AdjustLfoSync[13], &ch1AdjustLfoDivision[13], "/gravity/block1/ch1/lfo/brightOffsetRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch1briShape", &ch1AdjustLfoShape[6], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1783,8 +1883,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("kaleid sli a ##ch1", &ch1AdjustLfo[14], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/kaleidoscopeSliceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("kaleid sli r ##ch1", &ch1AdjustLfo[15], -1.0f, 1.0f, "/gravity/block1/ch1/lfo/kaleidoscopeSliceRate");
+								drawLfoRateWithSync("kaleid sli r ##ch1", &ch1AdjustLfo[15], &ch1AdjustLfoSync[15], &ch1AdjustLfoDivision[15], "/gravity/block1/ch1/lfo/kaleidoscopeSliceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch1kaleidShape", &ch1AdjustLfoShape[7], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1830,8 +1929,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("mix a       ##ch2", &ch2MixAndKeyLfo[0],-1.0,1.0, "/gravity/block1/ch2/lfo/mixAmountAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("mix r       ##ch2", &ch2MixAndKeyLfo[1],-1.0,1.0, "/gravity/block1/ch2/lfo/mixAmountRate");
+								drawLfoRateWithSync("mix r       ##ch2", &ch2MixAndKeyLfo[1], &ch2MixAndKeyLfoSync[1], &ch2MixAndKeyLfoDivision[1], "/gravity/block1/ch2/lfo/mixAmountRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2mixShape", &ch2MixAndKeyLfoShape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1841,8 +1939,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("ky thresh a ##ch2", &ch2MixAndKeyLfo[2],-1.0,1.0, "/gravity/block1/ch2/lfo/keyThresholdAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("ky thresh r ##ch2", &ch2MixAndKeyLfo[3],-1.0,1.0, "/gravity/block1/ch2/lfo/keyThresholdRate");
+								drawLfoRateWithSync("ky thresh r ##ch2", &ch2MixAndKeyLfo[3], &ch2MixAndKeyLfoSync[3], &ch2MixAndKeyLfoDivision[3], "/gravity/block1/ch2/lfo/keyThresholdRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2keyThreshShape", &ch2MixAndKeyLfoShape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1852,8 +1949,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("ky soft a   ##ch2", &ch2MixAndKeyLfo[4],-1.0,1.0, "/gravity/block1/ch2/lfo/keySoftAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("ky soft r   ##ch2", &ch2MixAndKeyLfo[5],-1.0,1.0, "/gravity/block1/ch2/lfo/keySoftRate");
+								drawLfoRateWithSync("ky soft r   ##ch2", &ch2MixAndKeyLfo[5], &ch2MixAndKeyLfoSync[5], &ch2MixAndKeyLfoDivision[5], "/gravity/block1/ch2/lfo/keySoftRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2keySoftShape", &ch2MixAndKeyLfoShape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1902,8 +1998,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("x <-> a      ##ch2", &ch2AdjustLfo[0], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/xDisplaceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x <-> r      ##ch2", &ch2AdjustLfo[1], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/xDisplaceRate");
+								drawLfoRateWithSync("x <-> r      ##ch2", &ch2AdjustLfo[1], &ch2AdjustLfoSync[1], &ch2AdjustLfoDivision[1], "/gravity/block1/ch2/lfo/xDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2xShape", &ch2AdjustLfoShape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1914,8 +2009,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("y <-> a      ##ch2", &ch2AdjustLfo[2], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/yDisplaceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y <-> r      ##ch2", &ch2AdjustLfo[3], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/yDisplaceRate");
+								drawLfoRateWithSync("y <-> r      ##ch2", &ch2AdjustLfo[3], &ch2AdjustLfoSync[3], &ch2AdjustLfoDivision[3], "/gravity/block1/ch2/lfo/yDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2yShape", &ch2AdjustLfoShape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1926,8 +2020,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("z <-> a      ##ch2", &ch2AdjustLfo[4], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/zDisplaceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("z <-> r      ##ch2", &ch2AdjustLfo[5], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/zDisplaceRate");
+								drawLfoRateWithSync("z <-> r      ##ch2", &ch2AdjustLfo[5], &ch2AdjustLfoSync[5], &ch2AdjustLfoDivision[5], "/gravity/block1/ch2/lfo/zDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2zShape", &ch2AdjustLfoShape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1938,8 +2031,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("rotate <-> a ##ch2", &ch2AdjustLfo[6], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/rotateAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("rotate <-> r ##ch2", &ch2AdjustLfo[7], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/rotateRate");
+								drawLfoRateWithSync("rotate <-> r ##ch2", &ch2AdjustLfo[7], &ch2AdjustLfoSync[7], &ch2AdjustLfoDivision[7], "/gravity/block1/ch2/lfo/rotateRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2rotateShape", &ch2AdjustLfoShape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1949,8 +2041,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("hue ^^ a     ##ch2", &ch2AdjustLfo[8], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/hueOffsetAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("hue ^^ r     ##ch2", &ch2AdjustLfo[9], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/hueOffsetRate");
+								drawLfoRateWithSync("hue ^^ r     ##ch2", &ch2AdjustLfo[9], &ch2AdjustLfoSync[9], &ch2AdjustLfoDivision[9], "/gravity/block1/ch2/lfo/hueOffsetRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2hueShape", &ch2AdjustLfoShape[4], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1961,8 +2052,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("sat ^^ a     ##ch2", &ch2AdjustLfo[10], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/saturationOffsetAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("sat ^^ r     ##ch2", &ch2AdjustLfo[11], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/saturationOffsetRate");
+								drawLfoRateWithSync("sat ^^ r     ##ch2", &ch2AdjustLfo[11], &ch2AdjustLfoSync[11], &ch2AdjustLfoDivision[11], "/gravity/block1/ch2/lfo/saturationOffsetRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2satShape", &ch2AdjustLfoShape[5], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1973,8 +2063,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("bri ^^ a     ##ch2", &ch2AdjustLfo[12], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/brightOffsetAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("bri ^^ r     ##ch2", &ch2AdjustLfo[13], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/brightOffsetRate");
+								drawLfoRateWithSync("bri ^^ r     ##ch2", &ch2AdjustLfo[13], &ch2AdjustLfoSync[13], &ch2AdjustLfoDivision[13], "/gravity/block1/ch2/lfo/brightOffsetRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2briShape", &ch2AdjustLfoShape[6], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -1987,8 +2076,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("kaleid sli a ##ch2", &ch2AdjustLfo[14], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/kaleidoscopeSliceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("kaleid sli r ##ch2", &ch2AdjustLfo[15], -1.0f, 1.0f, "/gravity/block1/ch2/lfo/kaleidoscopeSliceRate");
+								drawLfoRateWithSync("kaleid sli r ##ch2", &ch2AdjustLfo[15], &ch2AdjustLfoSync[15], &ch2AdjustLfoDivision[15], "/gravity/block1/ch2/lfo/kaleidoscopeSliceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##ch2kaleidShape", &ch2AdjustLfoShape[7], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2364,19 +2452,19 @@ void GuiApp::draw(){
 											ImGui::Separator();
 											ImGui::Text("X Freq LFO");
 											ImGuiSliderFloatOSC("amp ##xfreqlfo1", &lissajous1XFreqLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/xFreqAmp");
-											ImGuiSliderFloatOSC("rate##xfreqlfo1", &lissajous1XFreqLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/xFreqRate");
+											drawLfoRateWithSync("rate##xfreqlfo1", &lissajous1XFreqLfoRate, &lissajous1XFreqLfoSync, &lissajous1XFreqLfoDivision, "/gravity/block1/fb1/lissajous/lfo/xFreqRate");
 											if (ImGui::Combo("shape##xfreqlfo1", &lissajous1XFreqLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/xFreqShape", static_cast<float>(lissajous1XFreqLfoShape));
 											}
 											ImGui::Text("X Amp LFO");
 											ImGuiSliderFloatOSC("amp ##xamplfo1", &lissajous1XAmpLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/xAmpAmp");
-											ImGuiSliderFloatOSC("rate##xamplfo1", &lissajous1XAmpLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/xAmpRate");
+											drawLfoRateWithSync("rate##xamplfo1", &lissajous1XAmpLfoRate, &lissajous1XAmpLfoSync, &lissajous1XAmpLfoDivision, "/gravity/block1/fb1/lissajous/lfo/xAmpRate");
 											if (ImGui::Combo("shape##xamplfo1", &lissajous1XAmpLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/xAmpShape", static_cast<float>(lissajous1XAmpLfoShape));
 											}
 											ImGui::Text("X Phase LFO");
 											ImGuiSliderFloatOSC("amp ##xphaselfo1", &lissajous1XPhaseLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/xPhaseAmp");
-											ImGuiSliderFloatOSC("rate##xphaselfo1", &lissajous1XPhaseLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/xPhaseRate");
+											drawLfoRateWithSync("rate##xphaselfo1", &lissajous1XPhaseLfoRate, &lissajous1XPhaseLfoSync, &lissajous1XPhaseLfoDivision, "/gravity/block1/fb1/lissajous/lfo/xPhaseRate");
 											if (ImGui::Combo("shape##xphaselfo1", &lissajous1XPhaseLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/xPhaseShape", static_cast<float>(lissajous1XPhaseLfoShape));
 											}
@@ -2394,19 +2482,19 @@ void GuiApp::draw(){
 											ImGui::Separator();
 											ImGui::Text("Y Freq LFO");
 											ImGuiSliderFloatOSC("amp ##yfreqlfo1", &lissajous1YFreqLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/yFreqAmp");
-											ImGuiSliderFloatOSC("rate##yfreqlfo1", &lissajous1YFreqLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/yFreqRate");
+											drawLfoRateWithSync("rate##yfreqlfo1", &lissajous1YFreqLfoRate, &lissajous1YFreqLfoSync, &lissajous1YFreqLfoDivision, "/gravity/block1/fb1/lissajous/lfo/yFreqRate");
 											if (ImGui::Combo("shape##yfreqlfo1", &lissajous1YFreqLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/yFreqShape", static_cast<float>(lissajous1YFreqLfoShape));
 											}
 											ImGui::Text("Y Amp LFO");
 											ImGuiSliderFloatOSC("amp ##yamplfo1", &lissajous1YAmpLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/yAmpAmp");
-											ImGuiSliderFloatOSC("rate##yamplfo1", &lissajous1YAmpLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/yAmpRate");
+											drawLfoRateWithSync("rate##yamplfo1", &lissajous1YAmpLfoRate, &lissajous1YAmpLfoSync, &lissajous1YAmpLfoDivision, "/gravity/block1/fb1/lissajous/lfo/yAmpRate");
 											if (ImGui::Combo("shape##yamplfo1", &lissajous1YAmpLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/yAmpShape", static_cast<float>(lissajous1YAmpLfoShape));
 											}
 											ImGui::Text("Y Phase LFO");
 											ImGuiSliderFloatOSC("amp ##yphaselfo1", &lissajous1YPhaseLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/yPhaseAmp");
-											ImGuiSliderFloatOSC("rate##yphaselfo1", &lissajous1YPhaseLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/yPhaseRate");
+											drawLfoRateWithSync("rate##yphaselfo1", &lissajous1YPhaseLfoRate, &lissajous1YPhaseLfoSync, &lissajous1YPhaseLfoDivision, "/gravity/block1/fb1/lissajous/lfo/yPhaseRate");
 											if (ImGui::Combo("shape##yphaselfo1", &lissajous1YPhaseLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/yPhaseShape", static_cast<float>(lissajous1YPhaseLfoShape));
 											}
@@ -2424,19 +2512,19 @@ void GuiApp::draw(){
 											ImGui::Separator();
 											ImGui::Text("Z Freq LFO");
 											ImGuiSliderFloatOSC("amp ##zfreqlfo1", &lissajous1ZFreqLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/zFreqAmp");
-											ImGuiSliderFloatOSC("rate##zfreqlfo1", &lissajous1ZFreqLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/zFreqRate");
+											drawLfoRateWithSync("rate##zfreqlfo1", &lissajous1ZFreqLfoRate, &lissajous1ZFreqLfoSync, &lissajous1ZFreqLfoDivision, "/gravity/block1/fb1/lissajous/lfo/zFreqRate");
 											if (ImGui::Combo("shape##zfreqlfo1", &lissajous1ZFreqLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/zFreqShape", static_cast<float>(lissajous1ZFreqLfoShape));
 											}
 											ImGui::Text("Z Amp LFO");
 											ImGuiSliderFloatOSC("amp ##zamplfo1", &lissajous1ZAmpLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/zAmpAmp");
-											ImGuiSliderFloatOSC("rate##zamplfo1", &lissajous1ZAmpLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/zAmpRate");
+											drawLfoRateWithSync("rate##zamplfo1", &lissajous1ZAmpLfoRate, &lissajous1ZAmpLfoSync, &lissajous1ZAmpLfoDivision, "/gravity/block1/fb1/lissajous/lfo/zAmpRate");
 											if (ImGui::Combo("shape##zamplfo1", &lissajous1ZAmpLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/zAmpShape", static_cast<float>(lissajous1ZAmpLfoShape));
 											}
 											ImGui::Text("Z Phase LFO");
 											ImGuiSliderFloatOSC("amp ##zphaselfo1", &lissajous1ZPhaseLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/zPhaseAmp");
-											ImGuiSliderFloatOSC("rate##zphaselfo1", &lissajous1ZPhaseLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/zPhaseRate");
+											drawLfoRateWithSync("rate##zphaselfo1", &lissajous1ZPhaseLfoRate, &lissajous1ZPhaseLfoSync, &lissajous1ZPhaseLfoDivision, "/gravity/block1/fb1/lissajous/lfo/zPhaseRate");
 											if (ImGui::Combo("shape##zphaselfo1", &lissajous1ZPhaseLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/zPhaseShape", static_cast<float>(lissajous1ZPhaseLfoShape));
 											}
@@ -2450,13 +2538,13 @@ void GuiApp::draw(){
 											ImGui::Separator();
 											ImGui::Text("X Offset LFO");
 											ImGuiSliderFloatOSC("amp ##xofflfo1", &lissajous1XOffsetLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/xOffsetAmp");
-											ImGuiSliderFloatOSC("rate##xofflfo1", &lissajous1XOffsetLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/xOffsetRate");
+											drawLfoRateWithSync("rate##xofflfo1", &lissajous1XOffsetLfoRate, &lissajous1XOffsetLfoSync, &lissajous1XOffsetLfoDivision, "/gravity/block1/fb1/lissajous/lfo/xOffsetRate");
 											if (ImGui::Combo("shape##xofflfo1", &lissajous1XOffsetLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/xOffsetShape", static_cast<float>(lissajous1XOffsetLfoShape));
 											}
 											ImGui::Text("Y Offset LFO");
 											ImGuiSliderFloatOSC("amp ##yofflfo1", &lissajous1YOffsetLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/yOffsetAmp");
-											ImGuiSliderFloatOSC("rate##yofflfo1", &lissajous1YOffsetLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/yOffsetRate");
+											drawLfoRateWithSync("rate##yofflfo1", &lissajous1YOffsetLfoRate, &lissajous1YOffsetLfoSync, &lissajous1YOffsetLfoDivision, "/gravity/block1/fb1/lissajous/lfo/yOffsetRate");
 											if (ImGui::Combo("shape##yofflfo1", &lissajous1YOffsetLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/yOffsetShape", static_cast<float>(lissajous1YOffsetLfoShape));
 											}
@@ -2475,43 +2563,43 @@ void GuiApp::draw(){
 											ImGui::Separator();
 											ImGui::Text("Speed LFO");
 											ImGuiSliderFloatOSC("amp ##speedlfo1", &lissajous1SpeedLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/speedAmp");
-											ImGuiSliderFloatOSC("rate##speedlfo1", &lissajous1SpeedLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/speedRate");
+											drawLfoRateWithSync("rate##speedlfo1", &lissajous1SpeedLfoRate, &lissajous1SpeedLfoSync, &lissajous1SpeedLfoDivision, "/gravity/block1/fb1/lissajous/lfo/speedRate");
 											if (ImGui::Combo("shape##speedlfo1", &lissajous1SpeedLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/speedShape", static_cast<float>(lissajous1SpeedLfoShape));
 											}
 											ImGui::Text("Size LFO");
 											ImGuiSliderFloatOSC("amp ##sizelfo1", &lissajous1SizeLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/sizeAmp");
-											ImGuiSliderFloatOSC("rate##sizelfo1", &lissajous1SizeLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/sizeRate");
+											drawLfoRateWithSync("rate##sizelfo1", &lissajous1SizeLfoRate, &lissajous1SizeLfoSync, &lissajous1SizeLfoDivision, "/gravity/block1/fb1/lissajous/lfo/sizeRate");
 											if (ImGui::Combo("shape##sizelfo1", &lissajous1SizeLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/sizeShape", static_cast<float>(lissajous1SizeLfoShape));
 											}
 											ImGui::Text("NumPoints LFO");
 											ImGuiSliderFloatOSC("amp ##pointslfo1", &lissajous1NumPointsLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/numPointsAmp");
-											ImGuiSliderFloatOSC("rate##pointslfo1", &lissajous1NumPointsLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/numPointsRate");
+											drawLfoRateWithSync("rate##pointslfo1", &lissajous1NumPointsLfoRate, &lissajous1NumPointsLfoSync, &lissajous1NumPointsLfoDivision, "/gravity/block1/fb1/lissajous/lfo/numPointsRate");
 											if (ImGui::Combo("shape##pointslfo1", &lissajous1NumPointsLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/numPointsShape", static_cast<float>(lissajous1NumPointsLfoShape));
 											}
 											ImGui::Text("LineWidth LFO");
 											ImGuiSliderFloatOSC("amp ##linewidthlfo1", &lissajous1LineWidthLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/lineWidthAmp");
-											ImGuiSliderFloatOSC("rate##linewidthlfo1", &lissajous1LineWidthLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/lineWidthRate");
+											drawLfoRateWithSync("rate##linewidthlfo1", &lissajous1LineWidthLfoRate, &lissajous1LineWidthLfoSync, &lissajous1LineWidthLfoDivision, "/gravity/block1/fb1/lissajous/lfo/lineWidthRate");
 											if (ImGui::Combo("shape##linewidthlfo1", &lissajous1LineWidthLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/lineWidthShape", static_cast<float>(lissajous1LineWidthLfoShape));
 											}
 											ImGui::Text("ColorSpeed LFO");
 											ImGuiSliderFloatOSC("amp ##colorspdlfo1", &lissajous1ColorSpeedLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/colorSpeedAmp");
-											ImGuiSliderFloatOSC("rate##colorspdlfo1", &lissajous1ColorSpeedLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/colorSpeedRate");
+											drawLfoRateWithSync("rate##colorspdlfo1", &lissajous1ColorSpeedLfoRate, &lissajous1ColorSpeedLfoSync, &lissajous1ColorSpeedLfoDivision, "/gravity/block1/fb1/lissajous/lfo/colorSpeedRate");
 											if (ImGui::Combo("shape##colorspdlfo1", &lissajous1ColorSpeedLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/colorSpeedShape", static_cast<float>(lissajous1ColorSpeedLfoShape));
 											}
 											ImGui::Text("Hue LFO");
 											ImGuiSliderFloatOSC("amp ##huelfo1", &lissajous1HueLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/hueAmp");
-											ImGuiSliderFloatOSC("rate##huelfo1", &lissajous1HueLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/hueRate");
+											drawLfoRateWithSync("rate##huelfo1", &lissajous1HueLfoRate, &lissajous1HueLfoSync, &lissajous1HueLfoDivision, "/gravity/block1/fb1/lissajous/lfo/hueRate");
 											if (ImGui::Combo("shape##huelfo1", &lissajous1HueLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/hueShape", static_cast<float>(lissajous1HueLfoShape));
 											}
 											ImGui::Text("HueSpread LFO");
 											ImGuiSliderFloatOSC("amp ##huespreadlfo1", &lissajous1HueSpreadLfoAmp, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/hueSpreadAmp");
-											ImGuiSliderFloatOSC("rate##huespreadlfo1", &lissajous1HueSpreadLfoRate, 0.0, 1.0, "/gravity/block1/fb1/lissajous/lfo/hueSpreadRate");
+											drawLfoRateWithSync("rate##huespreadlfo1", &lissajous1HueSpreadLfoRate, &lissajous1HueSpreadLfoSync, &lissajous1HueSpreadLfoDivision, "/gravity/block1/fb1/lissajous/lfo/hueSpreadRate");
 											if (ImGui::Combo("shape##huespreadlfo1", &lissajous1HueSpreadLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block1/fb1/lissajous/lfo/hueSpreadShape", static_cast<float>(lissajous1HueSpreadLfoShape));
 											}
@@ -2565,8 +2653,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("mix a       ##fb1", &fb1MixAndKeyLfo[0],-1.0,1.0, "/gravity/block1/fb1/lfo/mixAmountAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("mix r       ##fb1", &fb1MixAndKeyLfo[1],-1.0,1.0, "/gravity/block1/fb1/lfo/mixAmountRate");
+								drawLfoRateWithSync("mix r       ##fb1", &fb1MixAndKeyLfo[1], &fb1MixAndKeyLfoSync[1], &fb1MixAndKeyLfoDivision[1], "/gravity/block1/fb1/lfo/mixAmountRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1mixShape", &fb1MixAndKeyLfoShape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2576,8 +2663,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("ky thresh a ##fb1", &fb1MixAndKeyLfo[2],-1.0,1.0, "/gravity/block1/fb1/lfo/keyThresholdAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("ky thresh r ##fb1", &fb1MixAndKeyLfo[3],-1.0,1.0, "/gravity/block1/fb1/lfo/keyThresholdRate");
+								drawLfoRateWithSync("ky thresh r ##fb1", &fb1MixAndKeyLfo[3], &fb1MixAndKeyLfoSync[3], &fb1MixAndKeyLfoDivision[3], "/gravity/block1/fb1/lfo/keyThresholdRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1keyThreshShape", &fb1MixAndKeyLfoShape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2587,8 +2673,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("ky soft a   ##fb1", &fb1MixAndKeyLfo[4],-1.0,1.0, "/gravity/block1/fb1/lfo/keySoftAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("ky soft r   ##fb1", &fb1MixAndKeyLfo[5],-1.0,1.0, "/gravity/block1/fb1/lfo/keySoftRate");
+								drawLfoRateWithSync("ky soft r   ##fb1", &fb1MixAndKeyLfo[5], &fb1MixAndKeyLfoSync[5], &fb1MixAndKeyLfoDivision[5], "/gravity/block1/fb1/lfo/keySoftRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1keySoftShape", &fb1MixAndKeyLfoShape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2636,8 +2721,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("x <-> a      ##fb1Lfo", &fb1Geo1Lfo1[0],-1.0,1.0, "/gravity/block1/fb1/lfo/xDisplaceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x <-> r      ##fb1Lfo", &fb1Geo1Lfo1[1],-1.0,1.0, "/gravity/block1/fb1/lfo/xDisplaceRate");
+								drawLfoRateWithSync("x <-> r      ##fb1Lfo", &fb1Geo1Lfo1[1], &fb1Geo1Lfo1Sync[1], &fb1Geo1Lfo1Division[1], "/gravity/block1/fb1/lfo/xDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1xShape", &fb1Geo1Lfo1Shape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2647,8 +2731,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("y <-> a      ##fb1Lfo", &fb1Geo1Lfo1[2],-1.0,1.0, "/gravity/block1/fb1/lfo/yDisplaceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y <-> r      ##fb1Lfo", &fb1Geo1Lfo1[3],-1.0,1.0, "/gravity/block1/fb1/lfo/yDisplaceRate");
+								drawLfoRateWithSync("y <-> r      ##fb1Lfo", &fb1Geo1Lfo1[3], &fb1Geo1Lfo1Sync[3], &fb1Geo1Lfo1Division[3], "/gravity/block1/fb1/lfo/yDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1yShape", &fb1Geo1Lfo1Shape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2658,8 +2741,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("z <-> a      ##fb1Lfo", &fb1Geo1Lfo1[4],-1.0,1.0, "/gravity/block1/fb1/lfo/zDisplaceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("z <-> r      ##fb1Lfo", &fb1Geo1Lfo1[5],-1.0,1.0, "/gravity/block1/fb1/lfo/zDisplaceRate");
+								drawLfoRateWithSync("z <-> r      ##fb1Lfo", &fb1Geo1Lfo1[5], &fb1Geo1Lfo1Sync[5], &fb1Geo1Lfo1Division[5], "/gravity/block1/fb1/lfo/zDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1zShape", &fb1Geo1Lfo1Shape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2669,8 +2751,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("rotate <-> a ##fb1Lfo", &fb1Geo1Lfo1[6],-1.0,1.0, "/gravity/block1/fb1/lfo/rotateAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("rotate <-> r ##fb1Lfo", &fb1Geo1Lfo1[7],-1.0,1.0, "/gravity/block1/fb1/lfo/rotateRate");
+								drawLfoRateWithSync("rotate <-> r ##fb1Lfo", &fb1Geo1Lfo1[7], &fb1Geo1Lfo1Sync[7], &fb1Geo1Lfo1Division[7], "/gravity/block1/fb1/lfo/rotateRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1rotateShape", &fb1Geo1Lfo1Shape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2717,8 +2798,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("x stretch a  ##fb1lfo", &fb1Geo1Lfo2[0],-1.0,1.0, "/gravity/block1/fb1/lfo/xStretchAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x stretch r  ##fb1lfo", &fb1Geo1Lfo2[1],-1.0,1.0, "/gravity/block1/fb1/lfo/xStretchRate");
+								drawLfoRateWithSync("x stretch r  ##fb1lfo", &fb1Geo1Lfo2[1], &fb1Geo1Lfo2Sync[1], &fb1Geo1Lfo2Division[1], "/gravity/block1/fb1/lfo/xStretchRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1xStretchShape", &fb1Geo1Lfo2Shape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2728,8 +2808,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("y stretch a  ##fb1lfo", &fb1Geo1Lfo2[2],-1.0,1.0, "/gravity/block1/fb1/lfo/yStretchAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y stretch r  ##fb1lfo", &fb1Geo1Lfo2[3],-1.0,1.0, "/gravity/block1/fb1/lfo/yStretchRate");
+								drawLfoRateWithSync("y stretch r  ##fb1lfo", &fb1Geo1Lfo2[3], &fb1Geo1Lfo2Sync[3], &fb1Geo1Lfo2Division[3], "/gravity/block1/fb1/lfo/yStretchRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1yStretchShape", &fb1Geo1Lfo2Shape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2739,8 +2818,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("x shear a    ##fb1lfo", &fb1Geo1Lfo2[4],-1.0,1.0, "/gravity/block1/fb1/lfo/xShearAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x shear r    ##fb1lfo", &fb1Geo1Lfo2[5],-1.0,1.0, "/gravity/block1/fb1/lfo/xShearRate");
+								drawLfoRateWithSync("x shear r    ##fb1lfo", &fb1Geo1Lfo2[5], &fb1Geo1Lfo2Sync[5], &fb1Geo1Lfo2Division[5], "/gravity/block1/fb1/lfo/xShearRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1xShearShape", &fb1Geo1Lfo2Shape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2750,8 +2828,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("y shear a    ##fb1lfo", &fb1Geo1Lfo2[6],-1.0,1.0, "/gravity/block1/fb1/lfo/yShearAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y shear r    ##fb1lfo", &fb1Geo1Lfo2[7],-1.0,1.0, "/gravity/block1/fb1/lfo/yShearRate");
+								drawLfoRateWithSync("y shear r    ##fb1lfo", &fb1Geo1Lfo2[7], &fb1Geo1Lfo2Sync[7], &fb1Geo1Lfo2Division[7], "/gravity/block1/fb1/lfo/yShearRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1yShearShape", &fb1Geo1Lfo2Shape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2762,8 +2839,7 @@ void GuiApp::draw(){
 								ImGui::SetNextItemWidth(240.0f);
 								ImGuiSliderFloatOSC("kaleid sl a  ##fb1lfo", &fb1Geo1Lfo2[8],-1.0,1.0, "/gravity/block1/fb1/lfo/kaleidoscopeSliceAmp");
 								ImGui::SameLine();
-								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("kaleid sl r  ##fb1lfo", &fb1Geo1Lfo2[9],-1.0,1.0, "/gravity/block1/fb1/lfo/kaleidoscopeSliceRate");
+								drawLfoRateWithSync("kaleid sl r  ##fb1lfo", &fb1Geo1Lfo2[9], &fb1Geo1Lfo2Sync[9], &fb1Geo1Lfo2Division[9], "/gravity/block1/fb1/lfo/kaleidoscopeSliceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1kaleidShape", &fb1Geo1Lfo2Shape[4], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2810,7 +2886,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("hue ** a     ##fb1lfo", &fb1Color1Lfo1[0],-1.0,1.0, "/gravity/block1/fb1/lfo/huePowmapAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("hue ** r     ##fb1lfo", &fb1Color1Lfo1[1],-1.0,1.0, "/gravity/block1/fb1/lfo/huePowmapRate");
+								drawLfoRateWithSync("hue ** r     ##fb1lfo", &fb1Color1Lfo1[1], &fb1Color1Lfo1Sync[1], &fb1Color1Lfo1Division[1], "/gravity/block1/fb1/lfo/huePowmapRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1hueShape", &fb1Color1Lfo1Shape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2821,7 +2897,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("sat ** a     ##fb1lfo", &fb1Color1Lfo1[2],-1.0,1.0, "/gravity/block1/fb1/lfo/saturationPowmapAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("sat ** r     ##fb1lfo", &fb1Color1Lfo1[3],-1.0,1.0, "/gravity/block1/fb1/lfo/saturationPowmapRate");
+								drawLfoRateWithSync("sat ** r     ##fb1lfo", &fb1Color1Lfo1[3], &fb1Color1Lfo1Sync[3], &fb1Color1Lfo1Division[3], "/gravity/block1/fb1/lfo/saturationPowmapRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1satShape", &fb1Color1Lfo1Shape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -2832,7 +2908,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("bri ** a     ##fb1lfo", &fb1Color1Lfo1[4],-1.0,1.0, "/gravity/block1/fb1/lfo/brightPowmapAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("bri ** r     ##fb1lfo", &fb1Color1Lfo1[5],-1.0,1.0, "/gravity/block1/fb1/lfo/brightPowmapRate");
+								drawLfoRateWithSync("bri ** r     ##fb1lfo", &fb1Color1Lfo1[5], &fb1Color1Lfo1Sync[5], &fb1Color1Lfo1Division[5], "/gravity/block1/fb1/lfo/brightPowmapRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb1briShape", &fb1Color1Lfo1Shape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3042,8 +3118,7 @@ void GuiApp::draw(){
 						ImGui::SetNextItemWidth(240.0f);
 						ImGuiSliderFloatOSC("x <-> a      ##block2Input", &block2InputAdjustLfo[0], -1.0f, 1.0f, "/gravity/block2/input/lfo/xDisplaceAmp");
 						ImGui::SameLine();
-						ImGui::SetNextItemWidth(240.0f);
-						ImGuiSliderFloatOSC("x <-> r      ##block2Input", &block2InputAdjustLfo[1], -1.0f, 1.0f, "/gravity/block2/input/lfo/xDisplaceRate");
+							drawLfoRateWithSync("x <-> r      ##block2Input", &block2InputAdjustLfo[1], &block2InputAdjustLfoSync[1], &block2InputAdjustLfoDivision[1], "/gravity/block2/input/lfo/xDisplaceRate");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(100.0f);
 						if (ImGui::Combo("##block2InputxShape", &block2InputAdjustLfoShape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3055,7 +3130,7 @@ void GuiApp::draw(){
 						ImGuiSliderFloatOSC("y <-> a      ##block2Input", &block2InputAdjustLfo[2], -1.0f, 1.0f, "/gravity/block2/input/lfo/yDisplaceAmp");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(240.0f);
-						ImGuiSliderFloatOSC("y <-> r      ##block2Input", &block2InputAdjustLfo[3], -1.0f, 1.0f, "/gravity/block2/input/lfo/yDisplaceRate");
+						drawLfoRateWithSync("y <-> r      ##block2Input", &block2InputAdjustLfo[3], &block2InputAdjustLfoSync[3], &block2InputAdjustLfoDivision[3], "/gravity/block2/input/lfo/yDisplaceRate");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(100.0f);
 						if (ImGui::Combo("##block2InputyShape", &block2InputAdjustLfoShape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3067,7 +3142,7 @@ void GuiApp::draw(){
 						ImGuiSliderFloatOSC("z <-> a      ##block2Input", &block2InputAdjustLfo[4], -1.0f, 1.0f, "/gravity/block2/input/lfo/zDisplaceAmp");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(240.0f);
-						ImGuiSliderFloatOSC("z <-> r      ##block2Input", &block2InputAdjustLfo[5], -1.0f, 1.0f, "/gravity/block2/input/lfo/zDisplaceRate");
+						drawLfoRateWithSync("z <-> r      ##block2Input", &block2InputAdjustLfo[5], &block2InputAdjustLfoSync[5], &block2InputAdjustLfoDivision[5], "/gravity/block2/input/lfo/zDisplaceRate");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(100.0f);
 						if (ImGui::Combo("##block2InputzShape", &block2InputAdjustLfoShape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3079,7 +3154,7 @@ void GuiApp::draw(){
 						ImGuiSliderFloatOSC("rotate <-> a ##block2Input", &block2InputAdjustLfo[6], -1.0f, 1.0f, "/gravity/block2/input/lfo/rotateAmp");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(240.0f);
-						ImGuiSliderFloatOSC("rotate <-> r ##block2Input", &block2InputAdjustLfo[7], -1.0f, 1.0f, "/gravity/block2/input/lfo/rotateRate");
+						drawLfoRateWithSync("rotate <-> r ##block2Input", &block2InputAdjustLfo[7], &block2InputAdjustLfoSync[7], &block2InputAdjustLfoDivision[7], "/gravity/block2/input/lfo/rotateRate");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(100.0f);
 						if (ImGui::Combo("##block2InputrotateShape", &block2InputAdjustLfoShape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3090,7 +3165,7 @@ void GuiApp::draw(){
 						ImGuiSliderFloatOSC("hue ^^ a     ##block2Input", &block2InputAdjustLfo[8], -1.0f, 1.0f, "/gravity/block2/input/lfo/hueOffsetAmp");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(240.0f);
-						ImGuiSliderFloatOSC("hue ^^ r     ##block2Input", &block2InputAdjustLfo[9], -1.0f, 1.0f, "/gravity/block2/input/lfo/hueOffsetRate");
+						drawLfoRateWithSync("hue ^^ r     ##block2Input", &block2InputAdjustLfo[9], &block2InputAdjustLfoSync[9], &block2InputAdjustLfoDivision[9], "/gravity/block2/input/lfo/hueOffsetRate");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(100.0f);
 						if (ImGui::Combo("##block2InputhueShape", &block2InputAdjustLfoShape[4], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3102,7 +3177,7 @@ void GuiApp::draw(){
 						ImGuiSliderFloatOSC("sat ^^ a     ##block2Input", &block2InputAdjustLfo[10], -1.0f, 1.0f, "/gravity/block2/input/lfo/saturationOffsetAmp");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(240.0f);
-						ImGuiSliderFloatOSC("sat ^^ r     ##block2Input", &block2InputAdjustLfo[11], -1.0f, 1.0f, "/gravity/block2/input/lfo/saturationOffsetRate");
+						drawLfoRateWithSync("sat ^^ r     ##block2Input", &block2InputAdjustLfo[11], &block2InputAdjustLfoSync[11], &block2InputAdjustLfoDivision[11], "/gravity/block2/input/lfo/saturationOffsetRate");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(100.0f);
 						if (ImGui::Combo("##block2InputsatShape", &block2InputAdjustLfoShape[5], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3114,7 +3189,7 @@ void GuiApp::draw(){
 						ImGuiSliderFloatOSC("bri ^^ a     ##block2Input", &block2InputAdjustLfo[12], -1.0f, 1.0f, "/gravity/block2/input/lfo/brightOffsetAmp");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(240.0f);
-						ImGuiSliderFloatOSC("bri ^^ r     ##block2Input", &block2InputAdjustLfo[13], -1.0f, 1.0f, "/gravity/block2/input/lfo/brightOffsetRate");
+						drawLfoRateWithSync("bri ^^ r     ##block2Input", &block2InputAdjustLfo[13], &block2InputAdjustLfoSync[13], &block2InputAdjustLfoDivision[13], "/gravity/block2/input/lfo/brightOffsetRate");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(100.0f);
 						if (ImGui::Combo("##block2InputbriShape", &block2InputAdjustLfoShape[6], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3128,7 +3203,7 @@ void GuiApp::draw(){
 						ImGuiSliderFloatOSC("kaleid sli a ##block2Input", &block2InputAdjustLfo[14], -1.0f, 1.0f, "/gravity/block2/input/lfo/kaleidoscopeSliceAmp");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(240.0f);
-						ImGuiSliderFloatOSC("kaleid sli r ##block2Input", &block2InputAdjustLfo[15], -1.0f, 1.0f, "/gravity/block2/input/lfo/kaleidoscopeSliceRate");
+						drawLfoRateWithSync("kaleid sli r ##block2Input", &block2InputAdjustLfo[15], &block2InputAdjustLfoSync[15], &block2InputAdjustLfoDivision[15], "/gravity/block2/input/lfo/kaleidoscopeSliceRate");
 						ImGui::SameLine();
 						ImGui::SetNextItemWidth(100.0f);
 						if (ImGui::Combo("##block2InputkaleidShape", &block2InputAdjustLfoShape[7], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3492,19 +3567,19 @@ void GuiApp::draw(){
 											ImGui::Separator();
 											ImGui::Text("X Freq LFO");
 											ImGuiSliderFloatOSC("amp ##xfreqlfo2", &lissajous2XFreqLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/xFreqAmp");
-											ImGuiSliderFloatOSC("rate##xfreqlfo2", &lissajous2XFreqLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/xFreqRate");
+											drawLfoRateWithSync("rate##xfreqlfo2", &lissajous2XFreqLfoRate, &lissajous2XFreqLfoSync, &lissajous2XFreqLfoDivision, "/gravity/block2/fb2/lissajous/lfo/xFreqRate");
 											if (ImGui::Combo("shape##xfreqlfo2", &lissajous2XFreqLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/xFreqShape", static_cast<float>(lissajous2XFreqLfoShape));
 											}
 											ImGui::Text("X Amp LFO");
 											ImGuiSliderFloatOSC("amp ##xamplfo2", &lissajous2XAmpLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/xAmpAmp");
-											ImGuiSliderFloatOSC("rate##xamplfo2", &lissajous2XAmpLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/xAmpRate");
+											drawLfoRateWithSync("rate##xamplfo2", &lissajous2XAmpLfoRate, &lissajous2XAmpLfoSync, &lissajous2XAmpLfoDivision, "/gravity/block2/fb2/lissajous/lfo/xAmpRate");
 											if (ImGui::Combo("shape##xamplfo2", &lissajous2XAmpLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/xAmpShape", static_cast<float>(lissajous2XAmpLfoShape));
 											}
 											ImGui::Text("X Phase LFO");
 											ImGuiSliderFloatOSC("amp ##xphaselfo2", &lissajous2XPhaseLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/xPhaseAmp");
-											ImGuiSliderFloatOSC("rate##xphaselfo2", &lissajous2XPhaseLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/xPhaseRate");
+											drawLfoRateWithSync("rate##xphaselfo2", &lissajous2XPhaseLfoRate, &lissajous2XPhaseLfoSync, &lissajous2XPhaseLfoDivision, "/gravity/block2/fb2/lissajous/lfo/xPhaseRate");
 											if (ImGui::Combo("shape##xphaselfo2", &lissajous2XPhaseLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/xPhaseShape", static_cast<float>(lissajous2XPhaseLfoShape));
 											}
@@ -3522,19 +3597,19 @@ void GuiApp::draw(){
 											ImGui::Separator();
 											ImGui::Text("Y Freq LFO");
 											ImGuiSliderFloatOSC("amp ##yfreqlfo2", &lissajous2YFreqLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/yFreqAmp");
-											ImGuiSliderFloatOSC("rate##yfreqlfo2", &lissajous2YFreqLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/yFreqRate");
+											drawLfoRateWithSync("rate##yfreqlfo2", &lissajous2YFreqLfoRate, &lissajous2YFreqLfoSync, &lissajous2YFreqLfoDivision, "/gravity/block2/fb2/lissajous/lfo/yFreqRate");
 											if (ImGui::Combo("shape##yfreqlfo2", &lissajous2YFreqLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/yFreqShape", static_cast<float>(lissajous2YFreqLfoShape));
 											}
 											ImGui::Text("Y Amp LFO");
 											ImGuiSliderFloatOSC("amp ##yamplfo2", &lissajous2YAmpLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/yAmpAmp");
-											ImGuiSliderFloatOSC("rate##yamplfo2", &lissajous2YAmpLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/yAmpRate");
+											drawLfoRateWithSync("rate##yamplfo2", &lissajous2YAmpLfoRate, &lissajous2YAmpLfoSync, &lissajous2YAmpLfoDivision, "/gravity/block2/fb2/lissajous/lfo/yAmpRate");
 											if (ImGui::Combo("shape##yamplfo2", &lissajous2YAmpLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/yAmpShape", static_cast<float>(lissajous2YAmpLfoShape));
 											}
 											ImGui::Text("Y Phase LFO");
 											ImGuiSliderFloatOSC("amp ##yphaselfo2", &lissajous2YPhaseLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/yPhaseAmp");
-											ImGuiSliderFloatOSC("rate##yphaselfo2", &lissajous2YPhaseLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/yPhaseRate");
+											drawLfoRateWithSync("rate##yphaselfo2", &lissajous2YPhaseLfoRate, &lissajous2YPhaseLfoSync, &lissajous2YPhaseLfoDivision, "/gravity/block2/fb2/lissajous/lfo/yPhaseRate");
 											if (ImGui::Combo("shape##yphaselfo2", &lissajous2YPhaseLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/yPhaseShape", static_cast<float>(lissajous2YPhaseLfoShape));
 											}
@@ -3552,19 +3627,19 @@ void GuiApp::draw(){
 											ImGui::Separator();
 											ImGui::Text("Z Freq LFO");
 											ImGuiSliderFloatOSC("amp ##zfreqlfo2", &lissajous2ZFreqLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/zFreqAmp");
-											ImGuiSliderFloatOSC("rate##zfreqlfo2", &lissajous2ZFreqLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/zFreqRate");
+											drawLfoRateWithSync("rate##zfreqlfo2", &lissajous2ZFreqLfoRate, &lissajous2ZFreqLfoSync, &lissajous2ZFreqLfoDivision, "/gravity/block2/fb2/lissajous/lfo/zFreqRate");
 											if (ImGui::Combo("shape##zfreqlfo2", &lissajous2ZFreqLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/zFreqShape", static_cast<float>(lissajous2ZFreqLfoShape));
 											}
 											ImGui::Text("Z Amp LFO");
 											ImGuiSliderFloatOSC("amp ##zamplfo2", &lissajous2ZAmpLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/zAmpAmp");
-											ImGuiSliderFloatOSC("rate##zamplfo2", &lissajous2ZAmpLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/zAmpRate");
+											drawLfoRateWithSync("rate##zamplfo2", &lissajous2ZAmpLfoRate, &lissajous2ZAmpLfoSync, &lissajous2ZAmpLfoDivision, "/gravity/block2/fb2/lissajous/lfo/zAmpRate");
 											if (ImGui::Combo("shape##zamplfo2", &lissajous2ZAmpLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/zAmpShape", static_cast<float>(lissajous2ZAmpLfoShape));
 											}
 											ImGui::Text("Z Phase LFO");
 											ImGuiSliderFloatOSC("amp ##zphaselfo2", &lissajous2ZPhaseLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/zPhaseAmp");
-											ImGuiSliderFloatOSC("rate##zphaselfo2", &lissajous2ZPhaseLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/zPhaseRate");
+											drawLfoRateWithSync("rate##zphaselfo2", &lissajous2ZPhaseLfoRate, &lissajous2ZPhaseLfoSync, &lissajous2ZPhaseLfoDivision, "/gravity/block2/fb2/lissajous/lfo/zPhaseRate");
 											if (ImGui::Combo("shape##zphaselfo2", &lissajous2ZPhaseLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/zPhaseShape", static_cast<float>(lissajous2ZPhaseLfoShape));
 											}
@@ -3578,13 +3653,13 @@ void GuiApp::draw(){
 											ImGui::Separator();
 											ImGui::Text("X Offset LFO");
 											ImGuiSliderFloatOSC("amp ##xofflfo2", &lissajous2XOffsetLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/xOffsetAmp");
-											ImGuiSliderFloatOSC("rate##xofflfo2", &lissajous2XOffsetLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/xOffsetRate");
+											drawLfoRateWithSync("rate##xofflfo2", &lissajous2XOffsetLfoRate, &lissajous2XOffsetLfoSync, &lissajous2XOffsetLfoDivision, "/gravity/block2/fb2/lissajous/lfo/xOffsetRate");
 											if (ImGui::Combo("shape##xofflfo2", &lissajous2XOffsetLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/xOffsetShape", static_cast<float>(lissajous2XOffsetLfoShape));
 											}
 											ImGui::Text("Y Offset LFO");
 											ImGuiSliderFloatOSC("amp ##yofflfo2", &lissajous2YOffsetLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/yOffsetAmp");
-											ImGuiSliderFloatOSC("rate##yofflfo2", &lissajous2YOffsetLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/yOffsetRate");
+											drawLfoRateWithSync("rate##yofflfo2", &lissajous2YOffsetLfoRate, &lissajous2YOffsetLfoSync, &lissajous2YOffsetLfoDivision, "/gravity/block2/fb2/lissajous/lfo/yOffsetRate");
 											if (ImGui::Combo("shape##yofflfo2", &lissajous2YOffsetLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/yOffsetShape", static_cast<float>(lissajous2YOffsetLfoShape));
 											}
@@ -3603,43 +3678,43 @@ void GuiApp::draw(){
 											ImGui::Separator();
 											ImGui::Text("Speed LFO");
 											ImGuiSliderFloatOSC("amp ##speedlfo2", &lissajous2SpeedLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/speedAmp");
-											ImGuiSliderFloatOSC("rate##speedlfo2", &lissajous2SpeedLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/speedRate");
+											drawLfoRateWithSync("rate##speedlfo2", &lissajous2SpeedLfoRate, &lissajous2SpeedLfoSync, &lissajous2SpeedLfoDivision, "/gravity/block2/fb2/lissajous/lfo/speedRate");
 											if (ImGui::Combo("shape##speedlfo2", &lissajous2SpeedLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/speedShape", static_cast<float>(lissajous2SpeedLfoShape));
 											}
 											ImGui::Text("Size LFO");
 											ImGuiSliderFloatOSC("amp ##sizelfo2", &lissajous2SizeLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/sizeAmp");
-											ImGuiSliderFloatOSC("rate##sizelfo2", &lissajous2SizeLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/sizeRate");
+											drawLfoRateWithSync("rate##sizelfo2", &lissajous2SizeLfoRate, &lissajous2SizeLfoSync, &lissajous2SizeLfoDivision, "/gravity/block2/fb2/lissajous/lfo/sizeRate");
 											if (ImGui::Combo("shape##sizelfo2", &lissajous2SizeLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/sizeShape", static_cast<float>(lissajous2SizeLfoShape));
 											}
 											ImGui::Text("NumPoints LFO");
 											ImGuiSliderFloatOSC("amp ##pointslfo2", &lissajous2NumPointsLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/numPointsAmp");
-											ImGuiSliderFloatOSC("rate##pointslfo2", &lissajous2NumPointsLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/numPointsRate");
+											drawLfoRateWithSync("rate##pointslfo2", &lissajous2NumPointsLfoRate, &lissajous2NumPointsLfoSync, &lissajous2NumPointsLfoDivision, "/gravity/block2/fb2/lissajous/lfo/numPointsRate");
 											if (ImGui::Combo("shape##pointslfo2", &lissajous2NumPointsLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/numPointsShape", static_cast<float>(lissajous2NumPointsLfoShape));
 											}
 											ImGui::Text("LineWidth LFO");
 											ImGuiSliderFloatOSC("amp ##linewidthlfo2", &lissajous2LineWidthLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/lineWidthAmp");
-											ImGuiSliderFloatOSC("rate##linewidthlfo2", &lissajous2LineWidthLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/lineWidthRate");
+											drawLfoRateWithSync("rate##linewidthlfo2", &lissajous2LineWidthLfoRate, &lissajous2LineWidthLfoSync, &lissajous2LineWidthLfoDivision, "/gravity/block2/fb2/lissajous/lfo/lineWidthRate");
 											if (ImGui::Combo("shape##linewidthlfo2", &lissajous2LineWidthLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/lineWidthShape", static_cast<float>(lissajous2LineWidthLfoShape));
 											}
 											ImGui::Text("ColorSpeed LFO");
 											ImGuiSliderFloatOSC("amp ##colorspdlfo2", &lissajous2ColorSpeedLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/colorSpeedAmp");
-											ImGuiSliderFloatOSC("rate##colorspdlfo2", &lissajous2ColorSpeedLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/colorSpeedRate");
+											drawLfoRateWithSync("rate##colorspdlfo2", &lissajous2ColorSpeedLfoRate, &lissajous2ColorSpeedLfoSync, &lissajous2ColorSpeedLfoDivision, "/gravity/block2/fb2/lissajous/lfo/colorSpeedRate");
 											if (ImGui::Combo("shape##colorspdlfo2", &lissajous2ColorSpeedLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/colorSpeedShape", static_cast<float>(lissajous2ColorSpeedLfoShape));
 											}
 											ImGui::Text("Hue LFO");
 											ImGuiSliderFloatOSC("amp ##huelfo2", &lissajous2HueLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/hueAmp");
-											ImGuiSliderFloatOSC("rate##huelfo2", &lissajous2HueLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/hueRate");
+											drawLfoRateWithSync("rate##huelfo2", &lissajous2HueLfoRate, &lissajous2HueLfoSync, &lissajous2HueLfoDivision, "/gravity/block2/fb2/lissajous/lfo/hueRate");
 											if (ImGui::Combo("shape##huelfo2", &lissajous2HueLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/hueShape", static_cast<float>(lissajous2HueLfoShape));
 											}
 											ImGui::Text("HueSpread LFO");
 											ImGuiSliderFloatOSC("amp ##huespreadlfo2", &lissajous2HueSpreadLfoAmp, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/hueSpreadAmp");
-											ImGuiSliderFloatOSC("rate##huespreadlfo2", &lissajous2HueSpreadLfoRate, 0.0, 1.0, "/gravity/block2/fb2/lissajous/lfo/hueSpreadRate");
+											drawLfoRateWithSync("rate##huespreadlfo2", &lissajous2HueSpreadLfoRate, &lissajous2HueSpreadLfoSync, &lissajous2HueSpreadLfoDivision, "/gravity/block2/fb2/lissajous/lfo/hueSpreadRate");
 											if (ImGui::Combo("shape##huespreadlfo2", &lissajous2HueSpreadLfoShape, lissShapes, IM_ARRAYSIZE(lissShapes))) {
 												if (mainApp) mainApp->sendOscParameter("/gravity/block2/fb2/lissajous/lfo/hueSpreadShape", static_cast<float>(lissajous2HueSpreadLfoShape));
 											}
@@ -3695,7 +3770,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("mix a       ##fb2", &fb2MixAndKeyLfo[0],-1.0,1.0, "/gravity/block2/fb2/lfo/mixAmountAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("mix r       ##fb2", &fb2MixAndKeyLfo[1],-1.0,1.0, "/gravity/block2/fb2/lfo/mixAmountRate");
+								drawLfoRateWithSync("mix r       ##fb2", &fb2MixAndKeyLfo[1], &fb2MixAndKeyLfoSync[1], &fb2MixAndKeyLfoDivision[1], "/gravity/block2/fb2/lfo/mixAmountRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2mixShape", &fb2MixAndKeyLfoShape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3706,7 +3781,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("ky thresh a ##fb2", &fb2MixAndKeyLfo[2],-1.0,1.0, "/gravity/block2/fb2/lfo/keyThresholdAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("ky thresh r ##fb2", &fb2MixAndKeyLfo[3],-1.0,1.0, "/gravity/block2/fb2/lfo/keyThresholdRate");
+								drawLfoRateWithSync("ky thresh r ##fb2", &fb2MixAndKeyLfo[3], &fb2MixAndKeyLfoSync[3], &fb2MixAndKeyLfoDivision[3], "/gravity/block2/fb2/lfo/keyThresholdRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2keyThreshShape", &fb2MixAndKeyLfoShape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3717,7 +3792,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("ky soft a   ##fb2", &fb2MixAndKeyLfo[4],-1.0,1.0, "/gravity/block2/fb2/lfo/keySoftAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("ky soft r   ##fb2", &fb2MixAndKeyLfo[5],-1.0,1.0, "/gravity/block2/fb2/lfo/keySoftRate");
+								drawLfoRateWithSync("ky soft r   ##fb2", &fb2MixAndKeyLfo[5], &fb2MixAndKeyLfoSync[5], &fb2MixAndKeyLfoDivision[5], "/gravity/block2/fb2/lfo/keySoftRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2keySoftShape", &fb2MixAndKeyLfoShape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3764,7 +3839,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("x <-> a      ##fb2Lfo", &fb2Geo1Lfo1[0],-1.0,1.0, "/gravity/block2/fb2/lfo/xDisplaceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x <-> r      ##fb2Lfo", &fb2Geo1Lfo1[1],-1.0,1.0, "/gravity/block2/fb2/lfo/xDisplaceRate");
+								drawLfoRateWithSync("x <-> r      ##fb2Lfo", &fb2Geo1Lfo1[1], &fb2Geo1Lfo1Sync[1], &fb2Geo1Lfo1Division[1], "/gravity/block2/fb2/lfo/xDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2xShape", &fb2Geo1Lfo1Shape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3775,7 +3850,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("y <-> a      ##fb2Lfo", &fb2Geo1Lfo1[2],-1.0,1.0, "/gravity/block2/fb2/lfo/yDisplaceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y <-> r      ##fb2Lfo", &fb2Geo1Lfo1[3],-1.0,1.0, "/gravity/block2/fb2/lfo/yDisplaceRate");
+								drawLfoRateWithSync("y <-> r      ##fb2Lfo", &fb2Geo1Lfo1[3], &fb2Geo1Lfo1Sync[3], &fb2Geo1Lfo1Division[3], "/gravity/block2/fb2/lfo/yDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2yShape", &fb2Geo1Lfo1Shape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3786,7 +3861,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("z <-> a      ##fb2Lfo", &fb2Geo1Lfo1[4],-1.0,1.0, "/gravity/block2/fb2/lfo/zDisplaceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("z <-> r      ##fb2Lfo", &fb2Geo1Lfo1[5],-1.0,1.0, "/gravity/block2/fb2/lfo/zDisplaceRate");
+								drawLfoRateWithSync("z <-> r      ##fb2Lfo", &fb2Geo1Lfo1[5], &fb2Geo1Lfo1Sync[5], &fb2Geo1Lfo1Division[5], "/gravity/block2/fb2/lfo/zDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2zShape", &fb2Geo1Lfo1Shape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3797,7 +3872,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("rotate <-> a ##fb2Lfo", &fb2Geo1Lfo1[6],-1.0,1.0, "/gravity/block2/fb2/lfo/rotateAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("rotate <-> r ##fb2Lfo", &fb2Geo1Lfo1[7],-1.0,1.0, "/gravity/block2/fb2/lfo/rotateRate");
+								drawLfoRateWithSync("rotate <-> r ##fb2Lfo", &fb2Geo1Lfo1[7], &fb2Geo1Lfo1Sync[7], &fb2Geo1Lfo1Division[7], "/gravity/block2/fb2/lfo/rotateRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2rotateShape", &fb2Geo1Lfo1Shape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3845,7 +3920,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("x stretch a  ##fb2lfo", &fb2Geo1Lfo2[0],-1.0,1.0, "/gravity/block2/fb2/lfo/xStretchAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x stretch r  ##fb2lfo", &fb2Geo1Lfo2[1],-1.0,1.0, "/gravity/block2/fb2/lfo/xStretchRate");
+								drawLfoRateWithSync("x stretch r  ##fb2lfo", &fb2Geo1Lfo2[1], &fb2Geo1Lfo2Sync[1], &fb2Geo1Lfo2Division[1], "/gravity/block2/fb2/lfo/xStretchRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2xStretchShape", &fb2Geo1Lfo2Shape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3856,7 +3931,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("y stretch a  ##fb2lfo", &fb2Geo1Lfo2[2],-1.0,1.0, "/gravity/block2/fb2/lfo/yStretchAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y stretch r  ##fb2lfo", &fb2Geo1Lfo2[3],-1.0,1.0, "/gravity/block2/fb2/lfo/yStretchRate");
+								drawLfoRateWithSync("y stretch r  ##fb2lfo", &fb2Geo1Lfo2[3], &fb2Geo1Lfo2Sync[3], &fb2Geo1Lfo2Division[3], "/gravity/block2/fb2/lfo/yStretchRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2yStretchShape", &fb2Geo1Lfo2Shape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3867,7 +3942,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("x shear a    ##fb2lfo", &fb2Geo1Lfo2[4],-1.0,1.0, "/gravity/block2/fb2/lfo/xShearAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x shear r    ##fb2lfo", &fb2Geo1Lfo2[5],-1.0,1.0, "/gravity/block2/fb2/lfo/xShearRate");
+								drawLfoRateWithSync("x shear r    ##fb2lfo", &fb2Geo1Lfo2[5], &fb2Geo1Lfo2Sync[5], &fb2Geo1Lfo2Division[5], "/gravity/block2/fb2/lfo/xShearRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2xShearShape", &fb2Geo1Lfo2Shape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3878,7 +3953,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("y shear a    ##fb2lfo", &fb2Geo1Lfo2[6],-1.0,1.0, "/gravity/block2/fb2/lfo/yShearAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y shear r    ##fb2lfo", &fb2Geo1Lfo2[7],-1.0,1.0, "/gravity/block2/fb2/lfo/yShearRate");
+								drawLfoRateWithSync("y shear r    ##fb2lfo", &fb2Geo1Lfo2[7], &fb2Geo1Lfo2Sync[7], &fb2Geo1Lfo2Division[7], "/gravity/block2/fb2/lfo/yShearRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2yShearShape", &fb2Geo1Lfo2Shape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3890,7 +3965,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("kaleid sl a  ##fb2lfo", &fb2Geo1Lfo2[8],-1.0,1.0, "/gravity/block2/fb2/lfo/kaleidoscopeSliceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("kaleid sl r  ##fb2lfo", &fb2Geo1Lfo2[9],-1.0,1.0, "/gravity/block2/fb2/lfo/kaleidoscopeSliceRate");
+								drawLfoRateWithSync("kaleid sl r  ##fb2lfo", &fb2Geo1Lfo2[9], &fb2Geo1Lfo2Sync[9], &fb2Geo1Lfo2Division[9], "/gravity/block2/fb2/lfo/kaleidoscopeSliceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2kaleidShape", &fb2Geo1Lfo2Shape[4], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3937,7 +4012,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("hue ** a     ##fb2lfo", &fb2Color1Lfo1[0],-1.0,1.0, "/gravity/block2/fb2/lfo/huePowmapAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("hue ** r     ##fb2lfo", &fb2Color1Lfo1[1],-1.0,1.0, "/gravity/block2/fb2/lfo/huePowmapRate");
+								drawLfoRateWithSync("hue ** r     ##fb2lfo", &fb2Color1Lfo1[1], &fb2Color1Lfo1Sync[1], &fb2Color1Lfo1Division[1], "/gravity/block2/fb2/lfo/huePowmapRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2hueShape", &fb2Color1Lfo1Shape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3948,7 +4023,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("sat ** a     ##fb2lfo", &fb2Color1Lfo1[2],-1.0,1.0, "/gravity/block2/fb2/lfo/saturationPowmapAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("sat ** r     ##fb2lfo", &fb2Color1Lfo1[3],-1.0,1.0, "/gravity/block2/fb2/lfo/saturationPowmapRate");
+								drawLfoRateWithSync("sat ** r     ##fb2lfo", &fb2Color1Lfo1[3], &fb2Color1Lfo1Sync[3], &fb2Color1Lfo1Division[3], "/gravity/block2/fb2/lfo/saturationPowmapRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2satShape", &fb2Color1Lfo1Shape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -3959,7 +4034,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("bri ** a     ##fb2lfo", &fb2Color1Lfo1[4],-1.0,1.0, "/gravity/block2/fb2/lfo/brightPowmapAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("bri ** r     ##fb2lfo", &fb2Color1Lfo1[5],-1.0,1.0, "/gravity/block2/fb2/lfo/brightPowmapRate");
+								drawLfoRateWithSync("bri ** r     ##fb2lfo", &fb2Color1Lfo1[5], &fb2Color1Lfo1Sync[5], &fb2Color1Lfo1Division[5], "/gravity/block2/fb2/lfo/brightPowmapRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##fb2briShape", &fb2Color1Lfo1Shape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -4314,7 +4389,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("x <-> a      ##block1Lfo", &block1Geo1Lfo1[0],-1.0,1.0, "/gravity/block3/lfo/b1/xDisplaceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x <-> r      ##block1Lfo", &block1Geo1Lfo1[1],-1.0,1.0, "/gravity/block3/lfo/b1/xDisplaceRate");
+								drawLfoRateWithSync("x <-> r      ##block1Lfo", &block1Geo1Lfo1[1], &block1Geo1Lfo1Sync[1], &block1Geo1Lfo1Division[1], "/gravity/block3/lfo/b1/xDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block1xShape", &block1Geo1Lfo1Shape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -4325,7 +4400,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("y <-> a      ##block1Lfo", &block1Geo1Lfo1[2],-1.0,1.0, "/gravity/block3/lfo/b1/yDisplaceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y <-> r      ##block1Lfo", &block1Geo1Lfo1[3],-1.0,1.0, "/gravity/block3/lfo/b1/yDisplaceRate");
+								drawLfoRateWithSync("y <-> r      ##block1Lfo", &block1Geo1Lfo1[3], &block1Geo1Lfo1Sync[3], &block1Geo1Lfo1Division[3], "/gravity/block3/lfo/b1/yDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block1yShape", &block1Geo1Lfo1Shape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -4336,7 +4411,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("z <-> a      ##block1Lfo", &block1Geo1Lfo1[4],-1.0,1.0, "/gravity/block3/lfo/b1/zDisplaceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("z <-> r      ##block1Lfo", &block1Geo1Lfo1[5],-1.0,1.0, "/gravity/block3/lfo/b1/zDisplaceRate");
+								drawLfoRateWithSync("z <-> r      ##block1Lfo", &block1Geo1Lfo1[5], &block1Geo1Lfo1Sync[5], &block1Geo1Lfo1Division[5], "/gravity/block3/lfo/b1/zDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block1zShape", &block1Geo1Lfo1Shape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -4347,7 +4422,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("rotate <-> a ##block1Lfo", &block1Geo1Lfo1[6],-1.0,1.0, "/gravity/block3/lfo/b1/rotateAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("rotate <-> r ##block1Lfo", &block1Geo1Lfo1[7],-1.0,1.0, "/gravity/block3/lfo/b1/rotateRate");
+								drawLfoRateWithSync("rotate <-> r ##block1Lfo", &block1Geo1Lfo1[7], &block1Geo1Lfo1Sync[7], &block1Geo1Lfo1Division[7], "/gravity/block3/lfo/b1/rotateRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block1rotateShape", &block1Geo1Lfo1Shape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -4395,7 +4470,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("x stretch a  ##block1lfo", &block1Geo1Lfo2[0],-1.0,1.0, "/gravity/block3/lfo/b1/xStretchAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x stretch r  ##block1lfo", &block1Geo1Lfo2[1],-1.0,1.0, "/gravity/block3/lfo/b1/xStretchRate");
+								drawLfoRateWithSync("x stretch r  ##block1lfo", &block1Geo1Lfo2[1], &block1Geo1Lfo2Sync[1], &block1Geo1Lfo2Division[1], "/gravity/block3/lfo/b1/xStretchRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block1xStretchShape", &block1Geo1Lfo2Shape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -4406,7 +4481,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("y stretch a  ##block1lfo", &block1Geo1Lfo2[2],-1.0,1.0, "/gravity/block3/lfo/b1/yStretchAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y stretch r  ##block1lfo", &block1Geo1Lfo2[3],-1.0,1.0, "/gravity/block3/lfo/b1/yStretchRate");
+								drawLfoRateWithSync("y stretch r  ##block1lfo", &block1Geo1Lfo2[3], &block1Geo1Lfo2Sync[3], &block1Geo1Lfo2Division[3], "/gravity/block3/lfo/b1/yStretchRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block1yStretchShape", &block1Geo1Lfo2Shape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -4417,7 +4492,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("x shear a    ##block1lfo", &block1Geo1Lfo2[4],-1.0,1.0, "/gravity/block3/lfo/b1/xShearAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x shear r    ##block1lfo", &block1Geo1Lfo2[5],-1.0,1.0, "/gravity/block3/lfo/b1/xShearRate");
+								drawLfoRateWithSync("x shear r    ##block1lfo", &block1Geo1Lfo2[5], &block1Geo1Lfo2Sync[5], &block1Geo1Lfo2Division[5], "/gravity/block3/lfo/b1/xShearRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block1xShearShape", &block1Geo1Lfo2Shape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -4428,7 +4503,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("y shear a    ##block1lfo", &block1Geo1Lfo2[6],-1.0,1.0, "/gravity/block3/lfo/b1/yShearAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y shear r    ##block1lfo", &block1Geo1Lfo2[7],-1.0,1.0, "/gravity/block3/lfo/b1/yShearRate");
+								drawLfoRateWithSync("y shear r    ##block1lfo", &block1Geo1Lfo2[7], &block1Geo1Lfo2Sync[7], &block1Geo1Lfo2Division[7], "/gravity/block3/lfo/b1/yShearRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block1yShearShape", &block1Geo1Lfo2Shape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -4439,7 +4514,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("kaleid sl a  ##block1lfo", &block1Geo1Lfo2[8],-1.0,1.0, "/gravity/block3/lfo/b1/kaleidoscopeSliceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("kaleid sl r  ##block1lfo", &block1Geo1Lfo2[9],-1.0,1.0, "/gravity/block3/lfo/b1/kaleidoscopeSliceRate");
+								drawLfoRateWithSync("kaleid sl r  ##block1lfo", &block1Geo1Lfo2[9], &block1Geo1Lfo2Sync[9], &block1Geo1Lfo2Division[9], "/gravity/block3/lfo/b1/kaleidoscopeSliceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block1kaleidShape", &block1Geo1Lfo2Shape[4], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -4507,11 +4582,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 1 a");
 								ImGui::Separator();
 
-								ImGuiSliderFloatOSC("##4", &block1ColorizeLfo1[3],-1.0,1.0, "/gravity/block3/lfo/b1/hueBand1Rate");
+								drawLfoRateWithSync("##4", &block1ColorizeLfo1[3], &block1ColorizeLfo1Sync[3], &block1ColorizeLfo1Division[3], "/gravity/block3/lfo/b1/hueBand1Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##5", &block1ColorizeLfo1[4],-1.0,1.0, "/gravity/block3/lfo/b1/saturationBand1Rate");
+								drawLfoRateWithSync("##5", &block1ColorizeLfo1[4], &block1ColorizeLfo1Sync[4], &block1ColorizeLfo1Division[4], "/gravity/block3/lfo/b1/saturationBand1Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##6", &block1ColorizeLfo1[5],-1.0,1.0, "/gravity/block3/lfo/b1/brightBand1Rate");
+								drawLfoRateWithSync("##6", &block1ColorizeLfo1[5], &block1ColorizeLfo1Sync[5], &block1ColorizeLfo1Division[5], "/gravity/block3/lfo/b1/brightBand1Rate");
 								ImGui::SameLine();
 								ImGui::Text("band 1 r");
 
@@ -4539,11 +4614,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 2 a");
 								ImGui::Separator();
 
-								ImGuiSliderFloatOSC("##10",&block1ColorizeLfo1[9],-1.0,1.0, "/gravity/block3/lfo/b1/hueBand2Rate");
+								drawLfoRateWithSync("##10", &block1ColorizeLfo1[9], &block1ColorizeLfo1Sync[9], &block1ColorizeLfo1Division[9], "/gravity/block3/lfo/b1/hueBand2Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##11",&block1ColorizeLfo1[10],-1.0,1.0, "/gravity/block3/lfo/b1/saturationBand2Rate");
+								drawLfoRateWithSync("##11", &block1ColorizeLfo1[10], &block1ColorizeLfo1Sync[10], &block1ColorizeLfo1Division[10], "/gravity/block3/lfo/b1/saturationBand2Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##12",&block1ColorizeLfo1[11],-1.0,1.0, "/gravity/block3/lfo/b1/brightBand2Rate");
+								drawLfoRateWithSync("##12", &block1ColorizeLfo1[11], &block1ColorizeLfo1Sync[11], &block1ColorizeLfo1Division[11], "/gravity/block3/lfo/b1/brightBand2Rate");
 								ImGui::SameLine();
 								ImGui::Text("band 2 r");
 
@@ -4623,11 +4698,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 3 a");
 								ImGui::Separator();
 
-								ImGuiSliderFloatOSC("##4", &block1ColorizeLfo2[3],-1.0,1.0, "/gravity/block3/lfo/b1/hueBand3Rate");
+								drawLfoRateWithSync("##4", &block1ColorizeLfo2[3], &block1ColorizeLfo2Sync[3], &block1ColorizeLfo2Division[3], "/gravity/block3/lfo/b1/hueBand3Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##5", &block1ColorizeLfo2[4],-1.0,1.0, "/gravity/block3/lfo/b1/saturationBand3Rate");
+								drawLfoRateWithSync("##5", &block1ColorizeLfo2[4], &block1ColorizeLfo2Sync[4], &block1ColorizeLfo2Division[4], "/gravity/block3/lfo/b1/saturationBand3Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##6", &block1ColorizeLfo2[5],-1.0,1.0, "/gravity/block3/lfo/b1/brightBand3Rate");
+								drawLfoRateWithSync("##6", &block1ColorizeLfo2[5], &block1ColorizeLfo2Sync[5], &block1ColorizeLfo2Division[5], "/gravity/block3/lfo/b1/brightBand3Rate");
 								ImGui::SameLine();
 								ImGui::Text("band 3 r");
 
@@ -4655,11 +4730,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 4 a");
 								ImGui::Separator();
 
-								ImGuiSliderFloatOSC("##10",&block1ColorizeLfo2[9],-1.0,1.0, "/gravity/block3/lfo/b1/hueBand4Rate");
+								drawLfoRateWithSync("##10", &block1ColorizeLfo2[9], &block1ColorizeLfo2Sync[9], &block1ColorizeLfo2Division[9], "/gravity/block3/lfo/b1/hueBand4Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##11",&block1ColorizeLfo2[10],-1.0,1.0, "/gravity/block3/lfo/b1/saturationBand4Rate");
+								drawLfoRateWithSync("##11", &block1ColorizeLfo2[10], &block1ColorizeLfo2Sync[10], &block1ColorizeLfo2Division[10], "/gravity/block3/lfo/b1/saturationBand4Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##12",&block1ColorizeLfo2[11],-1.0,1.0, "/gravity/block3/lfo/b1/brightBand4Rate");
+								drawLfoRateWithSync("##12", &block1ColorizeLfo2[11], &block1ColorizeLfo2Sync[11], &block1ColorizeLfo2Division[11], "/gravity/block3/lfo/b1/brightBand4Rate");
 								ImGui::SameLine();
 								ImGui::Text("band 4 r");
 
@@ -4739,11 +4814,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 5 a");
 								ImGui::Separator();
 
-								ImGuiSliderFloatOSC("##4", &block1ColorizeLfo3[3],-1.0,1.0, "/gravity/block3/lfo/b1/hueBand5Rate");
+								drawLfoRateWithSync("##4", &block1ColorizeLfo3[3], &block1ColorizeLfo3Sync[3], &block1ColorizeLfo3Division[3], "/gravity/block3/lfo/b1/hueBand5Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##5", &block1ColorizeLfo3[4],-1.0,1.0, "/gravity/block3/lfo/b1/saturationBand5Rate");
+								drawLfoRateWithSync("##5", &block1ColorizeLfo3[4], &block1ColorizeLfo3Sync[4], &block1ColorizeLfo3Division[4], "/gravity/block3/lfo/b1/saturationBand5Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##6", &block1ColorizeLfo3[5],-1.0,1.0, "/gravity/block3/lfo/b1/brightBand5Rate");
+								drawLfoRateWithSync("##6", &block1ColorizeLfo3[5], &block1ColorizeLfo3Sync[5], &block1ColorizeLfo3Division[5], "/gravity/block3/lfo/b1/brightBand5Rate");
 								ImGui::SameLine();
 								ImGui::Text("band 5 r");
 
@@ -5050,7 +5125,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("x <-> a      ##block2Lfo", &block2Geo1Lfo1[0],-1.0,1.0, "/gravity/block3/lfo/b2/xDisplaceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x <-> r      ##block2Lfo", &block2Geo1Lfo1[1],-1.0,1.0, "/gravity/block3/lfo/b2/xDisplaceRate");
+								drawLfoRateWithSync("x <-> r      ##block2Lfo", &block2Geo1Lfo1[1], &block2Geo1Lfo1Sync[1], &block2Geo1Lfo1Division[1], "/gravity/block3/lfo/b2/xDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block2xShape", &block2Geo1Lfo1Shape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -5061,7 +5136,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("y <-> a      ##block2Lfo", &block2Geo1Lfo1[2],-1.0,1.0, "/gravity/block3/lfo/b2/yDisplaceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y <-> r      ##block2Lfo", &block2Geo1Lfo1[3],-1.0,1.0, "/gravity/block3/lfo/b2/yDisplaceRate");
+								drawLfoRateWithSync("y <-> r      ##block2Lfo", &block2Geo1Lfo1[3], &block2Geo1Lfo1Sync[3], &block2Geo1Lfo1Division[3], "/gravity/block3/lfo/b2/yDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block2yShape", &block2Geo1Lfo1Shape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -5072,7 +5147,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("z <-> a      ##block2Lfo", &block2Geo1Lfo1[4],-1.0,1.0, "/gravity/block3/lfo/b2/zDisplaceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("z <-> r      ##block2Lfo", &block2Geo1Lfo1[5],-1.0,1.0, "/gravity/block3/lfo/b2/zDisplaceRate");
+								drawLfoRateWithSync("z <-> r      ##block2Lfo", &block2Geo1Lfo1[5], &block2Geo1Lfo1Sync[5], &block2Geo1Lfo1Division[5], "/gravity/block3/lfo/b2/zDisplaceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block2zShape", &block2Geo1Lfo1Shape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -5083,7 +5158,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("rotate <-> a ##block2Lfo", &block2Geo1Lfo1[6],-1.0,1.0, "/gravity/block3/lfo/b2/rotateAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("rotate <-> r ##block2Lfo", &block2Geo1Lfo1[7],-1.0,1.0, "/gravity/block3/lfo/b2/rotateRate");
+								drawLfoRateWithSync("rotate <-> r ##block2Lfo", &block2Geo1Lfo1[7], &block2Geo1Lfo1Sync[7], &block2Geo1Lfo1Division[7], "/gravity/block3/lfo/b2/rotateRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block2rotateShape", &block2Geo1Lfo1Shape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -5131,7 +5206,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("x stretch a  ##block2lfo", &block2Geo1Lfo2[0],-1.0,1.0, "/gravity/block3/lfo/b2/xStretchAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x stretch r  ##block2lfo", &block2Geo1Lfo2[1],-1.0,1.0, "/gravity/block3/lfo/b2/xStretchRate");
+								drawLfoRateWithSync("x stretch r  ##block2lfo", &block2Geo1Lfo2[1], &block2Geo1Lfo2Sync[1], &block2Geo1Lfo2Division[1], "/gravity/block3/lfo/b2/xStretchRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block2xStretchShape", &block2Geo1Lfo2Shape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -5142,7 +5217,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("y stretch a  ##block2lfo", &block2Geo1Lfo2[2],-1.0,1.0, "/gravity/block3/lfo/b2/yStretchAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y stretch r  ##block2lfo", &block2Geo1Lfo2[3],-1.0,1.0, "/gravity/block3/lfo/b2/yStretchRate");
+								drawLfoRateWithSync("y stretch r  ##block2lfo", &block2Geo1Lfo2[3], &block2Geo1Lfo2Sync[3], &block2Geo1Lfo2Division[3], "/gravity/block3/lfo/b2/yStretchRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block2yStretchShape", &block2Geo1Lfo2Shape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -5153,7 +5228,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("x shear a    ##block2lfo", &block2Geo1Lfo2[4],-1.0,1.0, "/gravity/block3/lfo/b2/xShearAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("x shear r    ##block2lfo", &block2Geo1Lfo2[5],-1.0,1.0, "/gravity/block3/lfo/b2/xShearRate");
+								drawLfoRateWithSync("x shear r    ##block2lfo", &block2Geo1Lfo2[5], &block2Geo1Lfo2Sync[5], &block2Geo1Lfo2Division[5], "/gravity/block3/lfo/b2/xShearRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block2xShearShape", &block2Geo1Lfo2Shape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -5164,7 +5239,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("y shear a    ##block2lfo", &block2Geo1Lfo2[6],-1.0,1.0, "/gravity/block3/lfo/b2/yShearAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("y shear r    ##block2lfo", &block2Geo1Lfo2[7],-1.0,1.0, "/gravity/block3/lfo/b2/yShearRate");
+								drawLfoRateWithSync("y shear r    ##block2lfo", &block2Geo1Lfo2[7], &block2Geo1Lfo2Sync[7], &block2Geo1Lfo2Division[7], "/gravity/block3/lfo/b2/yShearRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block2yShearShape", &block2Geo1Lfo2Shape[3], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -5175,7 +5250,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("kaleid sl a  ##block2lfo", &block2Geo1Lfo2[8],-1.0,1.0, "/gravity/block3/lfo/b2/kaleidoscopeSliceAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("kaleid sl r  ##block2lfo", &block2Geo1Lfo2[9],-1.0,1.0, "/gravity/block3/lfo/b2/kaleidoscopeSliceRate");
+								drawLfoRateWithSync("kaleid sl r  ##block2lfo", &block2Geo1Lfo2[9], &block2Geo1Lfo2Sync[9], &block2Geo1Lfo2Division[9], "/gravity/block3/lfo/b2/kaleidoscopeSliceRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##block2kaleidShape", &block2Geo1Lfo2Shape[4], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -5244,11 +5319,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 1 a");
 								ImGui::Separator();
 
-								ImGuiSliderFloatOSC("##4", &block2ColorizeLfo1[3],-1.0,1.0, "/gravity/block3/lfo/b2/hueBand1Rate");
+								drawLfoRateWithSync("##4", &block2ColorizeLfo1[3], &block2ColorizeLfo1Sync[3], &block2ColorizeLfo1Division[3], "/gravity/block3/lfo/b2/hueBand1Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##5", &block2ColorizeLfo1[4],-1.0,1.0, "/gravity/block3/lfo/b2/saturationBand1Rate");
+								drawLfoRateWithSync("##5", &block2ColorizeLfo1[4], &block2ColorizeLfo1Sync[4], &block2ColorizeLfo1Division[4], "/gravity/block3/lfo/b2/saturationBand1Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##6", &block2ColorizeLfo1[5],-1.0,1.0, "/gravity/block3/lfo/b2/brightBand1Rate");
+								drawLfoRateWithSync("##6", &block2ColorizeLfo1[5], &block2ColorizeLfo1Sync[5], &block2ColorizeLfo1Division[5], "/gravity/block3/lfo/b2/brightBand1Rate");
 								ImGui::SameLine();
 								ImGui::Text("band 1 r");
 
@@ -5276,11 +5351,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 2 a");
 								ImGui::Separator();
 
-								ImGuiSliderFloatOSC("##10",&block2ColorizeLfo1[9],-1.0,1.0, "/gravity/block3/lfo/b2/hueBand2Rate");
+								drawLfoRateWithSync("##10", &block2ColorizeLfo1[9], &block2ColorizeLfo1Sync[9], &block2ColorizeLfo1Division[9], "/gravity/block3/lfo/b2/hueBand2Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##11",&block2ColorizeLfo1[10],-1.0,1.0, "/gravity/block3/lfo/b2/saturationBand2Rate");
+								drawLfoRateWithSync("##11", &block2ColorizeLfo1[10], &block2ColorizeLfo1Sync[10], &block2ColorizeLfo1Division[10], "/gravity/block3/lfo/b2/saturationBand2Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##12",&block2ColorizeLfo1[11],-1.0,1.0, "/gravity/block3/lfo/b2/brightBand2Rate");
+								drawLfoRateWithSync("##12", &block2ColorizeLfo1[11], &block2ColorizeLfo1Sync[11], &block2ColorizeLfo1Division[11], "/gravity/block3/lfo/b2/brightBand2Rate");
 								ImGui::SameLine();
 								ImGui::Text("band 2 r");
 
@@ -5360,11 +5435,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 3 a");
 								ImGui::Separator();
 
-								ImGuiSliderFloatOSC("##4", &block2ColorizeLfo2[3],-1.0,1.0, "/gravity/block3/lfo/b2/hueBand3Rate");
+								drawLfoRateWithSync("##4", &block2ColorizeLfo2[3], &block2ColorizeLfo2Sync[3], &block2ColorizeLfo2Division[3], "/gravity/block3/lfo/b2/hueBand3Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##5", &block2ColorizeLfo2[4],-1.0,1.0, "/gravity/block3/lfo/b2/saturationBand3Rate");
+								drawLfoRateWithSync("##5", &block2ColorizeLfo2[4], &block2ColorizeLfo2Sync[4], &block2ColorizeLfo2Division[4], "/gravity/block3/lfo/b2/saturationBand3Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##6", &block2ColorizeLfo2[5],-1.0,1.0, "/gravity/block3/lfo/b2/brightBand3Rate");
+								drawLfoRateWithSync("##6", &block2ColorizeLfo2[5], &block2ColorizeLfo2Sync[5], &block2ColorizeLfo2Division[5], "/gravity/block3/lfo/b2/brightBand3Rate");
 								ImGui::SameLine();
 								ImGui::Text("band 3 r");
 
@@ -5392,11 +5467,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 4 a");
 								ImGui::Separator();
 
-								ImGuiSliderFloatOSC("##10",&block2ColorizeLfo2[9],-1.0,1.0, "/gravity/block3/lfo/b2/hueBand4Rate");
+								drawLfoRateWithSync("##10", &block2ColorizeLfo2[9], &block2ColorizeLfo2Sync[9], &block2ColorizeLfo2Division[9], "/gravity/block3/lfo/b2/hueBand4Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##11",&block2ColorizeLfo2[10],-1.0,1.0, "/gravity/block3/lfo/b2/saturationBand4Rate");
+								drawLfoRateWithSync("##11", &block2ColorizeLfo2[10], &block2ColorizeLfo2Sync[10], &block2ColorizeLfo2Division[10], "/gravity/block3/lfo/b2/saturationBand4Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##12",&block2ColorizeLfo2[11],-1.0,1.0, "/gravity/block3/lfo/b2/brightBand4Rate");
+								drawLfoRateWithSync("##12", &block2ColorizeLfo2[11], &block2ColorizeLfo2Sync[11], &block2ColorizeLfo2Division[11], "/gravity/block3/lfo/b2/brightBand4Rate");
 								ImGui::SameLine();
 								ImGui::Text("band 4 r");
 
@@ -5476,11 +5551,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 5 a");
 								ImGui::Separator();
 
-								ImGuiSliderFloatOSC("##4", &block2ColorizeLfo3[3],-1.0,1.0, "/gravity/block3/lfo/b2/hueBand5Rate");
+								drawLfoRateWithSync("##4", &block2ColorizeLfo3[3], &block2ColorizeLfo3Sync[3], &block2ColorizeLfo3Division[3], "/gravity/block3/lfo/b2/hueBand5Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##5", &block2ColorizeLfo3[4],-1.0,1.0, "/gravity/block3/lfo/b2/saturationBand5Rate");
+								drawLfoRateWithSync("##5", &block2ColorizeLfo3[4], &block2ColorizeLfo3Sync[4], &block2ColorizeLfo3Division[4], "/gravity/block3/lfo/b2/saturationBand5Rate");
 								ImGui::SameLine();
-								ImGuiSliderFloatOSC("##6", &block2ColorizeLfo3[5],-1.0,1.0, "/gravity/block3/lfo/b2/brightBand5Rate");
+								drawLfoRateWithSync("##6", &block2ColorizeLfo3[5], &block2ColorizeLfo3Sync[5], &block2ColorizeLfo3Division[5], "/gravity/block3/lfo/b2/brightBand5Rate");
 								ImGui::SameLine();
 								ImGui::Text("band 5 r");
 
@@ -5771,15 +5846,15 @@ void GuiApp::draw(){
 										ImGui::Text("B_2  red   r");
 									}
 									ImGui::SameLine();
-									ImGuiSliderFloatOSC("##4", &matrixMixLfo1[3],-1.0,1.0, "/gravity/block3/lfo/matrixMix/b1RedToB2RedRate");
+									drawLfoRateWithSync("##4", &matrixMixLfo1[3], &matrixMixLfo1Sync[3], &matrixMixLfo1Division[3], "/gravity/block3/lfo/matrixMix/b1RedToB2RedRate");
 									ImGui::SameLine();
 									ImGui::Text("   ");
 									ImGui::SameLine();
-									ImGuiSliderFloatOSC("##5", &matrixMixLfo1[4],-1.0,1.0, "/gravity/block3/lfo/matrixMix/b1RedToB2GreenRate");
+									drawLfoRateWithSync("##5", &matrixMixLfo1[4], &matrixMixLfo1Sync[4], &matrixMixLfo1Division[4], "/gravity/block3/lfo/matrixMix/b1RedToB2GreenRate");
 									ImGui::SameLine();
 									ImGui::Text("   ");
 									ImGui::SameLine();
-									ImGuiSliderFloatOSC("##6", &matrixMixLfo1[5],-1.0,1.0, "/gravity/block3/lfo/matrixMix/b1RedToB2BlueRate");
+									drawLfoRateWithSync("##6", &matrixMixLfo1[5], &matrixMixLfo1Sync[5], &matrixMixLfo1Division[5], "/gravity/block3/lfo/matrixMix/b1RedToB2BlueRate");
 
 									ImGui::Text("B_1  red   s");
 									ImGui::SameLine();
@@ -5823,15 +5898,15 @@ void GuiApp::draw(){
 										ImGui::Text("B_2 green  r");
 									}
 									ImGui::SameLine();
-									ImGuiSliderFloatOSC("##10",&matrixMixLfo1[9],-1.0,1.0, "/gravity/block3/lfo/matrixMix/b1GreenToB2RedRate");
+									drawLfoRateWithSync("##10", &matrixMixLfo1[9], &matrixMixLfo1Sync[9], &matrixMixLfo1Division[9], "/gravity/block3/lfo/matrixMix/b1GreenToB2RedRate");
 									ImGui::SameLine();
 									ImGui::Text("   ");
 									ImGui::SameLine();
-									ImGuiSliderFloatOSC("##11",&matrixMixLfo1[10],-1.0,1.0, "/gravity/block3/lfo/matrixMix/b1GreenToB2GreenRate");
+									drawLfoRateWithSync("##11", &matrixMixLfo1[10], &matrixMixLfo1Sync[10], &matrixMixLfo1Division[10], "/gravity/block3/lfo/matrixMix/b1GreenToB2GreenRate");
 									ImGui::SameLine();
 									ImGui::Text("   ");
 									ImGui::SameLine();
-									ImGuiSliderFloatOSC("##12",&matrixMixLfo1[11],-1.0,1.0, "/gravity/block3/lfo/matrixMix/b1GreenToB2BlueRate");
+									drawLfoRateWithSync("##12", &matrixMixLfo1[11], &matrixMixLfo1Sync[11], &matrixMixLfo1Division[11], "/gravity/block3/lfo/matrixMix/b1GreenToB2BlueRate");
 
 									ImGui::Text("B_1  green s");
 									ImGui::SameLine();
@@ -5927,15 +6002,15 @@ void GuiApp::draw(){
 										ImGui::Text("B_2  blue  r");
 									}
 									ImGui::SameLine();
-									ImGuiSliderFloatOSC("##4",&matrixMixLfo2[3],-1.0,1.0, "/gravity/block3/lfo/matrixMix/b1BlueToB2RedRate");
+									drawLfoRateWithSync("##4", &matrixMixLfo2[3], &matrixMixLfo2Sync[3], &matrixMixLfo2Division[3], "/gravity/block3/lfo/matrixMix/b1BlueToB2RedRate");
 									ImGui::SameLine();
 									ImGui::Text("   ");
 									ImGui::SameLine();
-									ImGuiSliderFloatOSC("##5",&matrixMixLfo2[4],-1.0,1.0, "/gravity/block3/lfo/matrixMix/b1BlueToB2GreenRate");
+									drawLfoRateWithSync("##5", &matrixMixLfo2[4], &matrixMixLfo2Sync[4], &matrixMixLfo2Division[4], "/gravity/block3/lfo/matrixMix/b1BlueToB2GreenRate");
 									ImGui::SameLine();
 									ImGui::Text("   ");
 									ImGui::SameLine();
-									ImGuiSliderFloatOSC("##6",&matrixMixLfo2[5],-1.0,1.0, "/gravity/block3/lfo/matrixMix/b1BlueToB2BlueRate");
+									drawLfoRateWithSync("##6", &matrixMixLfo2[5], &matrixMixLfo2Sync[5], &matrixMixLfo2Division[5], "/gravity/block3/lfo/matrixMix/b1BlueToB2BlueRate");
 
 									ImGui::Text("B_1  blue  s");
 									ImGui::SameLine();
@@ -5995,7 +6070,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("mix a       ##final", &finalMixAndKeyLfo[0],-1.0,1.0, "/gravity/block3/lfo/final/mixAmountAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("mix r       ##final", &finalMixAndKeyLfo[1],-1.0,1.0, "/gravity/block3/lfo/final/mixAmountRate");
+								drawLfoRateWithSync("mix r       ##final", &finalMixAndKeyLfo[1], &finalMixAndKeyLfoSync[1], &finalMixAndKeyLfoDivision[1], "/gravity/block3/lfo/final/mixAmountRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##finalmixShape", &finalMixAndKeyLfoShape[0], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -6006,7 +6081,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("ky thresh a ##final", &finalMixAndKeyLfo[2],-1.0,1.0, "/gravity/block3/lfo/final/keyThresholdAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("ky thresh r ##final", &finalMixAndKeyLfo[3],-1.0,1.0, "/gravity/block3/lfo/final/keyThresholdRate");
+								drawLfoRateWithSync("ky thresh r ##final", &finalMixAndKeyLfo[3], &finalMixAndKeyLfoSync[3], &finalMixAndKeyLfoDivision[3], "/gravity/block3/lfo/final/keyThresholdRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##finalkeyThreshShape", &finalMixAndKeyLfoShape[1], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -6017,7 +6092,7 @@ void GuiApp::draw(){
 								ImGuiSliderFloatOSC("ky soft a   ##final", &finalMixAndKeyLfo[4],-1.0,1.0, "/gravity/block3/lfo/final/keySoftAmp");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(240.0f);
-								ImGuiSliderFloatOSC("ky soft r   ##final", &finalMixAndKeyLfo[5],-1.0,1.0, "/gravity/block3/lfo/final/keySoftRate");
+								drawLfoRateWithSync("ky soft r   ##final", &finalMixAndKeyLfo[5], &finalMixAndKeyLfoSync[5], &finalMixAndKeyLfoDivision[5], "/gravity/block3/lfo/final/keySoftRate");
 								ImGui::SameLine();
 								ImGui::SetNextItemWidth(100.0f);
 								if (ImGui::Combo("##finalkeySoftShape", &finalMixAndKeyLfoShape[2], lfoShapes, IM_ARRAYSIZE(lfoShapes))) {
@@ -6042,10 +6117,6 @@ void GuiApp::draw(){
 				ImGui::Spacing();
 				if (ImGui::Button("Audio Reactivity (Block 3)", ImVec2(220, 30))) {
 					showBlock3AudioPanel = !showBlock3AudioPanel;
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("BPM / Tempo Panel", ImVec2(200, 30))) {
-					showBpmPanel = !showBpmPanel;
 				}
 				
 				ImGui::EndTabItem();
@@ -6083,6 +6154,27 @@ void GuiApp::draw(){
 								audioAnalyzerRef->setDevice(audioInputDevice);
 							}
 						}
+					}
+					
+					// Reinitialize button for audio
+					if (ImGui::Button("Reinitialize Audio")) {
+						if (audioAnalyzerRef) {
+							audioAnalyzerRef->close();
+							// Small delay to ensure device is released
+							ofSleepMillis(100);
+							dragonwaves::AudioSettings settings;
+							settings.enabled = audioEnabled;
+							settings.inputDevice = audioInputDevice;
+							settings.amplitude = audioAmplitude;
+							settings.smoothing = audioSmoothing;
+							settings.normalization = audioNormalization;
+							settings.sampleRate = 44100;
+							settings.bufferSize = 512;
+							audioAnalyzerRef->setup(settings);
+						}
+					}
+					if (ImGui::IsItemHovered()) {
+						ImGui::SetTooltip("Restart audio with selected device");
 					}
 					
 					ImGui::Separator();
@@ -6131,6 +6223,81 @@ void GuiApp::draw(){
 					
 					// FFT Visualization
 					drawFftVisualization();
+				}
+				
+				// ========== TEMPO / BPM SECTION ==========
+				ImGui::Separator();
+				ImGui::Spacing();
+				ImGui::Text("Tempo & Beat Sync");
+				ImGui::Separator();
+				
+				// BPM Enable
+				if (ImGui::Checkbox("Enable Tempo", &bpmEnabled)) {
+					if (tempoManagerRef) {
+						tempoManagerRef->setEnabled(bpmEnabled);
+					}
+				}
+				
+				if (bpmEnabled) {
+					ImGui::Separator();
+					
+					// BPM Input with nudge buttons
+					ImGui::PushItemWidth(80);
+					if (ImGui::InputFloat("BPM", &bpm, 0.0f, 0.0f, "%.1f")) {
+						bpm = ofClamp(bpm, 20.0f, 300.0f);
+						if (tempoManagerRef) {
+							tempoManagerRef->setBpm(bpm);
+						}
+					}
+					ImGui::PopItemWidth();
+					
+					ImGui::SameLine();
+					if (ImGui::Button("-##bpm")) {
+						bpm -= 1.0f;
+						bpm = ofClamp(bpm, 20.0f, 300.0f);
+						if (tempoManagerRef) {
+							tempoManagerRef->setBpm(bpm);
+						}
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("+##bpm")) {
+						bpm += 1.0f;
+						bpm = ofClamp(bpm, 20.0f, 300.0f);
+						if (tempoManagerRef) {
+							tempoManagerRef->setBpm(bpm);
+						}
+					}
+					
+					// Tap Tempo button
+					ImGui::SameLine();
+					if (ImGui::Button("TAP", ImVec2(60, 0))) {
+						if (tempoManagerRef) {
+							tempoManagerRef->tap();
+							bpm = tempoManagerRef->getBpm();
+						}
+					}
+					
+					// Play/Pause
+					ImGui::SameLine();
+					if (bpmPlaying) {
+						if (ImGui::Button("Pause##bpm", ImVec2(80, 0))) {
+							bpmPlaying = false;
+							if (tempoManagerRef) {
+								tempoManagerRef->setPlaying(false);
+							}
+						}
+					} else {
+						if (ImGui::Button("Play##bpm", ImVec2(80, 0))) {
+							bpmPlaying = true;
+							if (tempoManagerRef) {
+								tempoManagerRef->setPlaying(true);
+							}
+						}
+					}
+					
+					// Beat indicator
+					ImGui::Separator();
+					drawBeatIndicator();
 				}
 				
 				ImGui::EndTabItem();
@@ -6835,6 +7002,29 @@ void GuiApp::saveEverything(){
 	//save macroData
 	for (int i=0;i<PARAMETER_ARRAY_LENGTH;i++){
 		saveBuffer["MACROS"]["macroData"][i]=macroData[i];
+	}
+	
+	// Save audio/BPM modulations from GUI state
+	for (int blockIdx = 0; blockIdx < 3; blockIdx++) {
+		std::string blockKey = "block" + std::to_string(blockIdx + 1);
+		for (int paramIdx = 0; paramIdx < 100; paramIdx++) {
+			int modIndex = blockIdx * 100 + paramIdx;
+			if (modIndex >= 300) break;
+			
+			const auto& mod = paramAudioModulations[modIndex];
+			if (mod.enabled) {
+				saveBuffer["MODULATIONS"][blockKey][paramIdx]["audioEnabled"] = mod.enabled;
+				saveBuffer["MODULATIONS"][blockKey][paramIdx]["audioFftBand"] = mod.fftBand;
+				saveBuffer["MODULATIONS"][blockKey][paramIdx]["audioAmount"] = mod.amount;
+				saveBuffer["MODULATIONS"][blockKey][paramIdx]["rangeScale"] = mod.rangeScale;
+			}
+		}
+	}
+	
+	// Save tempo settings
+	if (tempoManagerRef) {
+		saveBuffer["TEMPO"]["bpm"] = tempoManagerRef->getBpm();
+		saveBuffer["TEMPO"]["enabled"] = tempoManagerRef->isEnabled();
 	}
 
 	//save all the stupid constants lolololol
@@ -9467,7 +9657,59 @@ void GuiApp::loadEverything(){
 
 	//extra block 3 things to add: final mix order
 	//finalKeyOrder=loadBuffer["BLOCK_3"]["b3_extraWhatever"][0];
-
+	
+	// Load audio/BPM modulations
+	if (loadBuffer.contains("MODULATIONS")) {
+		auto& mods = loadBuffer["MODULATIONS"];
+		for (int blockIdx = 0; blockIdx < 3; blockIdx++) {
+			std::string blockKey = "block" + std::to_string(blockIdx + 1);
+			if (mods.contains(blockKey)) {
+				auto& blockMods = mods[blockKey];
+				for (auto& [paramIdxStr, modData] : blockMods.items()) {
+					int paramIdx = std::stoi(paramIdxStr);
+					int modIndex = blockIdx * 100 + paramIdx;
+					if (modIndex >= 300) continue;
+					
+					auto& mod = paramAudioModulations[modIndex];
+					mod.blockIndex = blockIdx + 1;
+					if (modData.contains("audioEnabled")) mod.enabled = modData["audioEnabled"];
+					if (modData.contains("audioFftBand")) mod.fftBand = modData["audioFftBand"];
+					if (modData.contains("audioAmount")) mod.amount = modData["audioAmount"];
+					if (modData.contains("rangeScale")) mod.rangeScale = modData["rangeScale"];
+					
+					// Apply to pipeline if mainApp is available
+					if (mainApp && mod.enabled) {
+						const char** paramNames = nullptr;
+						int paramCount = 0;
+						switch (blockIdx) {
+							case 0: paramNames = getBlock1ParamNames(paramCount); break;
+							case 1: paramNames = getBlock2ParamNames(paramCount); break;
+							case 2: paramNames = getBlock3ParamNames(paramCount); break;
+						}
+						if (paramNames && paramIdx < paramCount) {
+							mainApp->applyAudioModulationToParam(blockIdx + 1, paramNames[paramIdx], 
+								mod.enabled, mod.fftBand, mod.amount, mod.rangeScale);
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	// Load tempo settings
+	if (loadBuffer.contains("TEMPO")) {
+		auto& tempo = loadBuffer["TEMPO"];
+		if (tempoManagerRef) {
+			if (tempo.contains("bpm")) {
+				tempoManagerRef->setBpm(tempo["bpm"]);
+				bpm = tempo["bpm"];
+			}
+			if (tempo.contains("enabled")) {
+				tempoManagerRef->setEnabled(tempo["enabled"]);
+				bpmEnabled = tempo["enabled"];
+			}
+		}
+	}
 }
 
 
@@ -9849,9 +10091,6 @@ void GuiApp::drawBeatIndicator() {
 	
 	// Advance cursor
 	ImGui::Dummy(ImVec2(radius * 2 + 10, radius * 2));
-	
-	// Progress bar for beat phase
-	ImGui::ProgressBar(beatPhase, ImVec2(-1, 0), "");
 }
 
 void GuiApp::drawBpmModulationSection() {
@@ -10099,6 +10338,24 @@ void GuiApp::refreshAudioDeviceList() {
 	if (audioAnalyzerRef) {
 		audioDeviceNames = audioAnalyzerRef->getDeviceList();
 	}
+}
+
+void GuiApp::syncAudioSettingsFromAnalyzer() {
+	if (!audioAnalyzerRef) return;
+	
+	// Sync GUI variables with AudioAnalyzer settings
+	audioEnabled = audioAnalyzerRef->isEnabled();
+	audioInputDevice = audioAnalyzerRef->getCurrentDevice();
+	audioAmplitude = audioAnalyzerRef->getAmplitude();
+	audioSmoothing = audioAnalyzerRef->getSmoothing();
+	audioNormalization = audioAnalyzerRef->getNormalization();
+	
+	// Refresh the device list to ensure we have current devices
+	refreshAudioDeviceList();
+	
+	ofLogNotice("GuiApp") << "Synced audio settings from analyzer: enabled=" << audioEnabled 
+	                      << ", device=" << audioInputDevice
+	                      << " (deviceID=" << audioAnalyzerRef->getCurrentDeviceId() << ")";
 }
 
 void GuiApp::applyAudioModulations() {

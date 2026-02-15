@@ -129,6 +129,9 @@ void AudioAnalyzer::setup(const AudioSettings& newSettings) {
         return;
     }
     
+    // Rebuild the device ID mapping
+    rebuildDeviceIdMap();
+    
     // Set number of bins (must be power of 2)
     numBins = settings.numBins > 0 ? settings.numBins : 256;
     // Round to nearest power of 2
@@ -149,16 +152,29 @@ void AudioAnalyzer::setup(const AudioSettings& newSettings) {
         fftWindow[i] = 0.5f * (1.0f - cosf(2.0f * PI * i / (numBins - 1)));
     }
     
-    ofLogNotice("AudioAnalyzer") << "Setup with " << numBins << " FFT bins (power of 2), device " << settings.inputDevice 
+    // Get all available devices for logging
+    auto devices = soundStream.getDeviceList();
+    
+    // Find the actual deviceID from our mapping
+    currentDeviceId = -1;
+    if (settings.inputDevice >= 0 && settings.inputDevice < (int)inputDeviceIds.size()) {
+        currentDeviceId = inputDeviceIds[settings.inputDevice];
+    }
+    
+    ofLogNotice("AudioAnalyzer") << "Setup with " << numBins << " FFT bins (power of 2)";
+    ofLogNotice("AudioAnalyzer") << "Selected device index: " << settings.inputDevice 
+                                  << " -> deviceID: " << currentDeviceId
                                   << " at " << settings.sampleRate << "Hz";
     
-    // List available devices for debugging
-    auto devices = soundStream.getDeviceList();
-    ofLogNotice("AudioAnalyzer") << "Available audio devices:";
-    for (const auto& device : devices) {
-        if (device.inputChannels > 0) {
-            ofLogNotice("AudioAnalyzer") << "  [" << device.deviceID << "] " << device.name 
-                                          << " (in:" << device.inputChannels << ")";
+    // List available input devices for debugging
+    ofLogNotice("AudioAnalyzer") << "Available input devices (filtered):";
+    for (size_t i = 0; i < inputDeviceIds.size(); i++) {
+        int devId = inputDeviceIds[i];
+        for (const auto& device : devices) {
+            if (device.deviceID == devId) {
+                ofLogNotice("AudioAnalyzer") << "  [Index " << i << "] deviceID=" << devId << ": " << device.name;
+                break;
+            }
         }
     }
     
@@ -171,14 +187,17 @@ void AudioAnalyzer::setup(const AudioSettings& newSettings) {
     streamSettings.numBuffers = 2;
     streamSettings.setInListener(this);
     
-    // Try to set the device, fallback to default if not available
-    if (settings.inputDevice >= 0 && settings.inputDevice < (int)devices.size()) {
+    // Try to set the device by actual deviceID
+    if (currentDeviceId >= 0) {
         for (const auto& device : devices) {
-            if (device.deviceID == settings.inputDevice && device.inputChannels > 0) {
+            if (device.deviceID == currentDeviceId && device.inputChannels > 0) {
                 streamSettings.setInDevice(device);
+                ofLogNotice("AudioAnalyzer") << "Using device: " << device.name << " (deviceID=" << device.deviceID << ")";
                 break;
             }
         }
+    } else {
+        ofLogWarning("AudioAnalyzer") << "No valid device selected, using default";
     }
     
     streamSetup = soundStream.setup(streamSettings);
@@ -320,6 +339,17 @@ void AudioAnalyzer::setEnabled(bool enabled) {
     }
 }
 
+void AudioAnalyzer::rebuildDeviceIdMap() {
+    inputDeviceIds.clear();
+    auto deviceList = soundStream.getDeviceList();
+    for (const auto& device : deviceList) {
+        if (device.inputChannels > 0) {
+            inputDeviceIds.push_back(device.deviceID);
+        }
+    }
+    ofLogNotice("AudioAnalyzer") << "Rebuilt device map: " << inputDeviceIds.size() << " input devices found";
+}
+
 std::vector<std::string> AudioAnalyzer::getDeviceList() const {
     std::vector<std::string> devices;
     auto deviceList = soundStream.getDeviceList();
@@ -332,8 +362,25 @@ std::vector<std::string> AudioAnalyzer::getDeviceList() const {
 }
 
 void AudioAnalyzer::setDevice(int deviceIndex) {
+    // Rebuild the device ID mapping to ensure it's up to date
+    rebuildDeviceIdMap();
+    
+    // Validate the device index
+    if (deviceIndex < 0 || deviceIndex >= (int)inputDeviceIds.size()) {
+        ofLogWarning("AudioAnalyzer") << "Invalid device index: " << deviceIndex 
+                                      << " (valid range: 0-" << (inputDeviceIds.size()-1) << ")";
+        return;
+    }
+    
     if (settings.inputDevice != deviceIndex) {
+        int oldDeviceId = currentDeviceId;
         settings.inputDevice = deviceIndex;
+        currentDeviceId = inputDeviceIds[deviceIndex];
+        
+        ofLogNotice("AudioAnalyzer") << "Switching device: index " << deviceIndex 
+                                      << " -> deviceID " << currentDeviceId
+                                      << " (was deviceID " << oldDeviceId << ")";
+        
         if (settings.enabled) {
             // Restart with new device
             close();
