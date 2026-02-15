@@ -101,8 +101,15 @@ public:
     
     // Device management
     std::vector<std::string> getDeviceList() const;
-    void setDevice(int deviceIndex);
-    int getCurrentDevice() const { return settings.inputDevice; }
+    void setDevice(int deviceIndex);  // deviceIndex is the INDEX in the filtered list, not deviceID
+    int getCurrentDevice() const { return settings.inputDevice; }  // Returns the INDEX in filtered list
+    int getCurrentDeviceId() const { return currentDeviceId; }  // Returns the actual system deviceID
+    
+private:
+    // Build the list of input device IDs (maps index -> deviceID)
+    void rebuildDeviceIdMap();
+    
+public:
     
     // Manual audio input (for testing/debugging)
     void audioIn(ofSoundBuffer& buffer) override;
@@ -138,6 +145,10 @@ private:
     // Sound stream
     ofSoundStream soundStream;
     bool streamSetup = false;
+    
+    // Device ID mapping (maps GUI list index -> actual system deviceID)
+    std::vector<int> inputDeviceIds;
+    int currentDeviceId = -1;  // Actual system deviceID currently in use
     
     // Audio input buffer (circular buffer for continuous FFT)
     std::vector<float> audioBuffer;

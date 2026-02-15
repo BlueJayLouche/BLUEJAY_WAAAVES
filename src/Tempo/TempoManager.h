@@ -32,14 +32,14 @@ static const char* BeatDivisionNames[8] = {
 };
 
 static const float BeatDivisionValues[8] = {
-    0.0625f,    // 1/16
-    0.125f,     // 1/8
-    0.25f,      // 1/4
-    0.5f,       // 1/2
-    1.0f,       // 1
-    2.0f,       // 2
-    4.0f,       // 4
-    8.0f        // 8
+    4.0f,       // 1/16 - 4 cycles per beat (16th notes, fast)
+    2.0f,       // 1/8 - 2 cycles per beat (8th notes)
+    1.0f,       // 1/4 - 1 cycle per beat (quarter notes)
+    0.5f,       // 1/2 - 0.5 cycles per beat (half notes)
+    0.25f,      // 1 - 0.25 cycles per beat (whole notes)
+    0.125f,     // 2 - 0.125 cycles per beat (2 beats per cycle)
+    0.0625f,    // 4 - 0.0625 cycles per beat (4 beats per cycle)
+    0.03125f    // 8 - 0.03125 cycles per beat (8 beats per cycle, slow)
 };
 
 //==============================================================================
@@ -106,7 +106,6 @@ public:
     float getBpm() const { return settings.bpm; }
     float getBeatPeriod() const { return 60.0f / settings.bpm; }
     float getBeatPhase() const { return currentBeatPhase; }
-    float getBarPhase() const { return currentBarPhase; }
     int getCurrentBeat() const { return currentBeat; }
     int getCurrentBar() const { return currentBar; }
     bool isEnabled() const { return settings.enabled; }
@@ -142,7 +141,6 @@ private:
     
     // Timing
     float currentBeatPhase = 0.0f;      // 0-1 within current beat
-    float currentBarPhase = 0.0f;       // 0-1 within current bar (4 beats)
     int currentBeat = 0;                // 0-3 within bar
     int currentBar = 0;
     

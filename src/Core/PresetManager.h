@@ -6,6 +6,37 @@
 namespace dragonwaves {
 
 //==============================================================================
+// Audio/BPM modulation data for a single parameter
+//==============================================================================
+struct ParamModulationData {
+    // Audio modulation
+    bool audioEnabled = false;
+    int audioFftBand = 0;
+    float audioAmount = 0.0f;
+    bool audioUseNormalization = true;
+    float audioAttack = 0.1f;
+    float audioRelease = 0.1f;
+    float audioRangeScale = 1.0f;
+    
+    // BPM modulation
+    bool bpmEnabled = false;
+    int bpmDivisionIndex = 2;  // 1/4 beat default
+    float bpmPhase = 0.0f;
+    int bpmWaveform = 0;  // Sine
+    float bpmMinValue = 0.0f;
+    float bpmMaxValue = 1.0f;
+    bool bpmBipolar = false;
+};
+
+//==============================================================================
+// Tempo settings for presets
+//==============================================================================
+struct PresetTempoData {
+    float bpm = 120.0f;
+    bool enabled = true;
+};
+
+//==============================================================================
 // Preset data structure matching the original format
 //==============================================================================
 struct PresetData {
@@ -66,6 +97,14 @@ struct PresetData {
     int ch1InputSelect = 0;
     int ch2InputSelect = 1;
     int block2InputSelect = 0;
+    
+    // Audio/BPM modulations for all blocks (key = parameter name)
+    std::map<std::string, ParamModulationData> block1Modulations;
+    std::map<std::string, ParamModulationData> block2Modulations;
+    std::map<std::string, ParamModulationData> block3Modulations;
+    
+    // Tempo settings
+    PresetTempoData tempo;
     
     PresetData();
 };
