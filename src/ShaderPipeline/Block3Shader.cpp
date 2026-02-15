@@ -13,6 +13,16 @@ float ParamModulation::apply(float baseValue, const AudioAnalyzer& audioAnalyzer
         float fftValue = audioAnalyzer.getBand(audio.fftBand);
         float audioMod = audio.process(fftValue, deltaTime);
         result += audioMod;
+        
+        // Debug output
+        static int debugCounter = 0;
+        if (debugCounter++ % 60 == 0) {
+            ofLogNotice("ParamModulation") << " fft=" << fftValue 
+                                           << " amount=" << audio.amount 
+                                           << " audioMod=" << audioMod 
+                                           << " base=" << (result - audioMod)
+                                           << " result=" << result;
+        }
     }
     
     // Apply BPM modulation
@@ -76,6 +86,11 @@ void Block3Shader::process() {
     shader.setUniform1f("inverseHeight", 1.0f / height);
     
     // Block1 geo (final stage)
+    static int debugCounter = 0;
+    if (debugCounter++ % 60 == 0) {
+        ofLogNotice("Block3Shader") << "block1XDisplace=" << params.block1XDisplace 
+                                   << " block1YDisplace=" << params.block1YDisplace;
+    }
     shader.setUniform2f("block1XYDisplace", params.block1XDisplace, params.block1YDisplace);
     float z1 = params.block1ZDisplace;
     if (z1 > 1.0f) {

@@ -1502,10 +1502,6 @@ public:
 	bool ch1AdjustLfoReset=0;
 	float ch1AdjustLfo[PARAMETER_ARRAY_LENGTH];
 	bool ch1AdjustLfoMidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync: 0 = Free (use rate slider), 1 = Sync (use division dropdown)
-	bool ch1AdjustLfoSync[PARAMETER_ARRAY_LENGTH];
-	int ch1AdjustLfoDivision[PARAMETER_ARRAY_LENGTH];  // Beat division index (0-7)
 
 	//ch2 parameters
 	int ch2InputSelect=1; //0 is input1, 1 is input2
@@ -1527,10 +1523,6 @@ public:
 	bool ch2MixAndKeyLfoReset=0;
 	float ch2MixAndKeyLfo[PARAMETER_ARRAY_LENGTH];
 	bool ch2MixAndKeyLfoMidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Ch2 MixAndKey
-	bool ch2MixAndKeyLfoSync[PARAMETER_ARRAY_LENGTH];
-	int ch2MixAndKeyLfoDivision[PARAMETER_ARRAY_LENGTH];
 
 	//ch2 midi syncing & parameter bizness
 	bool ch2AdjustMidiGui=0;
@@ -1554,10 +1546,6 @@ public:
 	bool ch2AdjustLfoReset=0;
 	float ch2AdjustLfo[PARAMETER_ARRAY_LENGTH];
 	bool ch2AdjustLfoMidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync
-	bool ch2AdjustLfoSync[PARAMETER_ARRAY_LENGTH];
-	int ch2AdjustLfoDivision[PARAMETER_ARRAY_LENGTH];
 
 	//fb1 reset
 	void fb1ResetAll();
@@ -1615,40 +1603,24 @@ public:
 	bool fb1MixAndKeyLfoReset=0;
 	float fb1MixAndKeyLfo[PARAMETER_ARRAY_LENGTH];
 	bool fb1MixAndKeyLfoMidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for FB1
-	bool fb1MixAndKeyLfoSync[PARAMETER_ARRAY_LENGTH];
-	int fb1MixAndKeyLfoDivision[PARAMETER_ARRAY_LENGTH];
 
 	//fb1 Geo1Lfo1 pmidi syncing & paramater bizness
 	bool fb1Geo1Lfo1MidiGui=0;
 	bool fb1Geo1Lfo1Reset=0;
 	float fb1Geo1Lfo1[PARAMETER_ARRAY_LENGTH];
 	bool fb1Geo1Lfo1MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for FB1 Geo1Lfo1
-	bool fb1Geo1Lfo1Sync[PARAMETER_ARRAY_LENGTH];
-	int fb1Geo1Lfo1Division[PARAMETER_ARRAY_LENGTH];
 
 	//fb1 Geo1Lfo2 pmidi syncing & paramater bizness
 	bool fb1Geo1Lfo2MidiGui=0;
 	bool fb1Geo1Lfo2Reset=0;
 	float fb1Geo1Lfo2[PARAMETER_ARRAY_LENGTH];
 	bool fb1Geo1Lfo2MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for FB1 Geo1Lfo2
-	bool fb1Geo1Lfo2Sync[PARAMETER_ARRAY_LENGTH];
-	int fb1Geo1Lfo2Division[PARAMETER_ARRAY_LENGTH];
 
 	//fb1 Color1Lfo1 pmidi syncing & paramater bizness
 	bool fb1Color1Lfo1MidiGui=0;
 	bool fb1Color1Lfo1Reset=0;
 	float fb1Color1Lfo1[PARAMETER_ARRAY_LENGTH];
 	bool fb1Color1Lfo1MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for FB1 Color1Lfo1
-	bool fb1Color1Lfo1Sync[PARAMETER_ARRAY_LENGTH];
-	int fb1Color1Lfo1Division[PARAMETER_ARRAY_LENGTH];
 
 	//geometrical animations
 	//hypercube
@@ -1713,53 +1685,21 @@ public:
 
 	// LFO Rates (16 floats)
 	float lissajous1XFreqLfoRate = 0.0f;
-	bool lissajous1XFreqLfoSync = false;
-	int lissajous1XFreqLfoDivision = 2;
 	float lissajous1YFreqLfoRate = 0.0f;
-	bool lissajous1YFreqLfoSync = false;
-	int lissajous1YFreqLfoDivision = 2;
 	float lissajous1ZFreqLfoRate = 0.0f;
-	bool lissajous1ZFreqLfoSync = false;
-	int lissajous1ZFreqLfoDivision = 2;
 	float lissajous1XAmpLfoRate = 0.0f;
-	bool lissajous1XAmpLfoSync = false;
-	int lissajous1XAmpLfoDivision = 2;
 	float lissajous1YAmpLfoRate = 0.0f;
-	bool lissajous1YAmpLfoSync = false;
-	int lissajous1YAmpLfoDivision = 2;
 	float lissajous1ZAmpLfoRate = 0.0f;
-	bool lissajous1ZAmpLfoSync = false;
-	int lissajous1ZAmpLfoDivision = 2;
 	float lissajous1XPhaseLfoRate = 0.0f;
-	bool lissajous1XPhaseLfoSync = false;
-	int lissajous1XPhaseLfoDivision = 2;
 	float lissajous1YPhaseLfoRate = 0.0f;
-	bool lissajous1YPhaseLfoSync = false;
-	int lissajous1YPhaseLfoDivision = 2;
 	float lissajous1ZPhaseLfoRate = 0.0f;
-	bool lissajous1ZPhaseLfoSync = false;
-	int lissajous1ZPhaseLfoDivision = 2;
 	float lissajous1XOffsetLfoRate = 0.0f;
-	bool lissajous1XOffsetLfoSync = false;
-	int lissajous1XOffsetLfoDivision = 2;
 	float lissajous1YOffsetLfoRate = 0.0f;
-	bool lissajous1YOffsetLfoSync = false;
-	int lissajous1YOffsetLfoDivision = 2;
 	float lissajous1SpeedLfoRate = 0.0f;
-	bool lissajous1SpeedLfoSync = false;
-	int lissajous1SpeedLfoDivision = 2;
 	float lissajous1SizeLfoRate = 0.0f;
-	bool lissajous1SizeLfoSync = false;
-	int lissajous1SizeLfoDivision = 2;
 	float lissajous1NumPointsLfoRate = 0.0f;
-	bool lissajous1NumPointsLfoSync = false;
-	int lissajous1NumPointsLfoDivision = 2;
 	float lissajous1LineWidthLfoRate = 0.0f;
-	bool lissajous1LineWidthLfoSync = false;
-	int lissajous1LineWidthLfoDivision = 2;
 	float lissajous1ColorSpeedLfoRate = 0.0f;
-	bool lissajous1ColorSpeedLfoSync = false;
-	int lissajous1ColorSpeedLfoDivision = 2;
 
 	// LFO Shapes (16 ints)
 	int lissajous1XFreqLfoShape = 0;
@@ -1784,13 +1724,9 @@ public:
 	float lissajous1HueSpread = 1.0f;
 	float lissajous1HueLfoAmp = 0.0f;
 	float lissajous1HueLfoRate = 0.0f;
-	bool lissajous1HueLfoSync = false;
-	int lissajous1HueLfoDivision = 2;
 	int lissajous1HueLfoShape = 0;
 	float lissajous1HueSpreadLfoAmp = 0.0f;
 	float lissajous1HueSpreadLfoRate = 0.0f;
-	bool lissajous1HueSpreadLfoSync = false;
-	int lissajous1HueSpreadLfoDivision = 2;
 	int lissajous1HueSpreadLfoShape = 0;
 
 
@@ -1826,10 +1762,8 @@ public:
 	bool block2InputAdjustLfoReset=0;
 	float block2InputAdjustLfo[PARAMETER_ARRAY_LENGTH];
 	bool block2InputAdjustLfoMidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block2 Input
-	bool block2InputAdjustLfoSync[PARAMETER_ARRAY_LENGTH];
-	int block2InputAdjustLfoDivision[PARAMETER_ARRAY_LENGTH];
+
+
 
 	void fb2ResetAll();
 	bool fb2FramebufferClearSwitch=0;
@@ -1883,40 +1817,24 @@ public:
 	bool fb2MixAndKeyLfoReset=0;
 	float fb2MixAndKeyLfo[PARAMETER_ARRAY_LENGTH];
 	bool fb2MixAndKeyLfoMidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for FB2
-	bool fb2MixAndKeyLfoSync[PARAMETER_ARRAY_LENGTH];
-	int fb2MixAndKeyLfoDivision[PARAMETER_ARRAY_LENGTH];
 
 	//fb2 Geo1Lfo1 pmidi syncing & paramater bizness
 	bool fb2Geo1Lfo1MidiGui=0;
 	bool fb2Geo1Lfo1Reset=0;
 	float fb2Geo1Lfo1[PARAMETER_ARRAY_LENGTH];
 	bool fb2Geo1Lfo1MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for FB2 Geo1Lfo1
-	bool fb2Geo1Lfo1Sync[PARAMETER_ARRAY_LENGTH];
-	int fb2Geo1Lfo1Division[PARAMETER_ARRAY_LENGTH];
 
 	//fb2 Geo1Lfo2 pmidi syncing & paramater bizness
 	bool fb2Geo1Lfo2MidiGui=0;
 	bool fb2Geo1Lfo2Reset=0;
 	float fb2Geo1Lfo2[PARAMETER_ARRAY_LENGTH];
 	bool fb2Geo1Lfo2MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for FB2 Geo1Lfo2
-	bool fb2Geo1Lfo2Sync[PARAMETER_ARRAY_LENGTH];
-	int fb2Geo1Lfo2Division[PARAMETER_ARRAY_LENGTH];
 
 	//fb2 Color1Lfo1 pmidi syncing & paramater bizness
 	bool fb2Color1Lfo1MidiGui=0;
 	bool fb2Color1Lfo1Reset=0;
 	float fb2Color1Lfo1[PARAMETER_ARRAY_LENGTH];
 	bool fb2Color1Lfo1MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for FB2 Color1Lfo1
-	bool fb2Color1Lfo1Sync[PARAMETER_ARRAY_LENGTH];
-	int fb2Color1Lfo1Division[PARAMETER_ARRAY_LENGTH];
 
 	//block2 geometrical animations
 	//hypercube
@@ -1977,53 +1895,21 @@ public:
 
 	// LFO Rates (16 floats)
 	float lissajous2XFreqLfoRate = 0.0f;
-	bool lissajous2XFreqLfoSync = false;
-	int lissajous2XFreqLfoDivision = 2;
 	float lissajous2YFreqLfoRate = 0.0f;
-	bool lissajous2YFreqLfoSync = false;
-	int lissajous2YFreqLfoDivision = 2;
 	float lissajous2ZFreqLfoRate = 0.0f;
-	bool lissajous2ZFreqLfoSync = false;
-	int lissajous2ZFreqLfoDivision = 2;
 	float lissajous2XAmpLfoRate = 0.0f;
-	bool lissajous2XAmpLfoSync = false;
-	int lissajous2XAmpLfoDivision = 2;
 	float lissajous2YAmpLfoRate = 0.0f;
-	bool lissajous2YAmpLfoSync = false;
-	int lissajous2YAmpLfoDivision = 2;
 	float lissajous2ZAmpLfoRate = 0.0f;
-	bool lissajous2ZAmpLfoSync = false;
-	int lissajous2ZAmpLfoDivision = 2;
 	float lissajous2XPhaseLfoRate = 0.0f;
-	bool lissajous2XPhaseLfoSync = false;
-	int lissajous2XPhaseLfoDivision = 2;
 	float lissajous2YPhaseLfoRate = 0.0f;
-	bool lissajous2YPhaseLfoSync = false;
-	int lissajous2YPhaseLfoDivision = 2;
 	float lissajous2ZPhaseLfoRate = 0.0f;
-	bool lissajous2ZPhaseLfoSync = false;
-	int lissajous2ZPhaseLfoDivision = 2;
 	float lissajous2XOffsetLfoRate = 0.0f;
-	bool lissajous2XOffsetLfoSync = false;
-	int lissajous2XOffsetLfoDivision = 2;
 	float lissajous2YOffsetLfoRate = 0.0f;
-	bool lissajous2YOffsetLfoSync = false;
-	int lissajous2YOffsetLfoDivision = 2;
 	float lissajous2SpeedLfoRate = 0.0f;
-	bool lissajous2SpeedLfoSync = false;
-	int lissajous2SpeedLfoDivision = 2;
 	float lissajous2SizeLfoRate = 0.0f;
-	bool lissajous2SizeLfoSync = false;
-	int lissajous2SizeLfoDivision = 2;
 	float lissajous2NumPointsLfoRate = 0.0f;
-	bool lissajous2NumPointsLfoSync = false;
-	int lissajous2NumPointsLfoDivision = 2;
 	float lissajous2LineWidthLfoRate = 0.0f;
-	bool lissajous2LineWidthLfoSync = false;
-	int lissajous2LineWidthLfoDivision = 2;
 	float lissajous2ColorSpeedLfoRate = 0.0f;
-	bool lissajous2ColorSpeedLfoSync = false;
-	int lissajous2ColorSpeedLfoDivision = 2;
 
 	// LFO Shapes (16 ints)
 	int lissajous2XFreqLfoShape = 0;
@@ -2048,13 +1934,9 @@ public:
 	float lissajous2HueSpread = 1.0f;
 	float lissajous2HueLfoAmp = 0.0f;
 	float lissajous2HueLfoRate = 0.0f;
-	bool lissajous2HueLfoSync = false;
-	int lissajous2HueLfoDivision = 2;
 	int lissajous2HueLfoShape = 0;
 	float lissajous2HueSpreadLfoAmp = 0.0f;
 	float lissajous2HueSpreadLfoRate = 0.0f;
-	bool lissajous2HueSpreadLfoSync = false;
-	int lissajous2HueSpreadLfoDivision = 2;
 	int lissajous2HueSpreadLfoShape = 0;
 
 	//BLOCK3
@@ -2099,50 +1981,30 @@ public:
 	bool block1Geo1Lfo1Reset=0;
 	float block1Geo1Lfo1[PARAMETER_ARRAY_LENGTH];
 	bool block1Geo1Lfo1MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block1 Geo1Lfo1
-	bool block1Geo1Lfo1Sync[PARAMETER_ARRAY_LENGTH];
-	int block1Geo1Lfo1Division[PARAMETER_ARRAY_LENGTH];
 
 	//block1 Geo1Lfo2 pmidi syncing & paramater bizness
 	bool block1Geo1Lfo2MidiGui=0;
 	bool block1Geo1Lfo2Reset=0;
 	float block1Geo1Lfo2[PARAMETER_ARRAY_LENGTH];
 	bool block1Geo1Lfo2MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block1 Geo1Lfo2
-	bool block1Geo1Lfo2Sync[PARAMETER_ARRAY_LENGTH];
-	int block1Geo1Lfo2Division[PARAMETER_ARRAY_LENGTH];
 
 	//block1 ColorizeLfo1
 	bool block1ColorizeLfo1MidiGui=0;
 	bool block1ColorizeLfo1Reset=0;
 	float block1ColorizeLfo1[PARAMETER_ARRAY_LENGTH];
 	bool block1ColorizeLfo1MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block1 ColorizeLfo1
-	bool block1ColorizeLfo1Sync[PARAMETER_ARRAY_LENGTH];
-	int block1ColorizeLfo1Division[PARAMETER_ARRAY_LENGTH];
 
 	//block1 ColorizeLfo2
 	bool block1ColorizeLfo2MidiGui=0;
 	bool block1ColorizeLfo2Reset=0;
 	float block1ColorizeLfo2[PARAMETER_ARRAY_LENGTH];
 	bool block1ColorizeLfo2MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block1 ColorizeLfo2
-	bool block1ColorizeLfo2Sync[PARAMETER_ARRAY_LENGTH];
-	int block1ColorizeLfo2Division[PARAMETER_ARRAY_LENGTH];
 
 	//block1 ColorizeLfo3
 	bool block1ColorizeLfo3MidiGui=0;
 	bool block1ColorizeLfo3Reset=0;
 	float block1ColorizeLfo3[PARAMETER_ARRAY_LENGTH];
 	bool block1ColorizeLfo3MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block1 ColorizeLfo3
-	bool block1ColorizeLfo3Sync[PARAMETER_ARRAY_LENGTH];
-	int block1ColorizeLfo3Division[PARAMETER_ARRAY_LENGTH];
 
 
 
@@ -2196,50 +2058,30 @@ public:
 	bool block2Geo1Lfo1Reset=0;
 	float block2Geo1Lfo1[PARAMETER_ARRAY_LENGTH];
 	bool block2Geo1Lfo1MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block2 Geo1Lfo1
-	bool block2Geo1Lfo1Sync[PARAMETER_ARRAY_LENGTH];
-	int block2Geo1Lfo1Division[PARAMETER_ARRAY_LENGTH];
 
 	//block2 Geo1Lfo2 pmidi syncing & paramater bizness
 	bool block2Geo1Lfo2MidiGui=0;
 	bool block2Geo1Lfo2Reset=0;
 	float block2Geo1Lfo2[PARAMETER_ARRAY_LENGTH];
 	bool block2Geo1Lfo2MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block2 Geo1Lfo2
-	bool block2Geo1Lfo2Sync[PARAMETER_ARRAY_LENGTH];
-	int block2Geo1Lfo2Division[PARAMETER_ARRAY_LENGTH];
 
 	//block2 ColorizeLfo1
 	bool block2ColorizeLfo1MidiGui=0;
 	bool block2ColorizeLfo1Reset=0;
 	float block2ColorizeLfo1[PARAMETER_ARRAY_LENGTH];
 	bool block2ColorizeLfo1MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block2 ColorizeLfo1
-	bool block2ColorizeLfo1Sync[PARAMETER_ARRAY_LENGTH];
-	int block2ColorizeLfo1Division[PARAMETER_ARRAY_LENGTH];
 
 	//block2 ColorizeLfo2
 	bool block2ColorizeLfo2MidiGui=0;
 	bool block2ColorizeLfo2Reset=0;
 	float block2ColorizeLfo2[PARAMETER_ARRAY_LENGTH];
 	bool block2ColorizeLfo2MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block2 ColorizeLfo2
-	bool block2ColorizeLfo2Sync[PARAMETER_ARRAY_LENGTH];
-	int block2ColorizeLfo2Division[PARAMETER_ARRAY_LENGTH];
 
 	//block2 ColorizeLfo3
 	bool block2ColorizeLfo3MidiGui=0;
 	bool block2ColorizeLfo3Reset=0;
 	float block2ColorizeLfo3[PARAMETER_ARRAY_LENGTH];
 	bool block2ColorizeLfo3MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Block2 ColorizeLfo3
-	bool block2ColorizeLfo3Sync[PARAMETER_ARRAY_LENGTH];
-	int block2ColorizeLfo3Division[PARAMETER_ARRAY_LENGTH];
 
 
 
@@ -2268,29 +2110,17 @@ public:
 	bool matrixMixLfo1Reset=0;
 	float matrixMixLfo1[PARAMETER_ARRAY_LENGTH];
 	bool matrixMixLfo1MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Matrix Mix Lfo1
-	bool matrixMixLfo1Sync[PARAMETER_ARRAY_LENGTH];
-	int matrixMixLfo1Division[PARAMETER_ARRAY_LENGTH];
 
 	bool matrixMixLfo2MidiGui=0;
 	bool matrixMixLfo2Reset=0;
 	float matrixMixLfo2[PARAMETER_ARRAY_LENGTH];
 	bool matrixMixLfo2MidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Matrix Mix Lfo2
-	bool matrixMixLfo2Sync[PARAMETER_ARRAY_LENGTH];
-	int matrixMixLfo2Division[PARAMETER_ARRAY_LENGTH];
 
 	//final mixnkey pmidi syncing & paramater bizness
 	bool finalMixAndKeyLfoMidiGui=0;
 	bool finalMixAndKeyLfoReset=0;
 	float finalMixAndKeyLfo[PARAMETER_ARRAY_LENGTH];
 	bool finalMixAndKeyLfoMidiActive[PARAMETER_ARRAY_LENGTH];
-	
-	// LFO Tempo Sync for Final Mix
-	bool finalMixAndKeyLfoSync[PARAMETER_ARRAY_LENGTH];
-	int finalMixAndKeyLfoDivision[PARAMETER_ARRAY_LENGTH];
 
 	// ============== LFO SHAPE ARRAYS ==============
 	// LFO Shape arrays - one int per parameter pair
@@ -2321,7 +2151,6 @@ public:
 	int matrixMixLfo1Shape[PARAMETER_ARRAY_LENGTH];        // 6 shapes used
 	int matrixMixLfo2Shape[PARAMETER_ARRAY_LENGTH];        // 3 shapes used
 	int finalMixAndKeyLfoShape[PARAMETER_ARRAY_LENGTH];    // 3 shapes used
-	
 
 	// ============== OSC PARAMETER REGISTRY ==============
 	// Registry of all OSC-controllable parameters
@@ -2346,13 +2175,6 @@ public:
 	// Video/OSC Settings save/load
 	void saveVideoOscSettings();
 	void loadVideoOscSettings();
-	
-	// ============== LFO TEMPO SYNC HELPER ==============
-	// Beat division names for dropdown
-	static const char* beatDivisionNames[8];
-	// Helper function to draw LFO rate slider with sync toggle
-	// Returns true if value changed
-	bool drawLfoRateWithSync(const char* label, float* rateValue, bool* syncEnabled, int* divisionIndex, const char* oscAddress);
 
 	// Saved source names (for matching on load)
 	std::string savedInput1NdiName;
@@ -2433,9 +2255,6 @@ public:
 	dragonwaves::TempoManager* tempoManagerRef = nullptr;
 	void setAudioAnalyzer(dragonwaves::AudioAnalyzer* analyzer) { audioAnalyzerRef = analyzer; }
 	void setTempoManager(dragonwaves::TempoManager* tempo) { tempoManagerRef = tempo; }
-	
-	// Sync GUI audio settings from AudioAnalyzer (call after setAudioAnalyzer)
-	void syncAudioSettingsFromAnalyzer();
 	
 	// Draw audio panels (one per block)
 	void drawAudioPanel();

@@ -141,7 +141,6 @@ void ofApp::setup(){
     if (gui) {
         gui->setAudioAnalyzer(audioAnalyzer.get());
         gui->setTempoManager(tempoManager.get());
-        gui->syncAudioSettingsFromAnalyzer();  // Sync GUI with loaded settings
     }
     
     // Initialize preset manager
@@ -218,19 +217,19 @@ void ofApp::update(){
     // Update LFOs
     updateLfos();
     
-    // Update geometry patterns - only if any geometry is enabled
-    if (gui && (gui->block1LineSwitch || gui->block1SevenStarSwitch || 
-        gui->block1LissaBallSwitch || gui->block1HypercubeSwitch ||
-        gui->block1LissajousCurveSwitch)) {
-        geometryManager->update();
-    }
+    // Update geometry patterns
+    geometryManager->update();
     
     // Update audio analyzer
     if (audioAnalyzer) {
         audioAnalyzer->update();
     }
     
-    // Note: Tempo manager is updated in pipeline->updateModulations() to avoid double updates
+    // Update tempo manager
+    if (tempoManager) {
+        float deltaTime = ofGetLastFrameTime();
+        tempoManager->update(deltaTime);
+    }
     
     // Process OSC messages (legacy)
     if (oscEnabled) {
@@ -298,44 +297,6 @@ float ofApp::lfo(float amp, float rate, int shape) {
     }
     
     return amp * waveValue;
-}
-
-//--------------------------------------------------------------
-// Helper to calculate effective LFO rate (handles tempo sync)
-float ofApp::getEffectiveLfoRate(bool* syncEnabled, int* divisionIndex, float rawRate, const float* divisionValues) {
-    if (!syncEnabled || !*syncEnabled) {
-        // Sync disabled - use raw rate
-        return rawRate;
-    }
-    
-    // Sync enabled - calculate rate based on BPM
-    if (!tempoManager || !tempoManager->isEnabled() || !tempoManager->isPlaying()) {
-        // Tempo not available - fall back to raw rate
-        return rawRate;
-    }
-    
-    // Get cycles per beat from division
-    int divIdx = divisionIndex ? *divisionIndex : 2; // Default to 1/4
-    divIdx = ofClamp(divIdx, 0, 7);
-    float cyclesPerBeat = divisionValues[divIdx];
-    
-    // Calculate phase increment per frame based on actual frame time
-    // We want: phase increment = cyclesPerBeat * (BPM/60) * TWO_PI * deltaTime
-    // But since lfoRateC is applied as a multiplier in updateLfos, we return a normalized value
-    float bpm = tempoManager->getBpm();
-    float beatsPerSecond = bpm / 60.0f;
-    float cyclesPerSecond = cyclesPerBeat * beatsPerSecond;
-    
-    // Get actual delta time for frame-rate independent calculation
-    float deltaTime = ofGetLastFrameTime();
-    
-    // Calculate what rate would give us the desired cycles per second
-    // lfoRateC * rate * (TWO_PI / (lfoRateC * deltaTime)) = cycles per second
-    // We want: lfoRateC * normalizedRate = cyclesPerSecond * TWO_PI * deltaTime
-    float desiredPhaseIncrement = cyclesPerSecond * TWO_PI * deltaTime;
-    float normalizedRate = desiredPhaseIncrement / lfoRateC;
-    
-    return normalizedRate;
 }
 
 //--------------------------------------------------------------
@@ -857,6 +818,11 @@ void ofApp::syncGuiToPipeline() {
     block1YDisplace += lfo(block1YDisplaceC * gui->block1Geo1Lfo1[2], block1YDisplaceTheta, gui->block1Geo1Lfo1Shape[1]);
     block1ZDisplace += lfo(block1ZDisplaceC * gui->block1Geo1Lfo1[4], block1ZDisplaceTheta, gui->block1Geo1Lfo1Shape[2]);
     block1Rotate += lfo(block1RotateC * gui->block1Geo1Lfo1[6], block1RotateTheta, gui->block1Geo1Lfo1Shape[3]);
+    
+    static int syncDebugCounter = 0;
+    if (syncDebugCounter++ % 60 == 0) {
+        ofLogNotice("syncGuiToPipeline") << "Setting block1XDisplace=" << block1XDisplace;
+    }
     
     block3.params.block1XDisplace = block1XDisplace;
     block3.params.block1YDisplace = block1YDisplace;
@@ -1405,185 +1371,182 @@ void ofApp::applyResolutionChange() {
 void ofApp::updateLfos() {
     if (!gui) return;
     
-    // Get beat division values for tempo sync
-    const float* divValues = dragonwaves::BeatDivisionValues;
-    
     // ========================================
     // BLOCK 1 LFO Theta Updates
     // ========================================
     
-    // Channel 1 adjust LFO - only update if amplitude is non-zero
-    if (gui->ch1AdjustLfo[0] != 0.0f) ch1XDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->ch1AdjustLfoSync[1], &gui->ch1AdjustLfoDivision[1], gui->ch1AdjustLfo[1], divValues);
-    if (gui->ch1AdjustLfo[2] != 0.0f) ch1YDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->ch1AdjustLfoSync[3], &gui->ch1AdjustLfoDivision[3], gui->ch1AdjustLfo[3], divValues);
-    if (gui->ch1AdjustLfo[4] != 0.0f) ch1ZDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->ch1AdjustLfoSync[5], &gui->ch1AdjustLfoDivision[5], gui->ch1AdjustLfo[5], divValues);
-    if (gui->ch1AdjustLfo[6] != 0.0f) ch1RotateTheta += lfoRateC * getEffectiveLfoRate(&gui->ch1AdjustLfoSync[7], &gui->ch1AdjustLfoDivision[7], gui->ch1AdjustLfo[7], divValues);
-    if (gui->ch1AdjustLfo[8] != 0.0f) ch1HueAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->ch1AdjustLfoSync[9], &gui->ch1AdjustLfoDivision[9], gui->ch1AdjustLfo[9], divValues);
-    if (gui->ch1AdjustLfo[10] != 0.0f) ch1SaturationAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->ch1AdjustLfoSync[11], &gui->ch1AdjustLfoDivision[11], gui->ch1AdjustLfo[11], divValues);
-    if (gui->ch1AdjustLfo[12] != 0.0f) ch1BrightAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->ch1AdjustLfoSync[13], &gui->ch1AdjustLfoDivision[13], gui->ch1AdjustLfo[13], divValues);
-    if (gui->ch1AdjustLfo[14] != 0.0f) ch1KaleidoscopeSliceTheta += lfoRateC * getEffectiveLfoRate(&gui->ch1AdjustLfoSync[15], &gui->ch1AdjustLfoDivision[15], gui->ch1AdjustLfo[15], divValues);
+    // Channel 1 adjust LFO
+    ch1XDisplaceTheta += lfoRateC * gui->ch1AdjustLfo[1];
+    ch1YDisplaceTheta += lfoRateC * gui->ch1AdjustLfo[3];
+    ch1ZDisplaceTheta += lfoRateC * gui->ch1AdjustLfo[5];
+    ch1RotateTheta += lfoRateC * gui->ch1AdjustLfo[7];
+    ch1HueAttenuateTheta += lfoRateC * gui->ch1AdjustLfo[9];
+    ch1SaturationAttenuateTheta += lfoRateC * gui->ch1AdjustLfo[11];
+    ch1BrightAttenuateTheta += lfoRateC * gui->ch1AdjustLfo[13];
+    ch1KaleidoscopeSliceTheta += lfoRateC * gui->ch1AdjustLfo[15];
     
     // Channel 2 mix and key LFO
-    if (gui->ch2MixAndKeyLfo[0] != 0.0f) ch2MixAmountTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2MixAndKeyLfoSync[1], &gui->ch2MixAndKeyLfoDivision[1], gui->ch2MixAndKeyLfo[1], divValues);
-    if (gui->ch2MixAndKeyLfo[2] != 0.0f) ch2KeyThresholdTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2MixAndKeyLfoSync[3], &gui->ch2MixAndKeyLfoDivision[3], gui->ch2MixAndKeyLfo[3], divValues);
-    if (gui->ch2MixAndKeyLfo[4] != 0.0f) ch2KeySoftTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2MixAndKeyLfoSync[5], &gui->ch2MixAndKeyLfoDivision[5], gui->ch2MixAndKeyLfo[5], divValues);
+    ch2MixAmountTheta += lfoRateC * gui->ch2MixAndKeyLfo[1];
+    ch2KeyThresholdTheta += lfoRateC * gui->ch2MixAndKeyLfo[3];
+    ch2KeySoftTheta += lfoRateC * gui->ch2MixAndKeyLfo[5];
     
     // Channel 2 adjust LFO
-    if (gui->ch2AdjustLfo[0] != 0.0f) ch2XDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2AdjustLfoSync[1], &gui->ch2AdjustLfoDivision[1], gui->ch2AdjustLfo[1], divValues);
-    if (gui->ch2AdjustLfo[2] != 0.0f) ch2YDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2AdjustLfoSync[3], &gui->ch2AdjustLfoDivision[3], gui->ch2AdjustLfo[3], divValues);
-    if (gui->ch2AdjustLfo[4] != 0.0f) ch2ZDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2AdjustLfoSync[5], &gui->ch2AdjustLfoDivision[5], gui->ch2AdjustLfo[5], divValues);
-    if (gui->ch2AdjustLfo[6] != 0.0f) ch2RotateTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2AdjustLfoSync[7], &gui->ch2AdjustLfoDivision[7], gui->ch2AdjustLfo[7], divValues);
-    if (gui->ch2AdjustLfo[8] != 0.0f) ch2HueAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2AdjustLfoSync[9], &gui->ch2AdjustLfoDivision[9], gui->ch2AdjustLfo[9], divValues);
-    if (gui->ch2AdjustLfo[10] != 0.0f) ch2SaturationAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2AdjustLfoSync[11], &gui->ch2AdjustLfoDivision[11], gui->ch2AdjustLfo[11], divValues);
-    if (gui->ch2AdjustLfo[12] != 0.0f) ch2BrightAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2AdjustLfoSync[13], &gui->ch2AdjustLfoDivision[13], gui->ch2AdjustLfo[13], divValues);
-    if (gui->ch2AdjustLfo[14] != 0.0f) ch2KaleidoscopeSliceTheta += lfoRateC * getEffectiveLfoRate(&gui->ch2AdjustLfoSync[15], &gui->ch2AdjustLfoDivision[15], gui->ch2AdjustLfo[15], divValues);
+    ch2XDisplaceTheta += lfoRateC * gui->ch2AdjustLfo[1];
+    ch2YDisplaceTheta += lfoRateC * gui->ch2AdjustLfo[3];
+    ch2ZDisplaceTheta += lfoRateC * gui->ch2AdjustLfo[5];
+    ch2RotateTheta += lfoRateC * gui->ch2AdjustLfo[7];
+    ch2HueAttenuateTheta += lfoRateC * gui->ch2AdjustLfo[9];
+    ch2SaturationAttenuateTheta += lfoRateC * gui->ch2AdjustLfo[11];
+    ch2BrightAttenuateTheta += lfoRateC * gui->ch2AdjustLfo[13];
+    ch2KaleidoscopeSliceTheta += lfoRateC * gui->ch2AdjustLfo[15];
     
     // FB1 mix and key LFO
-    if (gui->fb1MixAndKeyLfo[0] != 0.0f) fb1MixAmountTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1MixAndKeyLfoSync[1], &gui->fb1MixAndKeyLfoDivision[1], gui->fb1MixAndKeyLfo[1], divValues);
-    if (gui->fb1MixAndKeyLfo[2] != 0.0f) fb1KeyThresholdTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1MixAndKeyLfoSync[3], &gui->fb1MixAndKeyLfoDivision[3], gui->fb1MixAndKeyLfo[3], divValues);
-    if (gui->fb1MixAndKeyLfo[4] != 0.0f) fb1KeySoftTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1MixAndKeyLfoSync[5], &gui->fb1MixAndKeyLfoDivision[5], gui->fb1MixAndKeyLfo[5], divValues);
+    fb1MixAmountTheta += lfoRateC * gui->fb1MixAndKeyLfo[1];
+    fb1KeyThresholdTheta += lfoRateC * gui->fb1MixAndKeyLfo[3];
+    fb1KeySoftTheta += lfoRateC * gui->fb1MixAndKeyLfo[5];
     
     // FB1 geo1 LFO (first set)
-    if (gui->fb1Geo1Lfo1[0] != 0.0f) fb1XDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1Geo1Lfo1Sync[1], &gui->fb1Geo1Lfo1Division[1], gui->fb1Geo1Lfo1[1], divValues);
-    if (gui->fb1Geo1Lfo1[2] != 0.0f) fb1YDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1Geo1Lfo1Sync[3], &gui->fb1Geo1Lfo1Division[3], gui->fb1Geo1Lfo1[3], divValues);
-    if (gui->fb1Geo1Lfo1[4] != 0.0f) fb1ZDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1Geo1Lfo1Sync[5], &gui->fb1Geo1Lfo1Division[5], gui->fb1Geo1Lfo1[5], divValues);
-    if (gui->fb1Geo1Lfo1[6] != 0.0f) fb1RotateTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1Geo1Lfo1Sync[7], &gui->fb1Geo1Lfo1Division[7], gui->fb1Geo1Lfo1[7], divValues);
+    fb1XDisplaceTheta += lfoRateC * gui->fb1Geo1Lfo1[1];
+    fb1YDisplaceTheta += lfoRateC * gui->fb1Geo1Lfo1[3];
+    fb1ZDisplaceTheta += lfoRateC * gui->fb1Geo1Lfo1[5];
+    fb1RotateTheta += lfoRateC * gui->fb1Geo1Lfo1[7];
     
     // FB1 geo1 LFO (second set - shear matrix and kaleidoscope)
-    if (gui->fb1Geo1Lfo2[0] != 0.0f) fb1ShearMatrix1Theta += lfoRateC * getEffectiveLfoRate(&gui->fb1Geo1Lfo2Sync[1], &gui->fb1Geo1Lfo2Division[1], gui->fb1Geo1Lfo2[1], divValues);
-    if (gui->fb1Geo1Lfo2[4] != 0.0f) fb1ShearMatrix2Theta += lfoRateC * getEffectiveLfoRate(&gui->fb1Geo1Lfo2Sync[5], &gui->fb1Geo1Lfo2Division[5], gui->fb1Geo1Lfo2[5], divValues);
-    if (gui->fb1Geo1Lfo2[6] != 0.0f) fb1ShearMatrix3Theta += lfoRateC * getEffectiveLfoRate(&gui->fb1Geo1Lfo2Sync[7], &gui->fb1Geo1Lfo2Division[7], gui->fb1Geo1Lfo2[7], divValues);
-    if (gui->fb1Geo1Lfo2[2] != 0.0f) fb1ShearMatrix4Theta += lfoRateC * getEffectiveLfoRate(&gui->fb1Geo1Lfo2Sync[3], &gui->fb1Geo1Lfo2Division[3], gui->fb1Geo1Lfo2[3], divValues);
-    if (gui->fb1Geo1Lfo2[8] != 0.0f) fb1KaleidoscopeSliceTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1Geo1Lfo2Sync[9], &gui->fb1Geo1Lfo2Division[9], gui->fb1Geo1Lfo2[9], divValues);
+    fb1ShearMatrix1Theta += lfoRateC * gui->fb1Geo1Lfo2[1];
+    fb1ShearMatrix2Theta += lfoRateC * gui->fb1Geo1Lfo2[5];
+    fb1ShearMatrix3Theta += lfoRateC * gui->fb1Geo1Lfo2[7];
+    fb1ShearMatrix4Theta += lfoRateC * gui->fb1Geo1Lfo2[3];
+    fb1KaleidoscopeSliceTheta += lfoRateC * gui->fb1Geo1Lfo2[9];
     
     // FB1 color LFO
-    if (gui->fb1Color1Lfo1[0] != 0.0f) fb1HueAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1Color1Lfo1Sync[1], &gui->fb1Color1Lfo1Division[1], gui->fb1Color1Lfo1[1], divValues);
-    if (gui->fb1Color1Lfo1[2] != 0.0f) fb1SaturationAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1Color1Lfo1Sync[3], &gui->fb1Color1Lfo1Division[3], gui->fb1Color1Lfo1[3], divValues);
-    if (gui->fb1Color1Lfo1[4] != 0.0f) fb1BrightAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->fb1Color1Lfo1Sync[5], &gui->fb1Color1Lfo1Division[5], gui->fb1Color1Lfo1[5], divValues);
+    fb1HueAttenuateTheta += lfoRateC * gui->fb1Color1Lfo1[1];
+    fb1SaturationAttenuateTheta += lfoRateC * gui->fb1Color1Lfo1[3];
+    fb1BrightAttenuateTheta += lfoRateC * gui->fb1Color1Lfo1[5];
     
     // ========================================
     // BLOCK 2 LFO Theta Updates
     // ========================================
     
     // Block2 input adjust LFO
-    if (gui->block2InputAdjustLfo[0] != 0.0f) block2InputXDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->block2InputAdjustLfoSync[1], &gui->block2InputAdjustLfoDivision[1], gui->block2InputAdjustLfo[1], divValues);
-    if (gui->block2InputAdjustLfo[2] != 0.0f) block2InputYDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->block2InputAdjustLfoSync[3], &gui->block2InputAdjustLfoDivision[3], gui->block2InputAdjustLfo[3], divValues);
-    if (gui->block2InputAdjustLfo[4] != 0.0f) block2InputZDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->block2InputAdjustLfoSync[5], &gui->block2InputAdjustLfoDivision[5], gui->block2InputAdjustLfo[5], divValues);
-    if (gui->block2InputAdjustLfo[6] != 0.0f) block2InputRotateTheta += lfoRateC * getEffectiveLfoRate(&gui->block2InputAdjustLfoSync[7], &gui->block2InputAdjustLfoDivision[7], gui->block2InputAdjustLfo[7], divValues);
-    if (gui->block2InputAdjustLfo[8] != 0.0f) block2InputHueAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->block2InputAdjustLfoSync[9], &gui->block2InputAdjustLfoDivision[9], gui->block2InputAdjustLfo[9], divValues);
-    if (gui->block2InputAdjustLfo[10] != 0.0f) block2InputSaturationAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->block2InputAdjustLfoSync[11], &gui->block2InputAdjustLfoDivision[11], gui->block2InputAdjustLfo[11], divValues);
-    if (gui->block2InputAdjustLfo[12] != 0.0f) block2InputBrightAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->block2InputAdjustLfoSync[13], &gui->block2InputAdjustLfoDivision[13], gui->block2InputAdjustLfo[13], divValues);
-    if (gui->block2InputAdjustLfo[14] != 0.0f) block2InputKaleidoscopeSliceTheta += lfoRateC * getEffectiveLfoRate(&gui->block2InputAdjustLfoSync[15], &gui->block2InputAdjustLfoDivision[15], gui->block2InputAdjustLfo[15], divValues);
+    block2InputXDisplaceTheta += lfoRateC * gui->block2InputAdjustLfo[1];
+    block2InputYDisplaceTheta += lfoRateC * gui->block2InputAdjustLfo[3];
+    block2InputZDisplaceTheta += lfoRateC * gui->block2InputAdjustLfo[5];
+    block2InputRotateTheta += lfoRateC * gui->block2InputAdjustLfo[7];
+    block2InputHueAttenuateTheta += lfoRateC * gui->block2InputAdjustLfo[9];
+    block2InputSaturationAttenuateTheta += lfoRateC * gui->block2InputAdjustLfo[11];
+    block2InputBrightAttenuateTheta += lfoRateC * gui->block2InputAdjustLfo[13];
+    block2InputKaleidoscopeSliceTheta += lfoRateC * gui->block2InputAdjustLfo[15];
     
     // FB2 mix and key LFO
-    if (gui->fb2MixAndKeyLfo[0] != 0.0f) fb2MixAmountTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2MixAndKeyLfoSync[1], &gui->fb2MixAndKeyLfoDivision[1], gui->fb2MixAndKeyLfo[1], divValues);
-    if (gui->fb2MixAndKeyLfo[2] != 0.0f) fb2KeyThresholdTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2MixAndKeyLfoSync[3], &gui->fb2MixAndKeyLfoDivision[3], gui->fb2MixAndKeyLfo[3], divValues);
-    if (gui->fb2MixAndKeyLfo[4] != 0.0f) fb2KeySoftTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2MixAndKeyLfoSync[5], &gui->fb2MixAndKeyLfoDivision[5], gui->fb2MixAndKeyLfo[5], divValues);
+    fb2MixAmountTheta += lfoRateC * gui->fb2MixAndKeyLfo[1];
+    fb2KeyThresholdTheta += lfoRateC * gui->fb2MixAndKeyLfo[3];
+    fb2KeySoftTheta += lfoRateC * gui->fb2MixAndKeyLfo[5];
     
     // FB2 geo1 LFO (first set)
-    if (gui->fb2Geo1Lfo1[0] != 0.0f) fb2XDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2Geo1Lfo1Sync[1], &gui->fb2Geo1Lfo1Division[1], gui->fb2Geo1Lfo1[1], divValues);
-    if (gui->fb2Geo1Lfo1[2] != 0.0f) fb2YDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2Geo1Lfo1Sync[3], &gui->fb2Geo1Lfo1Division[3], gui->fb2Geo1Lfo1[3], divValues);
-    if (gui->fb2Geo1Lfo1[4] != 0.0f) fb2ZDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2Geo1Lfo1Sync[5], &gui->fb2Geo1Lfo1Division[5], gui->fb2Geo1Lfo1[5], divValues);
-    if (gui->fb2Geo1Lfo1[6] != 0.0f) fb2RotateTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2Geo1Lfo1Sync[7], &gui->fb2Geo1Lfo1Division[7], gui->fb2Geo1Lfo1[7], divValues);
+    fb2XDisplaceTheta += lfoRateC * gui->fb2Geo1Lfo1[1];
+    fb2YDisplaceTheta += lfoRateC * gui->fb2Geo1Lfo1[3];
+    fb2ZDisplaceTheta += lfoRateC * gui->fb2Geo1Lfo1[5];
+    fb2RotateTheta += lfoRateC * gui->fb2Geo1Lfo1[7];
     
     // FB2 geo1 LFO (second set - shear matrix and kaleidoscope)
-    if (gui->fb2Geo1Lfo2[0] != 0.0f) fb2ShearMatrix1Theta += lfoRateC * getEffectiveLfoRate(&gui->fb2Geo1Lfo2Sync[1], &gui->fb2Geo1Lfo2Division[1], gui->fb2Geo1Lfo2[1], divValues);
-    if (gui->fb2Geo1Lfo2[4] != 0.0f) fb2ShearMatrix2Theta += lfoRateC * getEffectiveLfoRate(&gui->fb2Geo1Lfo2Sync[5], &gui->fb2Geo1Lfo2Division[5], gui->fb2Geo1Lfo2[5], divValues);
-    if (gui->fb2Geo1Lfo2[6] != 0.0f) fb2ShearMatrix3Theta += lfoRateC * getEffectiveLfoRate(&gui->fb2Geo1Lfo2Sync[7], &gui->fb2Geo1Lfo2Division[7], gui->fb2Geo1Lfo2[7], divValues);
-    if (gui->fb2Geo1Lfo2[2] != 0.0f) fb2ShearMatrix4Theta += lfoRateC * getEffectiveLfoRate(&gui->fb2Geo1Lfo2Sync[3], &gui->fb2Geo1Lfo2Division[3], gui->fb2Geo1Lfo2[3], divValues);
-    if (gui->fb2Geo1Lfo2[8] != 0.0f) fb2KaleidoscopeSliceTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2Geo1Lfo2Sync[9], &gui->fb2Geo1Lfo2Division[9], gui->fb2Geo1Lfo2[9], divValues);
+    fb2ShearMatrix1Theta += lfoRateC * gui->fb2Geo1Lfo2[1];
+    fb2ShearMatrix2Theta += lfoRateC * gui->fb2Geo1Lfo2[5];
+    fb2ShearMatrix3Theta += lfoRateC * gui->fb2Geo1Lfo2[7];
+    fb2ShearMatrix4Theta += lfoRateC * gui->fb2Geo1Lfo2[3];
+    fb2KaleidoscopeSliceTheta += lfoRateC * gui->fb2Geo1Lfo2[9];
     
     // FB2 color LFO
-    if (gui->fb2Color1Lfo1[0] != 0.0f) fb2HueAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2Color1Lfo1Sync[1], &gui->fb2Color1Lfo1Division[1], gui->fb2Color1Lfo1[1], divValues);
-    if (gui->fb2Color1Lfo1[2] != 0.0f) fb2SaturationAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2Color1Lfo1Sync[3], &gui->fb2Color1Lfo1Division[3], gui->fb2Color1Lfo1[3], divValues);
-    if (gui->fb2Color1Lfo1[4] != 0.0f) fb2BrightAttenuateTheta += lfoRateC * getEffectiveLfoRate(&gui->fb2Color1Lfo1Sync[5], &gui->fb2Color1Lfo1Division[5], gui->fb2Color1Lfo1[5], divValues);
+    fb2HueAttenuateTheta += lfoRateC * gui->fb2Color1Lfo1[1];
+    fb2SaturationAttenuateTheta += lfoRateC * gui->fb2Color1Lfo1[3];
+    fb2BrightAttenuateTheta += lfoRateC * gui->fb2Color1Lfo1[5];
     
     // ========================================
     // BLOCK 3 LFO Theta Updates
     // ========================================
     
     // Block1 geo LFO (first set)
-    if (gui->block1Geo1Lfo1[0] != 0.0f) block1XDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->block1Geo1Lfo1Sync[1], &gui->block1Geo1Lfo1Division[1], gui->block1Geo1Lfo1[1], divValues);
-    if (gui->block1Geo1Lfo1[2] != 0.0f) block1YDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->block1Geo1Lfo1Sync[3], &gui->block1Geo1Lfo1Division[3], gui->block1Geo1Lfo1[3], divValues);
-    if (gui->block1Geo1Lfo1[4] != 0.0f) block1ZDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->block1Geo1Lfo1Sync[5], &gui->block1Geo1Lfo1Division[5], gui->block1Geo1Lfo1[5], divValues);
-    if (gui->block1Geo1Lfo1[6] != 0.0f) block1RotateTheta += lfoRateC * getEffectiveLfoRate(&gui->block1Geo1Lfo1Sync[7], &gui->block1Geo1Lfo1Division[7], gui->block1Geo1Lfo1[7], divValues);
+    block1XDisplaceTheta += lfoRateC * gui->block1Geo1Lfo1[1];
+    block1YDisplaceTheta += lfoRateC * gui->block1Geo1Lfo1[3];
+    block1ZDisplaceTheta += lfoRateC * gui->block1Geo1Lfo1[5];
+    block1RotateTheta += lfoRateC * gui->block1Geo1Lfo1[7];
     
     // Block1 geo LFO (second set - shear matrix and kaleidoscope)
-    if (gui->block1Geo1Lfo2[0] != 0.0f) block1ShearMatrix1Theta += lfoRateC * getEffectiveLfoRate(&gui->block1Geo1Lfo2Sync[1], &gui->block1Geo1Lfo2Division[1], gui->block1Geo1Lfo2[1], divValues);
-    if (gui->block1Geo1Lfo2[4] != 0.0f) block1ShearMatrix2Theta += lfoRateC * getEffectiveLfoRate(&gui->block1Geo1Lfo2Sync[5], &gui->block1Geo1Lfo2Division[5], gui->block1Geo1Lfo2[5], divValues);
-    if (gui->block1Geo1Lfo2[6] != 0.0f) block1ShearMatrix3Theta += lfoRateC * getEffectiveLfoRate(&gui->block1Geo1Lfo2Sync[7], &gui->block1Geo1Lfo2Division[7], gui->block1Geo1Lfo2[7], divValues);
-    if (gui->block1Geo1Lfo2[2] != 0.0f) block1ShearMatrix4Theta += lfoRateC * getEffectiveLfoRate(&gui->block1Geo1Lfo2Sync[3], &gui->block1Geo1Lfo2Division[3], gui->block1Geo1Lfo2[3], divValues);
-    if (gui->block1Geo1Lfo2[8] != 0.0f) block1KaleidoscopeSliceTheta += lfoRateC * getEffectiveLfoRate(&gui->block1Geo1Lfo2Sync[9], &gui->block1Geo1Lfo2Division[9], gui->block1Geo1Lfo2[9], divValues);
+    block1ShearMatrix1Theta += lfoRateC * gui->block1Geo1Lfo2[1];
+    block1ShearMatrix2Theta += lfoRateC * gui->block1Geo1Lfo2[5];
+    block1ShearMatrix3Theta += lfoRateC * gui->block1Geo1Lfo2[7];
+    block1ShearMatrix4Theta += lfoRateC * gui->block1Geo1Lfo2[3];
+    block1KaleidoscopeSliceTheta += lfoRateC * gui->block1Geo1Lfo2[9];
     
-    // Block1 colorize LFO (bands 1-2) - indices 2,3,4,8,9,10 are amplitudes
-    if (gui->block1ColorizeLfo1[2] != 0.0f) block1ColorizeHueBand1Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo1Sync[3], &gui->block1ColorizeLfo1Division[3], gui->block1ColorizeLfo1[3], divValues);
-    if (gui->block1ColorizeLfo1[3] != 0.0f) block1ColorizeSaturationBand1Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo1Sync[4], &gui->block1ColorizeLfo1Division[4], gui->block1ColorizeLfo1[4], divValues);
-    if (gui->block1ColorizeLfo1[4] != 0.0f) block1ColorizeBrightBand1Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo1Sync[5], &gui->block1ColorizeLfo1Division[5], gui->block1ColorizeLfo1[5], divValues);
-    if (gui->block1ColorizeLfo1[8] != 0.0f) block1ColorizeHueBand2Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo1Sync[9], &gui->block1ColorizeLfo1Division[9], gui->block1ColorizeLfo1[9], divValues);
-    if (gui->block1ColorizeLfo1[9] != 0.0f) block1ColorizeSaturationBand2Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo1Sync[10], &gui->block1ColorizeLfo1Division[10], gui->block1ColorizeLfo1[10], divValues);
-    if (gui->block1ColorizeLfo1[10] != 0.0f) block1ColorizeBrightBand2Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo1Sync[11], &gui->block1ColorizeLfo1Division[11], gui->block1ColorizeLfo1[11], divValues);
+    // Block1 colorize LFO (bands 1-2)
+    block1ColorizeHueBand1Theta += lfoRateC * gui->block1ColorizeLfo1[3];
+    block1ColorizeSaturationBand1Theta += lfoRateC * gui->block1ColorizeLfo1[4];
+    block1ColorizeBrightBand1Theta += lfoRateC * gui->block1ColorizeLfo1[5];
+    block1ColorizeHueBand2Theta += lfoRateC * gui->block1ColorizeLfo1[9];
+    block1ColorizeSaturationBand2Theta += lfoRateC * gui->block1ColorizeLfo1[10];
+    block1ColorizeBrightBand2Theta += lfoRateC * gui->block1ColorizeLfo1[11];
     
     // Block1 colorize LFO (bands 3-4)
-    if (gui->block1ColorizeLfo2[2] != 0.0f) block1ColorizeHueBand3Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo2Sync[3], &gui->block1ColorizeLfo2Division[3], gui->block1ColorizeLfo2[3], divValues);
-    if (gui->block1ColorizeLfo2[3] != 0.0f) block1ColorizeSaturationBand3Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo2Sync[4], &gui->block1ColorizeLfo2Division[4], gui->block1ColorizeLfo2[4], divValues);
-    if (gui->block1ColorizeLfo2[4] != 0.0f) block1ColorizeBrightBand3Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo2Sync[5], &gui->block1ColorizeLfo2Division[5], gui->block1ColorizeLfo2[5], divValues);
-    if (gui->block1ColorizeLfo2[8] != 0.0f) block1ColorizeHueBand4Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo2Sync[9], &gui->block1ColorizeLfo2Division[9], gui->block1ColorizeLfo2[9], divValues);
-    if (gui->block1ColorizeLfo2[9] != 0.0f) block1ColorizeSaturationBand4Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo2Sync[10], &gui->block1ColorizeLfo2Division[10], gui->block1ColorizeLfo2[10], divValues);
-    if (gui->block1ColorizeLfo2[10] != 0.0f) block1ColorizeBrightBand4Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo2Sync[11], &gui->block1ColorizeLfo2Division[11], gui->block1ColorizeLfo2[11], divValues);
+    block1ColorizeHueBand3Theta += lfoRateC * gui->block1ColorizeLfo2[3];
+    block1ColorizeSaturationBand3Theta += lfoRateC * gui->block1ColorizeLfo2[4];
+    block1ColorizeBrightBand3Theta += lfoRateC * gui->block1ColorizeLfo2[5];
+    block1ColorizeHueBand4Theta += lfoRateC * gui->block1ColorizeLfo2[9];
+    block1ColorizeSaturationBand4Theta += lfoRateC * gui->block1ColorizeLfo2[10];
+    block1ColorizeBrightBand4Theta += lfoRateC * gui->block1ColorizeLfo2[11];
     
     // Block1 colorize LFO (band 5)
-    if (gui->block1ColorizeLfo3[2] != 0.0f) block1ColorizeHueBand5Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo3Sync[3], &gui->block1ColorizeLfo3Division[3], gui->block1ColorizeLfo3[3], divValues);
-    if (gui->block1ColorizeLfo3[3] != 0.0f) block1ColorizeSaturationBand5Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo3Sync[4], &gui->block1ColorizeLfo3Division[4], gui->block1ColorizeLfo3[4], divValues);
-    if (gui->block1ColorizeLfo3[4] != 0.0f) block1ColorizeBrightBand5Theta += lfoRateC * getEffectiveLfoRate(&gui->block1ColorizeLfo3Sync[5], &gui->block1ColorizeLfo3Division[5], gui->block1ColorizeLfo3[5], divValues);
+    block1ColorizeHueBand5Theta += lfoRateC * gui->block1ColorizeLfo3[3];
+    block1ColorizeSaturationBand5Theta += lfoRateC * gui->block1ColorizeLfo3[4];
+    block1ColorizeBrightBand5Theta += lfoRateC * gui->block1ColorizeLfo3[5];
     
     // Block2 geo LFO (first set)
-    if (gui->block2Geo1Lfo1[0] != 0.0f) block2XDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->block2Geo1Lfo1Sync[1], &gui->block2Geo1Lfo1Division[1], gui->block2Geo1Lfo1[1], divValues);
-    if (gui->block2Geo1Lfo1[2] != 0.0f) block2YDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->block2Geo1Lfo1Sync[3], &gui->block2Geo1Lfo1Division[3], gui->block2Geo1Lfo1[3], divValues);
-    if (gui->block2Geo1Lfo1[4] != 0.0f) block2ZDisplaceTheta += lfoRateC * getEffectiveLfoRate(&gui->block2Geo1Lfo1Sync[5], &gui->block2Geo1Lfo1Division[5], gui->block2Geo1Lfo1[5], divValues);
-    if (gui->block2Geo1Lfo1[6] != 0.0f) block2RotateTheta += lfoRateC * getEffectiveLfoRate(&gui->block2Geo1Lfo1Sync[7], &gui->block2Geo1Lfo1Division[7], gui->block2Geo1Lfo1[7], divValues);
+    block2XDisplaceTheta += lfoRateC * gui->block2Geo1Lfo1[1];
+    block2YDisplaceTheta += lfoRateC * gui->block2Geo1Lfo1[3];
+    block2ZDisplaceTheta += lfoRateC * gui->block2Geo1Lfo1[5];
+    block2RotateTheta += lfoRateC * gui->block2Geo1Lfo1[7];
     
     // Block2 geo LFO (second set - shear matrix and kaleidoscope)
-    if (gui->block2Geo1Lfo2[0] != 0.0f) block2ShearMatrix1Theta += lfoRateC * getEffectiveLfoRate(&gui->block2Geo1Lfo2Sync[1], &gui->block2Geo1Lfo2Division[1], gui->block2Geo1Lfo2[1], divValues);
-    if (gui->block2Geo1Lfo2[4] != 0.0f) block2ShearMatrix2Theta += lfoRateC * getEffectiveLfoRate(&gui->block2Geo1Lfo2Sync[5], &gui->block2Geo1Lfo2Division[5], gui->block2Geo1Lfo2[5], divValues);
-    if (gui->block2Geo1Lfo2[6] != 0.0f) block2ShearMatrix3Theta += lfoRateC * getEffectiveLfoRate(&gui->block2Geo1Lfo2Sync[7], &gui->block2Geo1Lfo2Division[7], gui->block2Geo1Lfo2[7], divValues);
-    if (gui->block2Geo1Lfo2[2] != 0.0f) block2ShearMatrix4Theta += lfoRateC * getEffectiveLfoRate(&gui->block2Geo1Lfo2Sync[3], &gui->block2Geo1Lfo2Division[3], gui->block2Geo1Lfo2[3], divValues);
-    if (gui->block2Geo1Lfo2[8] != 0.0f) block2KaleidoscopeSliceTheta += lfoRateC * getEffectiveLfoRate(&gui->block2Geo1Lfo2Sync[9], &gui->block2Geo1Lfo2Division[9], gui->block2Geo1Lfo2[9], divValues);
+    block2ShearMatrix1Theta += lfoRateC * gui->block2Geo1Lfo2[1];
+    block2ShearMatrix2Theta += lfoRateC * gui->block2Geo1Lfo2[5];
+    block2ShearMatrix3Theta += lfoRateC * gui->block2Geo1Lfo2[7];
+    block2ShearMatrix4Theta += lfoRateC * gui->block2Geo1Lfo2[3];
+    block2KaleidoscopeSliceTheta += lfoRateC * gui->block2Geo1Lfo2[9];
     
     // Block2 colorize LFO (bands 1-2)
-    if (gui->block2ColorizeLfo1[2] != 0.0f) block2ColorizeHueBand1Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo1Sync[3], &gui->block2ColorizeLfo1Division[3], gui->block2ColorizeLfo1[3], divValues);
-    if (gui->block2ColorizeLfo1[3] != 0.0f) block2ColorizeSaturationBand1Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo1Sync[4], &gui->block2ColorizeLfo1Division[4], gui->block2ColorizeLfo1[4], divValues);
-    if (gui->block2ColorizeLfo1[4] != 0.0f) block2ColorizeBrightBand1Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo1Sync[5], &gui->block2ColorizeLfo1Division[5], gui->block2ColorizeLfo1[5], divValues);
-    if (gui->block2ColorizeLfo1[8] != 0.0f) block2ColorizeHueBand2Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo1Sync[9], &gui->block2ColorizeLfo1Division[9], gui->block2ColorizeLfo1[9], divValues);
-    if (gui->block2ColorizeLfo1[9] != 0.0f) block2ColorizeSaturationBand2Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo1Sync[10], &gui->block2ColorizeLfo1Division[10], gui->block2ColorizeLfo1[10], divValues);
-    if (gui->block2ColorizeLfo1[10] != 0.0f) block2ColorizeBrightBand2Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo1Sync[11], &gui->block2ColorizeLfo1Division[11], gui->block2ColorizeLfo1[11], divValues);
+    block2ColorizeHueBand1Theta += lfoRateC * gui->block2ColorizeLfo1[3];
+    block2ColorizeSaturationBand1Theta += lfoRateC * gui->block2ColorizeLfo1[4];
+    block2ColorizeBrightBand1Theta += lfoRateC * gui->block2ColorizeLfo1[5];
+    block2ColorizeHueBand2Theta += lfoRateC * gui->block2ColorizeLfo1[9];
+    block2ColorizeSaturationBand2Theta += lfoRateC * gui->block2ColorizeLfo1[10];
+    block2ColorizeBrightBand2Theta += lfoRateC * gui->block2ColorizeLfo1[11];
     
     // Block2 colorize LFO (bands 3-4)
-    if (gui->block2ColorizeLfo2[2] != 0.0f) block2ColorizeHueBand3Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo2Sync[3], &gui->block2ColorizeLfo2Division[3], gui->block2ColorizeLfo2[3], divValues);
-    if (gui->block2ColorizeLfo2[3] != 0.0f) block2ColorizeSaturationBand3Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo2Sync[4], &gui->block2ColorizeLfo2Division[4], gui->block2ColorizeLfo2[4], divValues);
-    if (gui->block2ColorizeLfo2[4] != 0.0f) block2ColorizeBrightBand3Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo2Sync[5], &gui->block2ColorizeLfo2Division[5], gui->block2ColorizeLfo2[5], divValues);
-    if (gui->block2ColorizeLfo2[8] != 0.0f) block2ColorizeHueBand4Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo2Sync[9], &gui->block2ColorizeLfo2Division[9], gui->block2ColorizeLfo2[9], divValues);
-    if (gui->block2ColorizeLfo2[9] != 0.0f) block2ColorizeSaturationBand4Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo2Sync[10], &gui->block2ColorizeLfo2Division[10], gui->block2ColorizeLfo2[10], divValues);
-    if (gui->block2ColorizeLfo2[10] != 0.0f) block2ColorizeBrightBand4Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo2Sync[11], &gui->block2ColorizeLfo2Division[11], gui->block2ColorizeLfo2[11], divValues);
+    block2ColorizeHueBand3Theta += lfoRateC * gui->block2ColorizeLfo2[3];
+    block2ColorizeSaturationBand3Theta += lfoRateC * gui->block2ColorizeLfo2[4];
+    block2ColorizeBrightBand3Theta += lfoRateC * gui->block2ColorizeLfo2[5];
+    block2ColorizeHueBand4Theta += lfoRateC * gui->block2ColorizeLfo2[9];
+    block2ColorizeSaturationBand4Theta += lfoRateC * gui->block2ColorizeLfo2[10];
+    block2ColorizeBrightBand4Theta += lfoRateC * gui->block2ColorizeLfo2[11];
     
     // Block2 colorize LFO (band 5)
-    if (gui->block2ColorizeLfo3[2] != 0.0f) block2ColorizeHueBand5Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo3Sync[3], &gui->block2ColorizeLfo3Division[3], gui->block2ColorizeLfo3[3], divValues);
-    if (gui->block2ColorizeLfo3[3] != 0.0f) block2ColorizeSaturationBand5Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo3Sync[4], &gui->block2ColorizeLfo3Division[4], gui->block2ColorizeLfo3[4], divValues);
-    if (gui->block2ColorizeLfo3[4] != 0.0f) block2ColorizeBrightBand5Theta += lfoRateC * getEffectiveLfoRate(&gui->block2ColorizeLfo3Sync[5], &gui->block2ColorizeLfo3Division[5], gui->block2ColorizeLfo3[5], divValues);
+    block2ColorizeHueBand5Theta += lfoRateC * gui->block2ColorizeLfo3[3];
+    block2ColorizeSaturationBand5Theta += lfoRateC * gui->block2ColorizeLfo3[4];
+    block2ColorizeBrightBand5Theta += lfoRateC * gui->block2ColorizeLfo3[5];
     
     // Matrix mix LFO
-    if (gui->matrixMixLfo1[2] != 0.0f) matrixMixBgRedIntoFgRedTheta += lfoRateC * getEffectiveLfoRate(&gui->matrixMixLfo1Sync[3], &gui->matrixMixLfo1Division[3], gui->matrixMixLfo1[3], divValues);
-    if (gui->matrixMixLfo1[3] != 0.0f) matrixMixBgGreenIntoFgRedTheta += lfoRateC * getEffectiveLfoRate(&gui->matrixMixLfo1Sync[4], &gui->matrixMixLfo1Division[4], gui->matrixMixLfo1[4], divValues);
-    if (gui->matrixMixLfo1[4] != 0.0f) matrixMixBgBlueIntoFgRedTheta += lfoRateC * getEffectiveLfoRate(&gui->matrixMixLfo1Sync[5], &gui->matrixMixLfo1Division[5], gui->matrixMixLfo1[5], divValues);
-    if (gui->matrixMixLfo1[8] != 0.0f) matrixMixBgRedIntoFgGreenTheta += lfoRateC * getEffectiveLfoRate(&gui->matrixMixLfo1Sync[9], &gui->matrixMixLfo1Division[9], gui->matrixMixLfo1[9], divValues);
-    if (gui->matrixMixLfo1[9] != 0.0f) matrixMixBgGreenIntoFgGreenTheta += lfoRateC * getEffectiveLfoRate(&gui->matrixMixLfo1Sync[10], &gui->matrixMixLfo1Division[10], gui->matrixMixLfo1[10], divValues);
-    if (gui->matrixMixLfo1[10] != 0.0f) matrixMixBgBlueIntoFgGreenTheta += lfoRateC * getEffectiveLfoRate(&gui->matrixMixLfo1Sync[11], &gui->matrixMixLfo1Division[11], gui->matrixMixLfo1[11], divValues);
-    if (gui->matrixMixLfo2[2] != 0.0f) matrixMixBgRedIntoFgBlueTheta += lfoRateC * getEffectiveLfoRate(&gui->matrixMixLfo2Sync[3], &gui->matrixMixLfo2Division[3], gui->matrixMixLfo2[3], divValues);
-    if (gui->matrixMixLfo2[3] != 0.0f) matrixMixBgGreenIntoFgBlueTheta += lfoRateC * getEffectiveLfoRate(&gui->matrixMixLfo2Sync[4], &gui->matrixMixLfo2Division[4], gui->matrixMixLfo2[4], divValues);
-    if (gui->matrixMixLfo2[4] != 0.0f) matrixMixBgBlueIntoFgBlueTheta += lfoRateC * getEffectiveLfoRate(&gui->matrixMixLfo2Sync[5], &gui->matrixMixLfo2Division[5], gui->matrixMixLfo2[5], divValues);
+    matrixMixBgRedIntoFgRedTheta += lfoRateC * gui->matrixMixLfo1[3];
+    matrixMixBgGreenIntoFgRedTheta += lfoRateC * gui->matrixMixLfo1[4];
+    matrixMixBgBlueIntoFgRedTheta += lfoRateC * gui->matrixMixLfo1[5];
+    matrixMixBgRedIntoFgGreenTheta += lfoRateC * gui->matrixMixLfo1[9];
+    matrixMixBgGreenIntoFgGreenTheta += lfoRateC * gui->matrixMixLfo1[10];
+    matrixMixBgBlueIntoFgGreenTheta += lfoRateC * gui->matrixMixLfo1[11];
+    matrixMixBgRedIntoFgBlueTheta += lfoRateC * gui->matrixMixLfo2[3];
+    matrixMixBgGreenIntoFgBlueTheta += lfoRateC * gui->matrixMixLfo2[4];
+    matrixMixBgBlueIntoFgBlueTheta += lfoRateC * gui->matrixMixLfo2[5];
     
     // Final mix LFO
-    if (gui->finalMixAndKeyLfo[0] != 0.0f) finalMixAmountTheta += lfoRateC * getEffectiveLfoRate(&gui->finalMixAndKeyLfoSync[1], &gui->finalMixAndKeyLfoDivision[1], gui->finalMixAndKeyLfo[1], divValues);
-    if (gui->finalMixAndKeyLfo[2] != 0.0f) finalKeyThresholdTheta += lfoRateC * getEffectiveLfoRate(&gui->finalMixAndKeyLfoSync[3], &gui->finalMixAndKeyLfoDivision[3], gui->finalMixAndKeyLfo[3], divValues);
-    if (gui->finalMixAndKeyLfo[4] != 0.0f) finalKeySoftTheta += lfoRateC * getEffectiveLfoRate(&gui->finalMixAndKeyLfoSync[5], &gui->finalMixAndKeyLfoDivision[5], gui->finalMixAndKeyLfo[5], divValues);
+    finalMixAmountTheta += lfoRateC * gui->finalMixAndKeyLfo[1];
+    finalKeyThresholdTheta += lfoRateC * gui->finalMixAndKeyLfo[3];
+    finalKeySoftTheta += lfoRateC * gui->finalMixAndKeyLfo[5];
 }
 
 //--------------------------------------------------------------

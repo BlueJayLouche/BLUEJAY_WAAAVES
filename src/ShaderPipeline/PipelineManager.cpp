@@ -258,6 +258,12 @@ void PipelineManager::processFrame() {
     block3.getShader().begin();
     block3.process();
     
+    // Debug: verify params value right before drawing
+    static int processDebugCounter = 0;
+    if (processDebugCounter++ % 60 == 0) {
+        ofLogNotice("processFrame") << "Before draw: block1XDisplace=" << block3.params.block1XDisplace;
+    }
+    
     // Draw cached mesh (avoid recreation every frame)
     block3Mesh.draw();
     

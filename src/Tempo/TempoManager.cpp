@@ -133,17 +133,17 @@ void TempoManager::advancePhase(float deltaTime) {
         }
     }
     
+    // Update bar phase
+    currentBarPhase = (currentBeat + currentBeatPhase) / 4.0f;
 }
 
 void TempoManager::tap() {
     float currentTime = ofGetElapsedTimef();
     
-    // First tap always resets phase to 0 (beat starts now)
+    // Reset if this is the first tap or timeout occurred
     if (tapTimes.empty()) {
-        resetPhase();
         tapStartTime = currentTime;
         tapTimes.push_back(0.0f);
-        ofLogNotice("TempoManager") << "Tap: Phase reset to 0";
     } else {
         float interval = currentTime - lastTapTime;
         
@@ -159,18 +159,13 @@ void TempoManager::tap() {
                 tapTimes.erase(tapTimes.begin());
             }
             
-            // Only calculate BPM after we have >3 intervals (4+ taps total)
-            // This ensures a more accurate average
-            if (tapTimes.size() > 3) {
-                calculateTapBpm();
-            }
+            // Calculate new BPM
+            calculateTapBpm();
         } else if (interval > settings.tapTimeout) {
             // Reset if too long
             resetTap();
-            resetPhase();
             tapStartTime = currentTime;
             tapTimes.push_back(0.0f);
-            ofLogNotice("TempoManager") << "Tap: Timeout, phase reset to 0";
         }
     }
     
@@ -178,33 +173,21 @@ void TempoManager::tap() {
 }
 
 void TempoManager::calculateTapBpm() {
-    // Need at least 4 taps (3 intervals) for reliable BPM calculation
-    if (tapTimes.size() < 4) return;
+    if (tapTimes.size() < 2) return;
     
-    // Use only the most recent intervals (up to 8) for calculation
-    // Skip the first entry which is 0.0f (placeholder for initial tap)
-    const size_t MAX_INTERVALS_TO_AVERAGE = 8;
+    // Skip first entry (which is 0.0f for the initial tap)
     float sum = 0.0f;
     int count = 0;
     
-    // Start from index 1 (skip the 0.0f placeholder)
-    // Use up to MAX_INTERVALS_TO_AVERAGE most recent intervals
-    size_t startIdx = tapTimes.size() > MAX_INTERVALS_TO_AVERAGE ? 
-                      tapTimes.size() - MAX_INTERVALS_TO_AVERAGE : 1;
-    
-    for (size_t i = startIdx; i < tapTimes.size(); i++) {
+    for (size_t i = 1; i < tapTimes.size(); i++) {
         sum += tapTimes[i];
         count++;
     }
     
-    if (count >= 3) {  // Require at least 3 intervals for averaging
+    if (count > 0) {
         float avgInterval = sum / count;
         float newBpm = 60.0f / avgInterval;
-        float oldBpm = settings.bpm;
         setBpm(newBpm);
-        
-        ofLogNotice("TempoManager") << "BPM updated: " << oldBpm << " -> " << newBpm 
-                                    << " (averaged " << count << " intervals)";
     }
 }
 
@@ -264,6 +247,7 @@ float TempoManager::getDivisionPeriod(BeatDivision division) const {
 
 void TempoManager::resetPhase() {
     currentBeatPhase = 0.0f;
+    currentBarPhase = 0.0f;
     currentBeat = 0;
 }
 

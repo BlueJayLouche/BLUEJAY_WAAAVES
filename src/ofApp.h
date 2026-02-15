@@ -345,13 +345,6 @@ class ofApp : public ofBaseApp{
 	float lfo(float amp, float rate,int shape);
 	void lfoUpdate();
 	float lfoRateC=.15;
-	
-	// Helper to get effective LFO rate (handles tempo sync)
-	// syncEnabled: pointer to sync toggle array element
-	// divisionIndex: pointer to division index array element  
-	// rawRate: the raw rate value from GUI (-1 to 1)
-	// divisionValues: array of beat division multipliers (cycles per beat)
-	float getEffectiveLfoRate(bool* syncEnabled, int* divisionIndex, float rawRate, const float* divisionValues);
 
 	//BLOCK 1
 	float ch1XDisplaceTheta=0;

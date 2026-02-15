@@ -237,36 +237,6 @@ bool PresetManager::savePreset(const std::string& name, const PresetData& data) 
     json["switches"]["ch2InputSelect"] = data.ch2InputSelect;
     json["switches"]["block2InputSelect"] = data.block2InputSelect;
     
-    // Audio/BPM modulations
-    auto saveModulations = [](ofJson& j, const std::map<std::string, ParamModulationData>& mods) {
-        for (const auto& [name, mod] : mods) {
-            ofJson modJson;
-            modJson["audioEnabled"] = mod.audioEnabled;
-            modJson["audioFftBand"] = mod.audioFftBand;
-            modJson["audioAmount"] = mod.audioAmount;
-            modJson["audioUseNormalization"] = mod.audioUseNormalization;
-            modJson["audioAttack"] = mod.audioAttack;
-            modJson["audioRelease"] = mod.audioRelease;
-            modJson["audioRangeScale"] = mod.audioRangeScale;
-            modJson["bpmEnabled"] = mod.bpmEnabled;
-            modJson["bpmDivisionIndex"] = mod.bpmDivisionIndex;
-            modJson["bpmPhase"] = mod.bpmPhase;
-            modJson["bpmWaveform"] = mod.bpmWaveform;
-            modJson["bpmMinValue"] = mod.bpmMinValue;
-            modJson["bpmMaxValue"] = mod.bpmMaxValue;
-            modJson["bpmBipolar"] = mod.bpmBipolar;
-            j[name] = modJson;
-        }
-    };
-    
-    saveModulations(json["modulations"]["block1"], data.block1Modulations);
-    saveModulations(json["modulations"]["block2"], data.block2Modulations);
-    saveModulations(json["modulations"]["block3"], data.block3Modulations);
-    
-    // Tempo settings
-    json["tempo"]["bpm"] = data.tempo.bpm;
-    json["tempo"]["enabled"] = data.tempo.enabled;
-    
     ofSaveJson(fullPath, json);
     
     indexPresets();
@@ -393,42 +363,6 @@ bool PresetManager::loadPreset(const std::string& name, PresetData& data) {
         if (sw.contains("ch1InputSelect")) data.ch1InputSelect = sw["ch1InputSelect"];
         if (sw.contains("ch2InputSelect")) data.ch2InputSelect = sw["ch2InputSelect"];
         if (sw.contains("block2InputSelect")) data.block2InputSelect = sw["block2InputSelect"];
-    }
-    
-    // Audio/BPM modulations
-    auto loadModulations = [](ofJson& j, std::map<std::string, ParamModulationData>& mods) {
-        for (auto& [key, value] : j.items()) {
-            ParamModulationData mod;
-            if (value.contains("audioEnabled")) mod.audioEnabled = value["audioEnabled"];
-            if (value.contains("audioFftBand")) mod.audioFftBand = value["audioFftBand"];
-            if (value.contains("audioAmount")) mod.audioAmount = value["audioAmount"];
-            if (value.contains("audioUseNormalization")) mod.audioUseNormalization = value["audioUseNormalization"];
-            if (value.contains("audioAttack")) mod.audioAttack = value["audioAttack"];
-            if (value.contains("audioRelease")) mod.audioRelease = value["audioRelease"];
-            if (value.contains("audioRangeScale")) mod.audioRangeScale = value["audioRangeScale"];
-            if (value.contains("bpmEnabled")) mod.bpmEnabled = value["bpmEnabled"];
-            if (value.contains("bpmDivisionIndex")) mod.bpmDivisionIndex = value["bpmDivisionIndex"];
-            if (value.contains("bpmPhase")) mod.bpmPhase = value["bpmPhase"];
-            if (value.contains("bpmWaveform")) mod.bpmWaveform = value["bpmWaveform"];
-            if (value.contains("bpmMinValue")) mod.bpmMinValue = value["bpmMinValue"];
-            if (value.contains("bpmMaxValue")) mod.bpmMaxValue = value["bpmMaxValue"];
-            if (value.contains("bpmBipolar")) mod.bpmBipolar = value["bpmBipolar"];
-            mods[key] = mod;
-        }
-    };
-    
-    if (json.contains("modulations")) {
-        auto& mods = json["modulations"];
-        if (mods.contains("block1")) loadModulations(mods["block1"], data.block1Modulations);
-        if (mods.contains("block2")) loadModulations(mods["block2"], data.block2Modulations);
-        if (mods.contains("block3")) loadModulations(mods["block3"], data.block3Modulations);
-    }
-    
-    // Tempo settings
-    if (json.contains("tempo")) {
-        auto& tempo = json["tempo"];
-        if (tempo.contains("bpm")) data.tempo.bpm = tempo["bpm"];
-        if (tempo.contains("enabled")) data.tempo.enabled = tempo["enabled"];
     }
     
     if (onPresetLoaded) {
