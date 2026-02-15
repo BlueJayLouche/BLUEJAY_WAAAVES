@@ -22,13 +22,13 @@
         "ndiSendWidth": 1280,
         "outputHeight": 720,
         "outputWidth": 1280,
-        "targetFPS": 50
+        "targetFPS": 60
     },
     "inputSources": {
         "input1DeviceID": 1,
         "input1NdiSourceIndex": 0,
-        "input1SourceType": 2,
-        "input2DeviceID": 2,
+        "input1SourceType": 1,
+        "input2DeviceID": 0,
         "input2NdiSourceIndex": 0,
         "input2SourceType": 1
     },
