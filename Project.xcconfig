@@ -20,11 +20,9 @@ CODE_SIGN_IDENTITY = -
 INFOPLIST_FILE = openFrameworks-Info.plist
 
 //ICONS - NEW IN 0072 
-//ICON_NAME = icon.icns
-//ICON_NAME[config=Debug] = icon-debug.icns
-ICON_NAME = of.icns
-ICON_NAME[config=Debug] = of_debug.icns
-ICON_FILE = $(OF_PATH)/libs/openFrameworksCompiled/project/osx/$(ICON_NAME)
+ICON_NAME = icon.icns
+ICON_NAME[config=Debug] = icon.icns
+ICON_FILE = bin/data/$(ICON_NAME)
 //IF YOU WANT AN APP TO HAVE A CUSTOM ICON - PUT THEM IN YOUR DATA FOLDER AND CHANGE ICON_FILE_PATH to:
 //ICON_FILE_PATH = bin/data/
 
