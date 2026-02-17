@@ -151,6 +151,7 @@ vec3 colorQuantize(vec3 inColor, float amount, float amountInvert){
 }
 
 // Optimized blur and sharpen function
+// - Early exit when blur and sharpen are disabled (saves 16 texture samples)
 // - Uses texture() instead of textureLod() for better performance (lod=0 is implicit)
 // - Replaces branching with mix() for sharpen boost
 // - Reduces HSB conversions by sampling luminance directly
@@ -158,41 +159,52 @@ vec4 blurAndSharpen(sampler2D blurAndSharpenTex, vec2 coord,
 		float sharpenAmount, float sharpenRadius, float sharpenBoost,
 		float blurRadius, float blurAmount) {
 	vec4 originalColor = texture(blurAndSharpenTex, coord);
+	
+	// Early exit: if blur and sharpen are both disabled, return original color
+	// This saves 16 texture samples per call when filters are off
+	if (blurAmount < 0.001 && sharpenAmount < 0.001) {
+		return originalColor;
+	}
+	
 	vec2 texSize = vec2(textureSize(blurAndSharpenTex, 0));
 
 	vec2 blurSize = vec2(blurRadius) / (texSize - vec2(1));
 	vec2 sharpenSize = vec2(sharpenRadius) / (texSize - vec2(1));
 
 	//blur - 8 samples box blur
-	vec4 colorBlur = texture(blurAndSharpenTex, coord + blurSize*vec2( 1, 1))
-                  + texture(blurAndSharpenTex, coord + blurSize*vec2( 0, 1))
-                  + texture(blurAndSharpenTex, coord + blurSize*vec2(-1, 1))
-                  + texture(blurAndSharpenTex, coord + blurSize*vec2(-1, 0))
-                  + texture(blurAndSharpenTex, coord + blurSize*vec2(-1,-1))
-                  + texture(blurAndSharpenTex, coord + blurSize*vec2( 0,-1))
-                  + texture(blurAndSharpenTex, coord + blurSize*vec2( 1,-1))
-                  + texture(blurAndSharpenTex, coord + blurSize*vec2( 1, 0));
-
-	colorBlur *= 0.125;
-	colorBlur = mix(originalColor, colorBlur, blurAmount);
+	vec4 colorBlur = originalColor;
+	if (blurAmount >= 0.001) {
+		colorBlur = texture(blurAndSharpenTex, coord + blurSize*vec2( 1, 1))
+	                  + texture(blurAndSharpenTex, coord + blurSize*vec2( 0, 1))
+	                  + texture(blurAndSharpenTex, coord + blurSize*vec2(-1, 1))
+	                  + texture(blurAndSharpenTex, coord + blurSize*vec2(-1, 0))
+	                  + texture(blurAndSharpenTex, coord + blurSize*vec2(-1,-1))
+	                  + texture(blurAndSharpenTex, coord + blurSize*vec2( 0,-1))
+	                  + texture(blurAndSharpenTex, coord + blurSize*vec2( 1,-1))
+	                  + texture(blurAndSharpenTex, coord + blurSize*vec2( 1, 0));
+		colorBlur *= 0.125;
+		colorBlur = mix(originalColor, colorBlur, blurAmount);
+	}
 
 	//sharpen - sample brightness using dot product (faster than HSB conversion)
 	//Using luminance weights: 0.299*R + 0.587*G + 0.114*B
-	const vec3 lumWeights = vec3(0.299, 0.587, 0.114);
-	float color_sharpen_bright =
-		dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2( 1, 0)).rgb, lumWeights)+
-		dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2(-1, 0)).rgb, lumWeights)+
-		dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2( 0, 1)).rgb, lumWeights)+
-		dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2( 0,-1)).rgb, lumWeights)+
-		dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2( 1, 1)).rgb, lumWeights)+
-		dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2(-1, 1)).rgb, lumWeights)+
-		dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2( 1,-1)).rgb, lumWeights)+
-		dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2(-1,-1)).rgb, lumWeights);
+	vec3 colorBlurHsb = rgb2hsb(colorBlur.rgb);
+	
+	if (sharpenAmount >= 0.001) {
+		const vec3 lumWeights = vec3(0.299, 0.587, 0.114);
+		float color_sharpen_bright =
+			dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2( 1, 0)).rgb, lumWeights)+
+			dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2(-1, 0)).rgb, lumWeights)+
+			dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2( 0, 1)).rgb, lumWeights)+
+			dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2( 0,-1)).rgb, lumWeights)+
+			dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2( 1, 1)).rgb, lumWeights)+
+			dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2(-1, 1)).rgb, lumWeights)+
+			dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2( 1,-1)).rgb, lumWeights)+
+			dot(texture(blurAndSharpenTex, coord + sharpenSize*vec2(-1,-1)).rgb, lumWeights);
 
-    color_sharpen_bright *= 0.125;
-
-    vec3 colorBlurHsb = rgb2hsb(colorBlur.rgb);
-    colorBlurHsb.z -= sharpenAmount * color_sharpen_bright;
+	    color_sharpen_bright *= 0.125;
+	    colorBlurHsb.z -= sharpenAmount * color_sharpen_bright;
+	}
 
     // Use mix() instead of if() to avoid branching
     float boostFactor = mix(1.0, 1.0 + sharpenAmount + sharpenBoost, step(0.001, sharpenAmount));
