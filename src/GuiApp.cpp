@@ -235,12 +235,13 @@ void GuiApp::setup(){
 	indexSavePresets();
 	indexLoadPresets();
 
-	// Trigger source refresh and apply loaded settings on startup
+	// Trigger source refresh on startup (NDI/Spout source lists)
 	refreshNdiSources = true;
 #if OFAPP_HAS_SPOUT
 	refreshSpoutSources = true;
 #endif
-	resolutionChangeRequested = true;
+	// Note: resolutionChangeRequested is NOT set here because ofApp::setup() already
+	// configures inputs based on SettingsManager. Setting this would cause double init.
 	oscSettingsReloadRequested = true;
 
 	// Initialize OSC parameter registry

@@ -123,13 +123,29 @@ void InputManager::setupInputSource(InputSlot& slot, InputType type, int deviceO
     switch (type) {
         case InputType::WEBCAM:
             if (slot.slotIndex == 1) {
-                webcam1->close();  // Close first to ensure clean state
-                webcam1->setDeviceID(deviceOrSourceIndex);
-                webcam1->setup(displaySettings.input1Width, displaySettings.input1Height);
+                // Only reinitialize if device ID changed or not initialized
+                if (webcam1->getDeviceID() != deviceOrSourceIndex || !webcam1->isInitialized()) {
+                    ofLogNotice("InputManager") << "Configuring Input 1: Webcam device " 
+                                                << webcam1->getDeviceID() << " -> " << deviceOrSourceIndex;
+                    webcam1->close();
+                    webcam1->setDeviceID(deviceOrSourceIndex);
+                    webcam1->setup(displaySettings.input1Width, displaySettings.input1Height);
+                } else {
+                    ofLogNotice("InputManager") << "Input 1: Webcam device " << deviceOrSourceIndex 
+                                                << " already configured, skipping";
+                }
             } else {
-                webcam2->close();  // Close first to ensure clean state
-                webcam2->setDeviceID(deviceOrSourceIndex);
-                webcam2->setup(displaySettings.input2Width, displaySettings.input2Height);
+                // Only reinitialize if device ID changed or not initialized
+                if (webcam2->getDeviceID() != deviceOrSourceIndex || !webcam2->isInitialized()) {
+                    ofLogNotice("InputManager") << "Configuring Input 2: Webcam device " 
+                                                << webcam2->getDeviceID() << " -> " << deviceOrSourceIndex;
+                    webcam2->close();
+                    webcam2->setDeviceID(deviceOrSourceIndex);
+                    webcam2->setup(displaySettings.input2Width, displaySettings.input2Height);
+                } else {
+                    ofLogNotice("InputManager") << "Input 2: Webcam device " << deviceOrSourceIndex 
+                                                << " already configured, skipping";
+                }
             }
             break;
             
