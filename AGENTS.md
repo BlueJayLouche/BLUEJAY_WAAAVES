@@ -230,14 +230,23 @@ Settings are stored in `config.json` (consolidated from the old XML format):
 
 ## Runtime Settings Reload
 
-The application supports **runtime reloading** of `config.json`. Changes made to the file while the app is running will be automatically detected and applied.
+The application supports **runtime reloading** of `config.json`. Changes made to the file while the app is running will be automatically detected and synced to the GUI.
+
+### ⚠️ Important: Manual Input Reinitialization Required
+
+**Input source settings are NEVER automatically applied** when `config.json` is reloaded. This is a safety measure to prevent interruption of video during use.
+
+- Input source settings (webcam device IDs, NDI/Spout indices, source types) are synced to the GUI
+- The user must **explicitly click the "Reinitialize Inputs" button** to apply input changes
+- This prevents video interruption from accidental file changes or external modifications
 
 ### How It Works
 
 1. **File Watching**: `SettingsManager` monitors `config.json` for changes every 1 second
 2. **Automatic Reload**: When changes are detected, the file is reloaded and settings are updated
 3. **GUI Sync**: Changes are automatically synced to the GUI (control window)
-4. **Save on Exit**: All settings are automatically saved to `config.json` when the app closes
+4. **Manual Apply**: Input source changes require clicking "Reinitialize Inputs" button
+5. **Save on Exit**: All settings are automatically saved to `config.json` when the app closes
 
 ### Usage
 
@@ -262,11 +271,11 @@ settings.enableFileWatching(false);
 
 When `config.json` changes at runtime, the following are updated:
 
-- **Display settings**: Input/output resolutions, target FPS
-- **Input sources**: Source types, device IDs, NDI/Spout indices
-- **OSC settings**: Ports, IP addresses
-- **MIDI settings**: Selected port, device name
-- **UI scale**: Interface scaling (200%, 250%, 300%)
+- **Display settings**: Input/output resolutions, target FPS (synced to GUI, requires "Apply Resolution" button)
+- **Input sources**: Source types, device IDs, NDI/Spout indices (synced to GUI, requires "Reinitialize Inputs" button)
+- **OSC settings**: Ports, IP addresses (auto-applied)
+- **MIDI settings**: Selected port, device name (auto-applied)
+- **UI scale**: Interface scaling (200%, 250%, 300%) (auto-applied)
 
 ### Migration from XML
 
@@ -274,10 +283,12 @@ If a legacy `settings.xml` file exists, it will be automatically migrated to `co
 
 ### Notes
 
-- Resolution changes require reinitialization of video inputs and framebuffers
+- **Input source changes NEVER trigger automatic reinitialization** - this is intentional to prevent video interruption
+- Resolution changes are synced to GUI but require "Apply Resolution" button click
 - OSC settings changes trigger a reconnection
 - MIDI settings changes attempt to reconnect to the specified port
 - File modification time is tracked to avoid unnecessary reloads
+- The console log will show: "SettingsManager synced to GUI (config.json reloaded). Input settings updated but NOT applied - click 'Reinitialize Inputs' button to apply changes."
 
 ## Preset System
 

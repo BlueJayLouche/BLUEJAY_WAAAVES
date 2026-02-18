@@ -23,13 +23,22 @@ void Block2Shader::setup(int width, int height) {
 void Block2Shader::process() {
     ShaderBlock::process();
     
-    // Bind textures
-    if (block1Tex && block1Tex->isAllocated()) {
-        shader.setUniformTexture("block2InputTex", *block1Tex, 6);
-    } else if (inputTex && inputTex->isAllocated()) {
-        shader.setUniformTexture("block2InputTex", *inputTex, 6);
+    // Bind textures based on block2InputSelect
+    // 0 = use block1 output (fb texture), 1 = input1, 2 = input2
+    if (params.block2InputSelect == 0) {
+        // Use block1 output
+        if (block1Tex && block1Tex->isAllocated()) {
+            shader.setUniformTexture("block2InputTex", *block1Tex, 6);
+        } else {
+            shader.setUniformTexture("block2InputTex", dummyTex, 6);
+        }
     } else {
-        shader.setUniformTexture("block2InputTex", dummyTex, 6);
+        // Use external input (input1 or input2)
+        if (inputTex && inputTex->isAllocated()) {
+            shader.setUniformTexture("block2InputTex", *inputTex, 6);
+        } else {
+            shader.setUniformTexture("block2InputTex", dummyTex, 6);
+        }
     }
     
     if (fbTex && fbTex->isAllocated()) {

@@ -39,7 +39,10 @@ bool GuiApp::drawLfoRateWithSync(const char* label, float* rateValue, bool* sync
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, *syncEnabled ? IM_COL32(0, 180, 90, 255) : IM_COL32(120, 120, 120, 255));
 	
 	char syncLabel[64];
-	snprintf(syncLabel, sizeof(syncLabel), "%s##sync", *syncEnabled ? "SYNC" : "FREE");
+	// Use OSC address to create unique ImGui ID for each toggle
+	// (OSC addresses are guaranteed unique per parameter)
+	const char* uniqueId = oscAddress ? oscAddress : label;
+	snprintf(syncLabel, sizeof(syncLabel), "%s##sync_%s", *syncEnabled ? "SYNC" : "FREE", uniqueId);
 	
 	if (ImGui::Button(syncLabel, ImVec2(45, 0))) {
 		*syncEnabled = !(*syncEnabled);
