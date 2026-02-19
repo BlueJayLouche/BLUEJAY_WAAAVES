@@ -65,7 +65,7 @@ bool NdiInput::isInitialized() const {
 }
 
 std::string NdiInput::getName() const {
-    if (selectedSourceIndex >= 0 && selectedSourceIndex < sourceNames.size()) {
+    if (selectedSourceIndex >= 0 && selectedSourceIndex < (int)sourceNames.size()) {
         return "NDI: " + sourceNames[selectedSourceIndex];
     }
     return "NDI: (No Source)";
@@ -111,8 +111,12 @@ std::vector<std::string> NdiInput::getSourceNames() const {
 }
 
 void NdiInput::selectSource(int index) {
-    if (index < 0 || index >= sourceNames.size()) {
-        ofLogWarning("NdiInput") << "Invalid source index: " << index;
+    // Ensure sources are refreshed before selecting
+    refreshSources();
+    
+    // Validate index bounds
+    if (index < 0 || index >= (int)sourceNames.size()) {
+        ofLogWarning("NdiInput") << "Invalid source index: " << index << " (available: " << sourceNames.size() << ")";
         return;
     }
     
