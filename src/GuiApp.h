@@ -33,6 +33,7 @@ class ofApp;
 namespace dragonwaves {
     class AudioAnalyzer;
     class TempoManager;
+    class PreviewPanel;
 }
 
 #define PARAMETER_ARRAY_LENGTH 16
@@ -258,6 +259,10 @@ public:
 	bool spoutSendBlock2 = false;  // Enable Spout output for Block 2
 	bool spoutSendBlock3 = false;  // Enable Spout output for Block 3 (final)
 #endif
+	
+	// Preview Window
+	bool showPreviewWindow = false;
+	dragonwaves::PreviewPanel* previewPanel = nullptr;
 
 	// NDI Output Settings
 	// COMMENTED OUT - Only using Block 3 for NDI output

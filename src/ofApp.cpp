@@ -147,6 +147,51 @@ void ofApp::setup(){
     // Initialize preset manager
     PresetManager::getInstance().setup();
     
+    // Initialize preview panel (AFTER pipeline is created)
+    previewPanel = std::make_unique<dragonwaves::PreviewPanel>();
+    previewPanel->setup(pipeline.get());
+    
+    // Set up color applied callback
+    previewPanel->onColorApplied = [this](dragonwaves::ColorPicker::KeyTarget target, ofColor color) {
+        // Convert to normalized float (0-1 range)
+        float r = color.r / 255.0f;
+        float g = color.g / 255.0f;
+        float b = color.b / 255.0f;
+        
+        // Apply to appropriate GUI parameters
+        switch (target) {
+            case dragonwaves::ColorPicker::CH2_KEY:
+                gui->ch2MixAndKey[1] = r;
+                gui->ch2MixAndKey[2] = g;
+                gui->ch2MixAndKey[3] = b;
+                break;
+            case dragonwaves::ColorPicker::FB1_KEY:
+                gui->fb1MixAndKey[1] = r;
+                gui->fb1MixAndKey[2] = g;
+                gui->fb1MixAndKey[3] = b;
+                break;
+            case dragonwaves::ColorPicker::FB2_KEY:
+                gui->fb2MixAndKey[1] = r;
+                gui->fb2MixAndKey[2] = g;
+                gui->fb2MixAndKey[3] = b;
+                break;
+            case dragonwaves::ColorPicker::FINAL_KEY:
+                // Final mix key - using finalMixAndKey if available
+                gui->finalMixAndKey[1] = r;
+                gui->finalMixAndKey[2] = g;
+                gui->finalMixAndKey[3] = b;
+                break;
+        }
+        
+        // Send OSC notification
+        sendOscParameter("/gravity/preview/colorPicked", 1.0f);
+    };
+    
+    // Pass preview panel to GuiApp
+    if (gui) {
+        gui->previewPanel = previewPanel.get();
+    }
+    
     // Setup OSC/Parameter manager
     ParameterManager::getInstance().setup(settings.getOsc());
     
@@ -235,6 +280,11 @@ void ofApp::update(){
     // Process OSC messages (legacy)
     if (oscEnabled) {
         processOscMessages();
+    }
+    
+    // Update preview panel (always update texture, window visibility is controlled separately)
+    if (previewPanel) {
+        previewPanel->update();
     }
 }
 
@@ -1781,6 +1831,12 @@ void ofApp::exit(){
     // 1. Close ParameterManager (OSC/MIDI) - prevents callbacks during shutdown
     ParameterManager::getInstance().close();
     ofLogNotice("ofApp") << "ParameterManager closed";
+    
+    // Clean up preview panel before pipeline is destroyed
+    if (previewPanel) {
+        previewPanel.reset();
+        ofLogNotice("ofApp") << "PreviewPanel cleaned up";
+    }
     
     // 2. Save settings on exit (after closing OSC to prevent race conditions)
     ofLogNotice("ofApp") << "Saving settings on exit...";

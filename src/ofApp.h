@@ -23,6 +23,7 @@
 #include "Geometry/GeometryRenderer.h"
 #include "Audio/AudioAnalyzer.h"
 #include "Tempo/TempoManager.h"
+#include "Preview/PreviewPanel.h"
 
 class ofApp : public ofBaseApp{
 
@@ -644,6 +645,9 @@ class ofApp : public ofBaseApp{
 	// Audio and Tempo
 	std::unique_ptr<dragonwaves::AudioAnalyzer> audioAnalyzer;
 	std::unique_ptr<dragonwaves::TempoManager> tempoManager;
+	
+	// Preview Panel
+	std::unique_ptr<dragonwaves::PreviewPanel> previewPanel;
 	
 	// Modular system helpers
 	void syncGuiToPipeline();

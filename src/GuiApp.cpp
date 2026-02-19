@@ -1157,6 +1157,29 @@ void GuiApp::draw(){
 		}
 
 		ImGui::SameLine();
+		
+		// Sync checkbox with actual panel visibility
+		if (previewPanel) {
+			showPreviewWindow = previewPanel->isVisible();
+		}
+		
+		// Preview window toggle
+		if (ImGui::Checkbox("Preview", &showPreviewWindow)) {
+			// Toggle preview window visibility
+			if (previewPanel) {
+				previewPanel->setVisible(showPreviewWindow);
+				if (showPreviewWindow) {
+					previewPanel->showWindow();
+				} else {
+					previewPanel->hideWindow();
+				}
+			}
+		}
+		if (ImGui::IsItemHovered()) {
+			ImGui::SetTooltip("Show/hide Preview & Color Picker window");
+		}
+
+		ImGui::SameLine();
 
 		// ========== UI SCALE DROPDOWN ==========
 		ImGui::PushItemWidth(inputWidth);
@@ -1426,6 +1449,11 @@ void GuiApp::draw(){
 		}//end collapsing header
 
 		ImGui::PopStyleColor(11);
+		
+		// Draw Preview Panel
+		if (previewPanel && showPreviewWindow) {
+			previewPanel->draw();
+		}
 
 
 		/*
