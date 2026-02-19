@@ -909,7 +909,7 @@ void GuiApp::draw(){
 
 	//strangely enough, when i switched to ImGui::Begin from ImGui::BeginWindow, that seemed to really
 	//bonk up the fontGlobalScale thing...
-	// Apply UI scale from selector (0=100%, 1=150%, 2=200%)
+	// Apply UI scale from selector (0=100%, 1=150%, 2=200%, 3=250%, 4=300%)
 	io.FontGlobalScale = uiScaleValues[uiScaleIndex];
 	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 	float block2Hue=.42;
@@ -1183,8 +1183,8 @@ void GuiApp::draw(){
 
 		// ========== UI SCALE DROPDOWN ==========
 		ImGui::PushItemWidth(inputWidth);
-		const char* scaleItems[] = { "200%", "250%", "300%" };
-		static int item_scale = 0;  // Default to 200% (2.0x actual scale)
+		const char* scaleItems[] = { "100%", "150%", "200%", "250%", "300%" };
+		static int item_scale = 2;  // Default to 200% (2.0x actual scale)
 		if (item_scale != uiScaleIndex) {
 			item_scale = uiScaleIndex;
 		}
@@ -58593,9 +58593,9 @@ void GuiApp::loadVideoOscSettings() {
     if (settings.contains("presets")) {
         if (settings["presets"].contains("uiScaleIndex")) {
             uiScaleIndex = settings["presets"]["uiScaleIndex"];
-            // Clamp to valid range
+            // Clamp to valid range (0-4: 100%, 150%, 200%, 250%, 300%)
             if (uiScaleIndex < 0) uiScaleIndex = 0;
-            if (uiScaleIndex > 2) uiScaleIndex = 2;
+            if (uiScaleIndex > 4) uiScaleIndex = 4;
         }
         if (settings["presets"].contains("saveBankName")) {
             std::string savedBankName = settings["presets"]["saveBankName"];

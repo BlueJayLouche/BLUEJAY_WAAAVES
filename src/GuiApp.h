@@ -164,9 +164,9 @@ public:
 	char newPresetNameBuffer[128] = "";
 	std::string originalPresetName = "";  // Track original name for rename detection
 
-	// UI Scale (labels: 200%/250%/300%, actual: 2.0/2.5/3.0)
-	int uiScaleIndex = 0;  // Default "200%" (2.0x actual scale)
-	float uiScaleValues[3] = {2.0f, 2.5f, 3.0f};
+	// UI Scale (labels: 100%/150%/200%/250%/300%, actual: 1.0/1.5/2.0/2.5/3.0)
+	int uiScaleIndex = 2;  // Default "200%" (2.0x actual scale)
+	float uiScaleValues[5] = {1.0f, 1.5f, 2.0f, 2.5f, 3.0f};
 
 	// Preset bank functions
 	void scanBanks();

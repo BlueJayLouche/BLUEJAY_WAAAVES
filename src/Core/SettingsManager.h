@@ -228,7 +228,7 @@ private:
     AudioSettings audio;
     TempoSettings tempo;
     
-    int uiScaleIndex = 0;  // 0=200%, 1=250%, 2=300%
+    int uiScaleIndex = 2;  // 0=100%, 1=150%, 2=200%, 3=250%, 4=300%
     
     bool resolutionChanged = false;
     bool fpsChanged = false;

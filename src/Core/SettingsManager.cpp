@@ -85,7 +85,7 @@ bool SettingsManager::migrateFromXml() {
         xml.popTag();
     }
     
-    uiScaleIndex = xml.getValue("uiScaleIndex", 0);
+    uiScaleIndex = xml.getValue("uiScaleIndex", 2);  // Default 200%
     
     // Save to JSON format
     save();
@@ -230,7 +230,10 @@ void SettingsManager::load() {
             
             // UI settings
             if (json.contains("uiScaleIndex")) {
-                uiScaleIndex = json.value("uiScaleIndex", 0);
+                uiScaleIndex = json.value("uiScaleIndex", 2);
+                // Clamp to valid range (0-4: 100%, 150%, 200%, 250%, 300%)
+                if (uiScaleIndex < 0) uiScaleIndex = 0;
+                if (uiScaleIndex > 4) uiScaleIndex = 4;
             }
             
             // Update file modification tracking
