@@ -497,14 +497,17 @@ void ofApp::syncSettingsManagerToGui() {
     // Sync UI scale to GUI
     gui->uiScaleIndex = settings.getUIScaleIndex();
     
-    // Apply resolution/FPS changes if needed
+    // NOTE: We do NOT automatically apply resolution/FPS changes when settings are reloaded.
+    // This prevents interruption of video during use.
+    // The user must explicitly click the "Apply Resolution" button in the GUI to apply changes.
+    // We just clear the flags so they don't trigger later.
     if (settings.hasResolutionChanged()) {
-        gui->resolutionChangeRequested = true;
         settings.clearResolutionChanged();
+        ofLogNotice("ofApp") << "Resolution settings changed in config.json - click 'Apply Resolution' button to apply";
     }
     if (settings.hasFPSChanged()) {
-        gui->fpsChangeRequested = true;
         settings.clearFPSChanged();
+        ofLogNotice("ofApp") << "FPS settings changed in config.json - click 'Apply Resolution' button to apply";
     }
     
     // Reload OSC settings
@@ -804,6 +807,17 @@ void ofApp::syncGuiToPipeline() {
     block2.params.block2InputPosterize = 15.0f * (1.0f - gui->block2InputAdjust[7]) + 1.0f;
     block2.params.block2InputPosterizeSwitch = gui->block2InputAdjust[7] > 0 ? 1 : 0;
     block2.params.block2InputKaleidoscopeAmount = floor(21.0f * gui->block2InputAdjust[8]);
+    // Block2 Input switches
+    block2.params.block2InputHMirror = gui->block2InputHMirror ? 1 : 0;
+    block2.params.block2InputVMirror = gui->block2InputVMirror ? 1 : 0;
+    block2.params.block2InputHFlip = gui->block2InputHFlip ? 1 : 0;
+    block2.params.block2InputVFlip = gui->block2InputVFlip ? 1 : 0;
+    block2.params.block2InputHueInvert = gui->block2InputHueInvert ? 1 : 0;
+    block2.params.block2InputSaturationInvert = gui->block2InputSaturationInvert ? 1 : 0;
+    block2.params.block2InputBrightInvert = gui->block2InputBrightInvert ? 1 : 0;
+    block2.params.block2InputRGBInvert = gui->block2InputRGBInvert ? 1 : 0;
+    block2.params.block2InputSolarize = gui->block2InputSolarize ? 1 : 0;
+    block2.params.block2InputGeoOverflow = gui->block2InputGeoOverflow;
     
     // ========================================
     // BLOCK 2 - FB2 Mix & Key (with LFO)
@@ -866,6 +880,12 @@ void ofApp::syncGuiToPipeline() {
     block2.params.fb2ShearMatrix4 = fb2ShearMatrix4;
     block2.params.fb2KaleidoscopeSlice = fb2KaleidoscopeSlice;
     block2.params.fb2KaleidoscopeAmount = floor(21.0f * gui->fb2Geo1[8]);
+    // FB2 Geo switches
+    block2.params.fb2HMirror = gui->block2HMirror ? 1 : 0;
+    block2.params.fb2VMirror = gui->block2VMirror ? 1 : 0;
+    block2.params.fb2HFlip = gui->block2HFlip ? 1 : 0;
+    block2.params.fb2VFlip = gui->block2VFlip ? 1 : 0;
+    block2.params.fb2RotateMode = gui->block2RotateMode ? 1 : 0;
     
     // ========================================
     // BLOCK 2 - FB2 Color (with LFO)

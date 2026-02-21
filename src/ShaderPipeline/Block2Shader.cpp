@@ -60,11 +60,21 @@ void Block2Shader::process() {
     shader.setUniform1f("inverseHeight", 1.0f / height);
     
     // Block2 input parameters
-    shader.setUniform1i("block2InputMasterSwitch", params.block2InputMasterSwitch);
+    // Master switch is 1 when using external input (input1 or input2), 0 when using block1 output
+    int masterSwitch = (params.block2InputSelect > 0) ? 1 : 0;
+    shader.setUniform1i("block2InputMasterSwitch", masterSwitch);
     shader.setUniform1f("block2InputWidth", width);
     shader.setUniform1f("block2InputHeight", height);
     shader.setUniform1f("block2InputWidthHalf", width * 0.5f);
     shader.setUniform1f("block2InputHeightHalf", height * 0.5f);
+    
+    // Coordinate transformation defaults (for external input scaling)
+    shader.setUniform1f("block2InputAspectRatio", 1.0f);
+    shader.setUniform1f("block2InputHdZCrib", 0.0f);
+    shader.setUniform1f("block2InputScaleFix", 1.0f);
+    shader.setUniform1f("block2InputCribX", 0.0f);
+    shader.setUniform1f("inverseWidth1", 1.0f / width);
+    shader.setUniform1f("inverseHeight1", 1.0f / height);
     
     shader.setUniform2f("block2InputXYDisplace", params.block2InputXDisplace, params.block2InputYDisplace);
     shader.setUniform1f("block2InputZDisplace", params.block2InputZDisplace);
