@@ -34,6 +34,10 @@ void PreviewPanel::setup(PipelineManager* pipe) {
 void PreviewPanel::update() {
     if (!enabled || !pipeline) return;
     
+    // Skip update if preview window is not visible and panel is closed
+    // This avoids expensive GPU->CPU pixel readback when not needed
+    if (!showPanel && !isWindowVisible()) return;
+    
     float now = ofGetElapsedTimef();
     if (now - lastUpdateTime < updateInterval) return;
     
@@ -42,7 +46,7 @@ void PreviewPanel::update() {
     renderer.update(*pipeline, drawMode);
     
     // Update preview window with pixels (avoids cross-context texture issues)
-    if (windowMode) {
+    if (windowMode && isWindowVisible()) {
         previewWindow.setPreviewPixels(renderer.getPreviewPixels());
     }
     

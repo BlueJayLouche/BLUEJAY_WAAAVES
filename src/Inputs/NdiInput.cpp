@@ -37,13 +37,39 @@ bool NdiInput::setup(int width, int height) {
 void NdiInput::update() {
     if (!initialized) return;
     
-    // Continuously discover new sources on the network
-    // FindSenders() is designed to be called every frame - it only updates
-    // the internal list when there's a network change, so this is efficient
-    receiver.FindSenders();
-    
-    // Receive image into texture
+    // Receive directly into texture
+    // ofxNDIreceiver handles format conversion (BGRA->RGBA) internally
     frameIsNew = receiver.ReceiveImage(texture);
+    
+    // Track receiver connection state
+    receiverConnected = receiver.ReceiverConnected();
+    
+    // Calculate received FPS (only count actual new frames)
+    float now = ofGetElapsedTimef();
+    float delta = now - lastFrameTime;
+    lastFrameTime = now;
+    
+    fpsTimer += delta;
+    if (frameIsNew) {
+        frameCounter++;
+    }
+    
+    // Log FPS every 2 seconds
+    if (fpsTimer >= 2.0f) {
+        receivedFps = frameCounter / fpsTimer;
+        float senderFps = receiver.GetSenderFps();
+        int recvFps = receiver.GetFps();
+        
+        ofLogNotice("NdiInput") << "FPS: received=" << (int)receivedFps 
+                                << " sender=" << (int)senderFps 
+                                << " recv_calc=" << recvFps
+                                << " connected=" << (receiverConnected ? "yes" : "no")
+                                << " frameNew=" << (frameIsNew ? "yes" : "no")
+                                << " texture=" << texture.getWidth() << "x" << texture.getHeight();
+        
+        frameCounter = 0;
+        fpsTimer = 0;
+    }
 }
 
 void NdiInput::close() {
