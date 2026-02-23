@@ -436,3 +436,9 @@ bin/data/settings.json
 bin/data/settings.json
 bin/data/settings.json
 bin/data/recorded/
+# Video recordings
+*.mp4
+*.mov
+*.mkv
+*.avi
+bin/data/recorded/*.mp4
