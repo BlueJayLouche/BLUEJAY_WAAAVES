@@ -197,8 +197,9 @@ void ofApp::setup(){
     VideoRecorderSettings recSettings;
     recSettings.fps = 30;
     recSettings.codec = "h264";  // H.264 for better compatibility
+    recSettings.quality = 28;    // Higher CRF = faster encoding, lower quality
     recSettings.outputFolder = "recorded";
-    recSettings.useHardwareEncoding = false;  // Software encoding by default (more reliable)
+    recSettings.useHardwareEncoding = true;  // Hardware encoding by default (much faster)
     videoRecorder->setup(settings.getDisplay().internalWidth, 
                          settings.getDisplay().internalHeight, 
                          recSettings);

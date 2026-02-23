@@ -275,9 +275,9 @@ public:
 	
 	// Video Recorder Settings
 	int videoRecorderFps = 30;
-	int videoRecorderQuality = 23;  // CRF value (0-51)
+	int videoRecorderQuality = 28;  // CRF value (0-51) - higher = faster, lower quality
 	int videoRecorderCodec = 1;     // 0=HEVC, 1=H264 (default for compatibility), 2=ProRes
-	bool videoRecorderHardware = false;  // Software encoding by default (more reliable)
+	bool videoRecorderHardware = true;  // Hardware encoding by default (much faster)
 	void toggleVideoRecording();
 
 	// NDI Output Settings

@@ -228,46 +228,58 @@ bool VideoRecorder::startFFmpeg(const std::string& filename) {
     cmd << "-r " << settings_.fps << " ";
     cmd << "-i - ";  // Read from stdin
     
-    // Codec selection
+    // Codec selection - optimized for real-time performance
     if (settings_.codec == "hevc") {
         #if defined(TARGET_OSX)
             if (settings_.useHardwareEncoding) {
                 cmd << "-c:v hevc_videotoolbox ";
-                cmd << "-allow_sw 1 ";  // Allow software fallback if hardware busy
-                cmd << "-b:v " << (settings_.quality < 20 ? "16M" : "8M") << " ";
-                cmd << "-q:v " << settings_.quality << " ";
+                cmd << "-allow_sw 1 ";
+                cmd << "-b:v " << (settings_.quality < 20 ? "12M" : "6M") << " ";
+                cmd << "-realtime 1 ";  // Prioritize speed
             } else {
                 cmd << "-c:v libx265 -crf " << settings_.quality << " ";
-                cmd << "-preset fast ";
+                cmd << "-preset ultrafast ";  // Fastest preset
+                cmd << "-tune fastdecode ";
+                cmd << "-threads 4 ";  // Limit threads to avoid starving app
             }
         #else
             cmd << "-c:v libx265 -crf " << settings_.quality << " ";
-            cmd << "-preset fast ";
+            cmd << "-preset ultrafast ";
+            cmd << "-tune fastdecode ";
+            cmd << "-threads 4 ";
         #endif
-        cmd << "-tag:v hvc1 ";  // For compatibility
+        cmd << "-tag:v hvc1 ";
     } 
     else if (settings_.codec == "h264") {
         #if defined(TARGET_OSX)
             if (settings_.useHardwareEncoding) {
                 cmd << "-c:v h264_videotoolbox ";
-                cmd << "-allow_sw 1 ";  // Allow software fallback if hardware busy
-                cmd << "-b:v " << (settings_.quality < 20 ? "16M" : "8M") << " ";
-                cmd << "-q:v " << settings_.quality << " ";
+                cmd << "-allow_sw 1 ";
+                cmd << "-b:v " << (settings_.quality < 20 ? "12M" : "6M") << " ";
+                cmd << "-realtime 1 ";
             } else {
                 cmd << "-c:v libx264 -crf " << settings_.quality << " ";
-                cmd << "-preset fast ";
+                cmd << "-preset ultrafast ";
+                cmd << "-tune fastdecode ";
+                cmd << "-threads 4 ";
             }
         #elif defined(TARGET_WIN32)
             if (settings_.useHardwareEncoding) {
                 cmd << "-c:v h264_nvenc ";
                 cmd << "-rc vbr ";
                 cmd << "-cq " << settings_.quality << " ";
+                cmd << "-preset p1 ";  // Fastest NVENC preset
             } else {
                 cmd << "-c:v libx264 -crf " << settings_.quality << " ";
+                cmd << "-preset ultrafast ";
+                cmd << "-tune fastdecode ";
+                cmd << "-threads 4 ";
             }
         #else
             cmd << "-c:v libx264 -crf " << settings_.quality << " ";
-            cmd << "-preset fast ";
+            cmd << "-preset ultrafast ";
+            cmd << "-tune fastdecode ";
+            cmd << "-threads 4 ";
         #endif
     }
     else if (settings_.codec == "prores") {

@@ -6871,11 +6871,11 @@ void GuiApp::draw(){
 						mainApp->sendOscParameter("/gravity/recorder/quality", (float)videoRecorderQuality);
 					}
 				}
-				ImGui::TextDisabled("0=lossless, 23=default, 51=worst");
+				ImGui::TextDisabled("0=lossless (slow), 28=fast, 51=worst");
 				
 				ImGui::Checkbox("Hardware Encoding", &videoRecorderHardware);
 				if (ImGui::IsItemHovered()) {
-					ImGui::SetTooltip("Use hardware encoder if available (faster, lower CPU)");
+					ImGui::SetTooltip("Hardware = fast but larger files. Software = slower but smaller files.");
 				}
 				
 				ImGui::Spacing();
