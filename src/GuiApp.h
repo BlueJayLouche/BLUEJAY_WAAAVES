@@ -272,6 +272,13 @@ public:
 	
 	// Video Recording indicator
 	bool isRecordingVideo = false;
+	
+	// Video Recorder Settings
+	int videoRecorderFps = 30;
+	int videoRecorderQuality = 23;  // CRF value (0-51)
+	int videoRecorderCodec = 0;     // 0=HEVC, 1=H264, 2=ProRes
+	bool videoRecorderHardware = true;
+	void toggleVideoRecording();
 
 	// NDI Output Settings
 	// COMMENTED OUT - Only using Block 3 for NDI output

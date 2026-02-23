@@ -90,6 +90,11 @@ class ofApp : public ofBaseApp{
 		
 		// Get modulated value for GUI visual feedback
 		float getModulatedValue(int blockNum, const std::string& paramName) const;
+		
+		// Video Recorder
+		void toggleVideoRecording();
+		bool isRecordingVideo() const;
+		dragonwaves::VideoRecorder* getVideoRecorder() { return videoRecorder.get(); }
 
 	//globals
 	// Input resolutions

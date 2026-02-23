@@ -6825,6 +6825,67 @@ void GuiApp::draw(){
 				ImGui::Separator();
 				ImGui::Spacing();
 
+				// ========== VIDEO RECORDER ==========
+				ImGui::Text("VIDEO RECORDER");
+				ImGui::Spacing();
+				
+				// Record button with blinking indicator
+				bool isRecording = isRecordingVideo;
+				if (isRecording) {
+					ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(255, 0, 0, 255));
+					ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(255, 50, 50, 255));
+					ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(200, 0, 0, 255));
+					float time = ofGetElapsedTimef();
+					bool blink = fmod(time, 1.0f) < 0.5f;
+					if (ImGui::Button(blink ? "STOP RECORDING ●" : "STOP RECORDING ○", ImVec2(200, 0))) {
+						toggleVideoRecording();
+					}
+					ImGui::PopStyleColor(3);
+				} else {
+					ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 150, 0, 255));
+					ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(0, 200, 0, 255));
+					ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(0, 100, 0, 255));
+					if (ImGui::Button("START RECORDING", ImVec2(200, 0))) {
+						toggleVideoRecording();
+					}
+					ImGui::PopStyleColor(3);
+				}
+				ImGui::Spacing();
+				
+				// Recorder settings
+				const char* codecs[] = {"HEVC (H.265)", "H.264", "ProRes 422"};
+				if (ImGui::Combo("Codec", &videoRecorderCodec, codecs, IM_ARRAYSIZE(codecs))) {
+					if (mainApp) {
+						mainApp->sendOscParameter("/gravity/recorder/codec", (float)videoRecorderCodec);
+					}
+				}
+				
+				if (ImGui::SliderInt("FPS", &videoRecorderFps, 15, 60)) {
+					if (mainApp) {
+						mainApp->sendOscParameter("/gravity/recorder/fps", (float)videoRecorderFps);
+					}
+				}
+				
+				if (ImGui::SliderInt("Quality (CRF)", &videoRecorderQuality, 0, 51)) {
+					if (mainApp) {
+						mainApp->sendOscParameter("/gravity/recorder/quality", (float)videoRecorderQuality);
+					}
+				}
+				ImGui::TextDisabled("0=lossless, 23=default, 51=worst");
+				
+				ImGui::Checkbox("Hardware Encoding", &videoRecorderHardware);
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Use hardware encoder if available (faster, lower CPU)");
+				}
+				
+				ImGui::Spacing();
+				ImGui::TextDisabled("Output: bin/data/recorded/");
+				ImGui::TextDisabled("Hotkey: Press 'R' to toggle recording");
+				
+				ImGui::Spacing();
+				ImGui::Separator();
+				ImGui::Spacing();
+
 				// ========== ATTRIBUTIONS ==========
 				ImGui::Text("ATTRIBUTIONS");
 				ImGui::Spacing();
@@ -11101,6 +11162,14 @@ void GuiApp::exit() {
 	}
 	
 	ofLogNotice("GuiApp") << "exit() completed successfully";
+}
+
+//------------------------------------------------------------------------------
+void GuiApp::toggleVideoRecording() {
+	// Toggle recording via main app
+	if (mainApp) {
+		mainApp->toggleVideoRecording();
+	}
 }
 
 //--------------------------------------------------------------

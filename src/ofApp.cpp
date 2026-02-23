@@ -2203,3 +2203,42 @@ float ofApp::getModulatedValue(int blockNum, const std::string& paramName) const
     if (!pipeline) return 0.0f;
     return pipeline->getModulatedValue(blockNum, paramName);
 }
+
+void ofApp::toggleVideoRecording() {
+    if (!videoRecorder) return;
+    
+    if (videoRecorder->isRecording()) {
+        videoRecorder->stopRecording();
+        if (gui) gui->isRecordingVideo = false;
+        ofLogNotice("ofApp") << "Video recording STOPPED";
+    } else {
+        // Update settings from GUI
+        VideoRecorderSettings settings;
+        settings.fps = gui ? gui->videoRecorderFps : 30;
+        settings.quality = gui ? gui->videoRecorderQuality : 23;
+        settings.useHardwareEncoding = gui ? gui->videoRecorderHardware : true;
+        
+        // Map codec index to string
+        if (gui) {
+            switch (gui->videoRecorderCodec) {
+                case 0: settings.codec = "hevc"; break;
+                case 1: settings.codec = "h264"; break;
+                case 2: settings.codec = "prores"; break;
+                default: settings.codec = "hevc";
+            }
+        }
+        
+        videoRecorder->setSettings(settings);
+        
+        if (videoRecorder->startRecording()) {
+            if (gui) gui->isRecordingVideo = true;
+            ofLogNotice("ofApp") << "Video recording STARTED (" << settings.codec << " @ " << settings.fps << "fps)";
+        } else {
+            ofLogError("ofApp") << "Failed to start video recording";
+        }
+    }
+}
+
+bool ofApp::isRecordingVideo() const {
+    return videoRecorder ? videoRecorder->isRecording() : false;
+}
