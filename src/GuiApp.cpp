@@ -29,9 +29,10 @@
 const char* GuiApp::beatDivisionNames[8] = {"1/16", "1/8", "1/4", "1/2", "1", "2", "4", "8"};
 
 // Helper function to draw LFO rate slider with sync toggle
-bool GuiApp::drawLfoRateWithSync(const char* label, float* rateValue, bool* syncEnabled, int* divisionIndex, const char* oscAddress) {
+bool GuiApp::drawLfoRateWithSync(const char* label, float* rateValue, bool* syncEnabled, int* divisionIndex, const char* oscAddress, float controlWidth) {
 	bool changed = false;
-	const float CONTROL_WIDTH = 200.0f;  // Fixed width for both modes
+	// Use provided width or default to 200.0f
+	const float CONTROL_WIDTH = controlWidth > 0.0f ? controlWidth : 200.0f;
 	
 	// Sync toggle button
 	ImGui::PushStyleColor(ImGuiCol_Button, *syncEnabled ? IM_COL32(0, 200, 100, 255) : IM_COL32(80, 80, 80, 255));
@@ -2125,12 +2126,38 @@ void GuiApp::draw(){
 					if(ImGui::BeginTabItem("fb1 parameters")){
 						//reset all fb1 parameters
 
-						if (ImGui::SliderInt("fb1 delay time         ",&fb1DelayTime,1,pastFramesSize)) {
-							if (mainApp) {
-								mainApp->sendOscParameter("/gravity/block1/fb1/delayTime", static_cast<float>(fb1DelayTime));
-								// Send delay in seconds (delayTime / fps)
-								float secDelay = (float)fb1DelayTime / (float)targetFPS;
-								mainApp->sendOscParameter("/gravity/block1/fb1/secDelay", roundf(secDelay * 100.0f) / 100.0f);
+						// FB1 Delay Time with Tempo Sync
+						const char* beatDivisionNames[8] = {"1/16", "1/8", "1/4", "1/2", "1", "2", "4", "8"};
+						
+						// Sync toggle button
+						ImGui::PushStyleColor(ImGuiCol_Button, fb1DelayTimeSync ? IM_COL32(0, 200, 100, 255) : IM_COL32(80, 80, 80, 255));
+						ImGui::PushStyleColor(ImGuiCol_ButtonHovered, fb1DelayTimeSync ? IM_COL32(0, 230, 120, 255) : IM_COL32(100, 100, 100, 255));
+						ImGui::PushStyleColor(ImGuiCol_ButtonActive, fb1DelayTimeSync ? IM_COL32(0, 180, 90, 255) : IM_COL32(120, 120, 120, 255));
+						if (ImGui::Button(fb1DelayTimeSync ? "SYNC##fb1delay" : "FREE##fb1delay", ImVec2(45, 0))) {
+							fb1DelayTimeSync = !fb1DelayTimeSync;
+						}
+						ImGui::PopStyleColor(3);
+						if (ImGui::IsItemHovered()) {
+							ImGui::SetTooltip(fb1DelayTimeSync ? "Tempo Sync: ON (click for FREE)" : "Tempo Sync: OFF (click for SYNC)");
+						}
+						ImGui::SameLine();
+						
+						if (fb1DelayTimeSync) {
+							// Show beat division dropdown when sync is enabled
+							if (ImGui::Combo("fb1 delay time         ", &fb1DelayTimeDivision, beatDivisionNames, 8)) {
+								if (mainApp) {
+									mainApp->sendOscParameter("/gravity/block1/fb1/delayTimeDivision", static_cast<float>(fb1DelayTimeDivision));
+								}
+							}
+						} else {
+							// Show frame slider when sync is disabled
+							if (ImGui::SliderInt("fb1 delay time         ", &fb1DelayTime, 1, pastFramesSize)) {
+								if (mainApp) {
+									mainApp->sendOscParameter("/gravity/block1/fb1/delayTime", static_cast<float>(fb1DelayTime));
+									// Send delay in seconds (delayTime / fps)
+									float secDelay = (float)fb1DelayTime / (float)targetFPS;
+									mainApp->sendOscParameter("/gravity/block1/fb1/secDelay", roundf(secDelay * 100.0f) / 100.0f);
+								}
 							}
 						}
 						ImGui::SameLine();
@@ -3248,12 +3275,39 @@ void GuiApp::draw(){
 					if(ImGui::BeginTabItem("fb2 parameters"))
 					{
 						//reset all fb2 parameters
-						if (ImGui::SliderInt("fb2 delay time     ",&fb2DelayTime,1,pastFramesSize)) {
-							if (mainApp) {
-								mainApp->sendOscParameter("/gravity/block2/fb2/delayTime", static_cast<float>(fb2DelayTime));
-								// Send delay in seconds (delayTime / fps)
-								float secDelay = (float)fb2DelayTime / (float)targetFPS;
-								mainApp->sendOscParameter("/gravity/block2/fb2/secDelay", roundf(secDelay * 100.0f) / 100.0f);
+						
+						// FB2 Delay Time with Tempo Sync
+						const char* beatDivisionNamesFb2[8] = {"1/16", "1/8", "1/4", "1/2", "1", "2", "4", "8"};
+						
+						// Sync toggle button
+						ImGui::PushStyleColor(ImGuiCol_Button, fb2DelayTimeSync ? IM_COL32(0, 200, 100, 255) : IM_COL32(80, 80, 80, 255));
+						ImGui::PushStyleColor(ImGuiCol_ButtonHovered, fb2DelayTimeSync ? IM_COL32(0, 230, 120, 255) : IM_COL32(100, 100, 100, 255));
+						ImGui::PushStyleColor(ImGuiCol_ButtonActive, fb2DelayTimeSync ? IM_COL32(0, 180, 90, 255) : IM_COL32(120, 120, 120, 255));
+						if (ImGui::Button(fb2DelayTimeSync ? "SYNC##fb2delay" : "FREE##fb2delay", ImVec2(45, 0))) {
+							fb2DelayTimeSync = !fb2DelayTimeSync;
+						}
+						ImGui::PopStyleColor(3);
+						if (ImGui::IsItemHovered()) {
+							ImGui::SetTooltip(fb2DelayTimeSync ? "Tempo Sync: ON (click for FREE)" : "Tempo Sync: OFF (click for SYNC)");
+						}
+						ImGui::SameLine();
+						
+						if (fb2DelayTimeSync) {
+							// Show beat division dropdown when sync is enabled
+							if (ImGui::Combo("fb2 delay time     ", &fb2DelayTimeDivision, beatDivisionNamesFb2, 8)) {
+								if (mainApp) {
+									mainApp->sendOscParameter("/gravity/block2/fb2/delayTimeDivision", static_cast<float>(fb2DelayTimeDivision));
+								}
+							}
+						} else {
+							// Show frame slider when sync is disabled
+							if (ImGui::SliderInt("fb2 delay time     ", &fb2DelayTime, 1, pastFramesSize)) {
+								if (mainApp) {
+									mainApp->sendOscParameter("/gravity/block2/fb2/delayTime", static_cast<float>(fb2DelayTime));
+									// Send delay in seconds (delayTime / fps)
+									float secDelay = (float)fb2DelayTime / (float)targetFPS;
+									mainApp->sendOscParameter("/gravity/block2/fb2/secDelay", roundf(secDelay * 100.0f) / 100.0f);
+								}
 							}
 						}
 						ImGui::SameLine();
@@ -4612,11 +4666,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 1 a");
 								ImGui::Separator();
 
-								drawLfoRateWithSync("##4", &block1ColorizeLfo1[3], &block1ColorizeLfo1Sync[3], &block1ColorizeLfo1Division[3], "/gravity/block3/lfo/b1/hueBand1Rate");
+								drawLfoRateWithSync("##4", &block1ColorizeLfo1[3], &block1ColorizeLfo1Sync[3], &block1ColorizeLfo1Division[3], "/gravity/block3/lfo/b1/hueBand1Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##5", &block1ColorizeLfo1[4], &block1ColorizeLfo1Sync[4], &block1ColorizeLfo1Division[4], "/gravity/block3/lfo/b1/saturationBand1Rate");
+								drawLfoRateWithSync("##5", &block1ColorizeLfo1[4], &block1ColorizeLfo1Sync[4], &block1ColorizeLfo1Division[4], "/gravity/block3/lfo/b1/saturationBand1Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##6", &block1ColorizeLfo1[5], &block1ColorizeLfo1Sync[5], &block1ColorizeLfo1Division[5], "/gravity/block3/lfo/b1/brightBand1Rate");
+								drawLfoRateWithSync("##6", &block1ColorizeLfo1[5], &block1ColorizeLfo1Sync[5], &block1ColorizeLfo1Division[5], "/gravity/block3/lfo/b1/brightBand1Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
 								ImGui::Text("band 1 r");
 
@@ -4644,11 +4698,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 2 a");
 								ImGui::Separator();
 
-								drawLfoRateWithSync("##10", &block1ColorizeLfo1[9], &block1ColorizeLfo1Sync[9], &block1ColorizeLfo1Division[9], "/gravity/block3/lfo/b1/hueBand2Rate");
+								drawLfoRateWithSync("##10", &block1ColorizeLfo1[9], &block1ColorizeLfo1Sync[9], &block1ColorizeLfo1Division[9], "/gravity/block3/lfo/b1/hueBand2Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##11", &block1ColorizeLfo1[10], &block1ColorizeLfo1Sync[10], &block1ColorizeLfo1Division[10], "/gravity/block3/lfo/b1/saturationBand2Rate");
+								drawLfoRateWithSync("##11", &block1ColorizeLfo1[10], &block1ColorizeLfo1Sync[10], &block1ColorizeLfo1Division[10], "/gravity/block3/lfo/b1/saturationBand2Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##12", &block1ColorizeLfo1[11], &block1ColorizeLfo1Sync[11], &block1ColorizeLfo1Division[11], "/gravity/block3/lfo/b1/brightBand2Rate");
+								drawLfoRateWithSync("##12", &block1ColorizeLfo1[11], &block1ColorizeLfo1Sync[11], &block1ColorizeLfo1Division[11], "/gravity/block3/lfo/b1/brightBand2Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
 								ImGui::Text("band 2 r");
 
@@ -4728,11 +4782,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 3 a");
 								ImGui::Separator();
 
-								drawLfoRateWithSync("##4", &block1ColorizeLfo2[3], &block1ColorizeLfo2Sync[3], &block1ColorizeLfo2Division[3], "/gravity/block3/lfo/b1/hueBand3Rate");
+								drawLfoRateWithSync("##4", &block1ColorizeLfo2[3], &block1ColorizeLfo2Sync[3], &block1ColorizeLfo2Division[3], "/gravity/block3/lfo/b1/hueBand3Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##5", &block1ColorizeLfo2[4], &block1ColorizeLfo2Sync[4], &block1ColorizeLfo2Division[4], "/gravity/block3/lfo/b1/saturationBand3Rate");
+								drawLfoRateWithSync("##5", &block1ColorizeLfo2[4], &block1ColorizeLfo2Sync[4], &block1ColorizeLfo2Division[4], "/gravity/block3/lfo/b1/saturationBand3Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##6", &block1ColorizeLfo2[5], &block1ColorizeLfo2Sync[5], &block1ColorizeLfo2Division[5], "/gravity/block3/lfo/b1/brightBand3Rate");
+								drawLfoRateWithSync("##6", &block1ColorizeLfo2[5], &block1ColorizeLfo2Sync[5], &block1ColorizeLfo2Division[5], "/gravity/block3/lfo/b1/brightBand3Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
 								ImGui::Text("band 3 r");
 
@@ -4760,11 +4814,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 4 a");
 								ImGui::Separator();
 
-								drawLfoRateWithSync("##10", &block1ColorizeLfo2[9], &block1ColorizeLfo2Sync[9], &block1ColorizeLfo2Division[9], "/gravity/block3/lfo/b1/hueBand4Rate");
+								drawLfoRateWithSync("##10", &block1ColorizeLfo2[9], &block1ColorizeLfo2Sync[9], &block1ColorizeLfo2Division[9], "/gravity/block3/lfo/b1/hueBand4Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##11", &block1ColorizeLfo2[10], &block1ColorizeLfo2Sync[10], &block1ColorizeLfo2Division[10], "/gravity/block3/lfo/b1/saturationBand4Rate");
+								drawLfoRateWithSync("##11", &block1ColorizeLfo2[10], &block1ColorizeLfo2Sync[10], &block1ColorizeLfo2Division[10], "/gravity/block3/lfo/b1/saturationBand4Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##12", &block1ColorizeLfo2[11], &block1ColorizeLfo2Sync[11], &block1ColorizeLfo2Division[11], "/gravity/block3/lfo/b1/brightBand4Rate");
+								drawLfoRateWithSync("##12", &block1ColorizeLfo2[11], &block1ColorizeLfo2Sync[11], &block1ColorizeLfo2Division[11], "/gravity/block3/lfo/b1/brightBand4Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
 								ImGui::Text("band 4 r");
 
@@ -4844,11 +4898,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 5 a");
 								ImGui::Separator();
 
-								drawLfoRateWithSync("##4", &block1ColorizeLfo3[3], &block1ColorizeLfo3Sync[3], &block1ColorizeLfo3Division[3], "/gravity/block3/lfo/b1/hueBand5Rate");
+								drawLfoRateWithSync("##4", &block1ColorizeLfo3[3], &block1ColorizeLfo3Sync[3], &block1ColorizeLfo3Division[3], "/gravity/block3/lfo/b1/hueBand5Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##5", &block1ColorizeLfo3[4], &block1ColorizeLfo3Sync[4], &block1ColorizeLfo3Division[4], "/gravity/block3/lfo/b1/saturationBand5Rate");
+								drawLfoRateWithSync("##5", &block1ColorizeLfo3[4], &block1ColorizeLfo3Sync[4], &block1ColorizeLfo3Division[4], "/gravity/block3/lfo/b1/saturationBand5Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##6", &block1ColorizeLfo3[5], &block1ColorizeLfo3Sync[5], &block1ColorizeLfo3Division[5], "/gravity/block3/lfo/b1/brightBand5Rate");
+								drawLfoRateWithSync("##6", &block1ColorizeLfo3[5], &block1ColorizeLfo3Sync[5], &block1ColorizeLfo3Division[5], "/gravity/block3/lfo/b1/brightBand5Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
 								ImGui::Text("band 5 r");
 
@@ -5349,11 +5403,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 1 a");
 								ImGui::Separator();
 
-								drawLfoRateWithSync("##4", &block2ColorizeLfo1[3], &block2ColorizeLfo1Sync[3], &block2ColorizeLfo1Division[3], "/gravity/block3/lfo/b2/hueBand1Rate");
+								drawLfoRateWithSync("##4", &block2ColorizeLfo1[3], &block2ColorizeLfo1Sync[3], &block2ColorizeLfo1Division[3], "/gravity/block3/lfo/b2/hueBand1Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##5", &block2ColorizeLfo1[4], &block2ColorizeLfo1Sync[4], &block2ColorizeLfo1Division[4], "/gravity/block3/lfo/b2/saturationBand1Rate");
+								drawLfoRateWithSync("##5", &block2ColorizeLfo1[4], &block2ColorizeLfo1Sync[4], &block2ColorizeLfo1Division[4], "/gravity/block3/lfo/b2/saturationBand1Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##6", &block2ColorizeLfo1[5], &block2ColorizeLfo1Sync[5], &block2ColorizeLfo1Division[5], "/gravity/block3/lfo/b2/brightBand1Rate");
+								drawLfoRateWithSync("##6", &block2ColorizeLfo1[5], &block2ColorizeLfo1Sync[5], &block2ColorizeLfo1Division[5], "/gravity/block3/lfo/b2/brightBand1Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
 								ImGui::Text("band 1 r");
 
@@ -5381,11 +5435,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 2 a");
 								ImGui::Separator();
 
-								drawLfoRateWithSync("##10", &block2ColorizeLfo1[9], &block2ColorizeLfo1Sync[9], &block2ColorizeLfo1Division[9], "/gravity/block3/lfo/b2/hueBand2Rate");
+								drawLfoRateWithSync("##10", &block2ColorizeLfo1[9], &block2ColorizeLfo1Sync[9], &block2ColorizeLfo1Division[9], "/gravity/block3/lfo/b2/hueBand2Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##11", &block2ColorizeLfo1[10], &block2ColorizeLfo1Sync[10], &block2ColorizeLfo1Division[10], "/gravity/block3/lfo/b2/saturationBand2Rate");
+								drawLfoRateWithSync("##11", &block2ColorizeLfo1[10], &block2ColorizeLfo1Sync[10], &block2ColorizeLfo1Division[10], "/gravity/block3/lfo/b2/saturationBand2Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##12", &block2ColorizeLfo1[11], &block2ColorizeLfo1Sync[11], &block2ColorizeLfo1Division[11], "/gravity/block3/lfo/b2/brightBand2Rate");
+								drawLfoRateWithSync("##12", &block2ColorizeLfo1[11], &block2ColorizeLfo1Sync[11], &block2ColorizeLfo1Division[11], "/gravity/block3/lfo/b2/brightBand2Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
 								ImGui::Text("band 2 r");
 
@@ -5465,11 +5519,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 3 a");
 								ImGui::Separator();
 
-								drawLfoRateWithSync("##4", &block2ColorizeLfo2[3], &block2ColorizeLfo2Sync[3], &block2ColorizeLfo2Division[3], "/gravity/block3/lfo/b2/hueBand3Rate");
+								drawLfoRateWithSync("##4", &block2ColorizeLfo2[3], &block2ColorizeLfo2Sync[3], &block2ColorizeLfo2Division[3], "/gravity/block3/lfo/b2/hueBand3Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##5", &block2ColorizeLfo2[4], &block2ColorizeLfo2Sync[4], &block2ColorizeLfo2Division[4], "/gravity/block3/lfo/b2/saturationBand3Rate");
+								drawLfoRateWithSync("##5", &block2ColorizeLfo2[4], &block2ColorizeLfo2Sync[4], &block2ColorizeLfo2Division[4], "/gravity/block3/lfo/b2/saturationBand3Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##6", &block2ColorizeLfo2[5], &block2ColorizeLfo2Sync[5], &block2ColorizeLfo2Division[5], "/gravity/block3/lfo/b2/brightBand3Rate");
+								drawLfoRateWithSync("##6", &block2ColorizeLfo2[5], &block2ColorizeLfo2Sync[5], &block2ColorizeLfo2Division[5], "/gravity/block3/lfo/b2/brightBand3Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
 								ImGui::Text("band 3 r");
 
@@ -5497,11 +5551,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 4 a");
 								ImGui::Separator();
 
-								drawLfoRateWithSync("##10", &block2ColorizeLfo2[9], &block2ColorizeLfo2Sync[9], &block2ColorizeLfo2Division[9], "/gravity/block3/lfo/b2/hueBand4Rate");
+								drawLfoRateWithSync("##10", &block2ColorizeLfo2[9], &block2ColorizeLfo2Sync[9], &block2ColorizeLfo2Division[9], "/gravity/block3/lfo/b2/hueBand4Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##11", &block2ColorizeLfo2[10], &block2ColorizeLfo2Sync[10], &block2ColorizeLfo2Division[10], "/gravity/block3/lfo/b2/saturationBand4Rate");
+								drawLfoRateWithSync("##11", &block2ColorizeLfo2[10], &block2ColorizeLfo2Sync[10], &block2ColorizeLfo2Division[10], "/gravity/block3/lfo/b2/saturationBand4Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##12", &block2ColorizeLfo2[11], &block2ColorizeLfo2Sync[11], &block2ColorizeLfo2Division[11], "/gravity/block3/lfo/b2/brightBand4Rate");
+								drawLfoRateWithSync("##12", &block2ColorizeLfo2[11], &block2ColorizeLfo2Sync[11], &block2ColorizeLfo2Division[11], "/gravity/block3/lfo/b2/brightBand4Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
 								ImGui::Text("band 4 r");
 
@@ -5581,11 +5635,11 @@ void GuiApp::draw(){
 								ImGui::Text("band 5 a");
 								ImGui::Separator();
 
-								drawLfoRateWithSync("##4", &block2ColorizeLfo3[3], &block2ColorizeLfo3Sync[3], &block2ColorizeLfo3Division[3], "/gravity/block3/lfo/b2/hueBand5Rate");
+								drawLfoRateWithSync("##4", &block2ColorizeLfo3[3], &block2ColorizeLfo3Sync[3], &block2ColorizeLfo3Division[3], "/gravity/block3/lfo/b2/hueBand5Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##5", &block2ColorizeLfo3[4], &block2ColorizeLfo3Sync[4], &block2ColorizeLfo3Division[4], "/gravity/block3/lfo/b2/saturationBand5Rate");
+								drawLfoRateWithSync("##5", &block2ColorizeLfo3[4], &block2ColorizeLfo3Sync[4], &block2ColorizeLfo3Division[4], "/gravity/block3/lfo/b2/saturationBand5Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
-								drawLfoRateWithSync("##6", &block2ColorizeLfo3[5], &block2ColorizeLfo3Sync[5], &block2ColorizeLfo3Division[5], "/gravity/block3/lfo/b2/brightBand5Rate");
+								drawLfoRateWithSync("##6", &block2ColorizeLfo3[5], &block2ColorizeLfo3Sync[5], &block2ColorizeLfo3Division[5], "/gravity/block3/lfo/b2/brightBand5Rate", windowWidthThird - 50.0f);
 								ImGui::SameLine();
 								ImGui::Text("band 5 r");
 
@@ -8119,6 +8173,8 @@ void GuiApp::saveEverything(){
 	saveBuffer["BLOCK_1"]["b1_extraWhatever"][0]=fb1DelayTime;
 	saveBuffer["BLOCK_1"]["b1_extraWhatever"][1]=ch1InputSelect;
 	saveBuffer["BLOCK_1"]["b1_extraWhatever"][2]=ch2InputSelect;
+	saveBuffer["BLOCK_1"]["b1_extraWhatever"][3]=fb1DelayTimeSync ? 1 : 0;
+	saveBuffer["BLOCK_1"]["b1_extraWhatever"][4]=fb1DelayTimeDivision;
 
 
 
@@ -8308,6 +8364,8 @@ void GuiApp::saveEverything(){
 
 	saveBuffer["BLOCK_2"]["b2_extraWhatever"][0]=fb2DelayTime;
 	saveBuffer["BLOCK_2"]["b2_extraWhatever"][1]=block2InputSelect;
+	saveBuffer["BLOCK_2"]["b2_extraWhatever"][2]=fb2DelayTimeSync ? 1 : 0;
+	saveBuffer["BLOCK_2"]["b2_extraWhatever"][3]=fb2DelayTimeDivision;
 
 
 
@@ -9671,6 +9729,11 @@ void GuiApp::loadEverything(){
 	fb1DelayTime=loadBuffer["BLOCK_1"]["b1_extraWhatever"][0];
 	ch1InputSelect=loadBuffer["BLOCK_1"]["b1_extraWhatever"][1];
 	ch2InputSelect=loadBuffer["BLOCK_1"]["b1_extraWhatever"][2];
+	// Load new sync settings with backward compatibility
+	if (loadBuffer["BLOCK_1"]["b1_extraWhatever"].size() > 3) {
+		fb1DelayTimeSync = loadBuffer["BLOCK_1"]["b1_extraWhatever"][3].get<int>() != 0;
+		fb1DelayTimeDivision = loadBuffer["BLOCK_1"]["b1_extraWhatever"][4].get<int>();
+	}
 
 
 	//LOAD BLOCK 2
@@ -10000,6 +10063,11 @@ void GuiApp::loadEverything(){
 
 	fb2DelayTime=loadBuffer["BLOCK_2"]["b2_extraWhatever"][0];
 	block2InputSelect=loadBuffer["BLOCK_2"]["b2_extraWhatever"][1];
+	// Load new sync settings with backward compatibility
+	if (loadBuffer["BLOCK_2"]["b2_extraWhatever"].size() > 2) {
+		fb2DelayTimeSync = loadBuffer["BLOCK_2"]["b2_extraWhatever"][2].get<int>() != 0;
+		fb2DelayTimeDivision = loadBuffer["BLOCK_2"]["b2_extraWhatever"][3].get<int>();
+	}
 
 
 	//BLOCK_3
@@ -11325,6 +11393,8 @@ void GuiApp::fb1ResetAll(){
 		fb1Color1Lfo1MidiActive[i]=0;
 	}
 	fb1DelayTime=1;
+	fb1DelayTimeSync=false;
+	fb1DelayTimeDivision=2;  // Default to 1/4 beat
 	fb1HueInvert=fb1SaturationInvert=fb1BrightInvert=0;
 
 	fb1HMirror=fb1VMirror=fb1RotateMode=fb1HFlip=fb1VFlip=0;
@@ -11414,6 +11484,8 @@ void GuiApp::fb2ResetAll(){
 		fb2Color1Lfo1MidiActive[i]=0;
 	}
 	fb2DelayTime=1;
+	fb2DelayTimeSync=false;
+	fb2DelayTimeDivision=2;  // Default to 1/4 beat
 	fb2HueInvert=fb2SaturationInvert=fb2BrightInvert=0;
 
 	fb2HMirror=fb2VMirror=fb2RotateMode=fb2HFlip=fb2VFlip=0;
@@ -57583,6 +57655,8 @@ void GuiApp::registerBlock1OscParameters() {
 
     // FB1 delay time (special float parameter)
     registerOscParam("/gravity/block1/fb1/delayTime", &fb1DelayTime);
+    registerOscParam("/gravity/block1/fb1/delayTimeSync", &fb1DelayTimeSync);
+    registerOscParam("/gravity/block1/fb1/delayTimeDivision", &fb1DelayTimeDivision);
 
     // FB1 generator booleans (correct variable names)
     registerOscParam("/gravity/block1/fb1/clear", &fb1FramebufferClearSwitch);
@@ -57861,6 +57935,8 @@ void GuiApp::registerBlock2OscParameters() {
 
     // FB2 delay time
     registerOscParam("/gravity/block2/fb2/delayTime", &fb2DelayTime);
+    registerOscParam("/gravity/block2/fb2/delayTimeSync", &fb2DelayTimeSync);
+    registerOscParam("/gravity/block2/fb2/delayTimeDivision", &fb2DelayTimeDivision);
 
     // FB2 generator booleans
     registerOscParam("/gravity/block2/fb2/clear", &fb2FramebufferClearSwitch);

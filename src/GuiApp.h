@@ -214,6 +214,12 @@ public:
 	//misc
 	float fb1DelayTimeMacroBuffer=0;
 	float fb2DelayTimeMacroBuffer=0;
+	
+	// Tempo sync for delay times
+	bool fb1DelayTimeSync = false;
+	bool fb2DelayTimeSync = false;
+	int fb1DelayTimeDivision = 2;  // Default to 1/4 beat
+	int fb2DelayTimeDivision = 2;  // Default to 1/4 beat
 
 	// OSC Settings
 	bool oscEnabled = false;
@@ -2357,7 +2363,7 @@ public:
 	static const char* beatDivisionNames[8];
 	// Helper function to draw LFO rate slider with sync toggle
 	// Returns true if value changed
-	bool drawLfoRateWithSync(const char* label, float* rateValue, bool* syncEnabled, int* divisionIndex, const char* oscAddress);
+	bool drawLfoRateWithSync(const char* label, float* rateValue, bool* syncEnabled, int* divisionIndex, const char* oscAddress, float controlWidth = -1.0f);
 
 	// Saved source names (for matching on load)
 	std::string savedInput1NdiName;

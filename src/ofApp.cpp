@@ -768,8 +768,20 @@ void ofApp::syncGuiToPipeline() {
     block1.params.fb1SaturationInvert = gui->fb1SaturationInvert ? 1 : 0;
     block1.params.fb1BrightInvert = gui->fb1BrightInvert ? 1 : 0;
     
-    // FB1 delay time
-    pipeline->setFB1DelayTime(gui->fb1DelayTime);
+    // FB1 delay time (with tempo sync)
+    int fb1DelayFrames;
+    if (gui->fb1DelayTimeSync && tempoManager && tempoManager->isEnabled()) {
+        // Calculate delay frames from tempo
+        // delayFrames = (60 / BPM) * beatDivision * FPS
+        float beatMultipliers[8] = {0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f};
+        float beatDuration = 60.0f / tempoManager->getBpm();  // seconds per beat
+        float delaySeconds = beatDuration * beatMultipliers[gui->fb1DelayTimeDivision];
+        fb1DelayFrames = static_cast<int>(delaySeconds * SettingsManager::getInstance().getDisplay().targetFPS);
+        fb1DelayFrames = ofClamp(fb1DelayFrames, 1, 119);  // Clamp to valid range
+    } else {
+        fb1DelayFrames = gui->fb1DelayTime;
+    }
+    pipeline->setFB1DelayTime(fb1DelayFrames);
     
     // ========================================
     // BLOCK 2 - Input Adjust (with LFO)
@@ -927,8 +939,20 @@ void ofApp::syncGuiToPipeline() {
     block2.params.fb2TemporalFilter2Resonance = gui->fb2Filters[7];
     block2.params.fb2FiltersBoost = gui->fb2Filters[8];
     
-    // FB2 delay time
-    pipeline->setFB2DelayTime(gui->fb2DelayTime);
+    // FB2 delay time (with tempo sync)
+    int fb2DelayFrames;
+    if (gui->fb2DelayTimeSync && tempoManager && tempoManager->isEnabled()) {
+        // Calculate delay frames from tempo
+        // delayFrames = (60 / BPM) * beatDivision * FPS
+        float beatMultipliers[8] = {0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f};
+        float beatDuration = 60.0f / tempoManager->getBpm();  // seconds per beat
+        float delaySeconds = beatDuration * beatMultipliers[gui->fb2DelayTimeDivision];
+        fb2DelayFrames = static_cast<int>(delaySeconds * SettingsManager::getInstance().getDisplay().targetFPS);
+        fb2DelayFrames = ofClamp(fb2DelayFrames, 1, 119);  // Clamp to valid range
+    } else {
+        fb2DelayFrames = gui->fb2DelayTime;
+    }
+    pipeline->setFB2DelayTime(fb2DelayFrames);
     
     // ========================================
     // BLOCK 3 - Block1 Geo (with LFO)
