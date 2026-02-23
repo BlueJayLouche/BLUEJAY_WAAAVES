@@ -148,21 +148,8 @@ export MAC_OS_CPP_VER = -std=c++17
 ################################################################################
 # CUSTOM ICON
 #   Set the icon for the macOS app bundle.
-#   The icon file should be in .icns format and will be copied to the
-#   app bundle's Resources folder automatically during build.
+#   The icon file should be in .icns format and placed in bin/data/
+#   Use 'make && make icon' to build and install the icon
 ################################################################################
 ICON_NAME = icon.icns
 PROJECT_ICONS = bin/data/$(ICON_NAME)
-
-# Post-build rule to copy custom icon to app bundle
-# This runs after the app is built to ensure the icon is in place
-# Usage: Run 'make copyicon' after building
-copyicon:
-	@echo "Copying custom icon to app bundle..."
-	@if [ -f "$(PROJECT_ICONS)" ]; then \
-		mkdir -p "bin/BLUEJAY_WAAAVES.app/Contents/Resources"; \
-		cp "$(PROJECT_ICONS)" "bin/BLUEJAY_WAAAVES.app/Contents/Resources/$(ICON_NAME)"; \
-		echo "Icon installed: $(ICON_NAME) -> bin/BLUEJAY_WAAAVES.app/Contents/Resources/"; \
-	else \
-		echo "Warning: Icon file not found at $(PROJECT_ICONS)"; \
-	fi
