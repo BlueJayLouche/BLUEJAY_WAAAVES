@@ -11208,6 +11208,12 @@ void GuiApp::keyPressed(int key) {
 		ofLogNotice("GuiApp") << "Keyboard shortcuts:";
 		ofLogNotice("GuiApp") << "F11 - Toggle fullscreen on GUI window";
 		ofLogNotice("GuiApp") << "F10 - Toggle window decorations (borders)";
+		ofLogNotice("GuiApp") << "R - Toggle video recording";
+	}
+	
+	// 'R' key to toggle video recording (works from GUI window too)
+	if (key == 'r' || key == 'R') {
+		toggleVideoRecording();
 	}
 
 	/*
