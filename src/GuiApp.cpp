@@ -913,6 +913,17 @@ void GuiApp::draw(){
 	// Apply UI scale from selector (0=100%, 1=150%, 2=200%, 3=250%, 4=300%)
 	io.FontGlobalScale = uiScaleValues[uiScaleIndex];
 	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+	
+	// Recording indicator
+	if (isRecordingVideo) {
+		ImGui::SameLine();
+		ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
+		float time = ofGetElapsedTimef();
+		bool blink = fmod(time, 1.0f) < 0.5f;
+		ImGui::Text(blink ? "  REC ●" : "  REC ○");
+		ImGui::PopStyleColor();
+	}
+	
 	float block2Hue=.42;
 	if(blockSelectHsb==1){
 		ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor::HSV(.14f,.5f,.15f));

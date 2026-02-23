@@ -24,6 +24,7 @@
 #include "Audio/AudioAnalyzer.h"
 #include "Tempo/TempoManager.h"
 #include "Preview/PreviewPanel.h"
+#include "VideoRecorder/VideoRecorder.h"
 
 class ofApp : public ofBaseApp{
 
@@ -645,6 +646,10 @@ class ofApp : public ofBaseApp{
 	// Audio and Tempo
 	std::unique_ptr<dragonwaves::AudioAnalyzer> audioAnalyzer;
 	std::unique_ptr<dragonwaves::TempoManager> tempoManager;
+	
+	// Video Recorder
+	std::unique_ptr<dragonwaves::VideoRecorder> videoRecorder;
+	bool videoRecorderToggle_ = false;
 	
 	// Preview Panel
 	std::unique_ptr<dragonwaves::PreviewPanel> previewPanel;

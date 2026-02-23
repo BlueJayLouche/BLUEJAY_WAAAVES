@@ -269,6 +269,9 @@ public:
 	// Preview Window
 	bool showPreviewWindow = false;
 	dragonwaves::PreviewPanel* previewPanel = nullptr;
+	
+	// Video Recording indicator
+	bool isRecordingVideo = false;
 
 	// NDI Output Settings
 	// COMMENTED OUT - Only using Block 3 for NDI output

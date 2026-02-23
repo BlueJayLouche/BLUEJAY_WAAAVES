@@ -192,6 +192,17 @@ void ofApp::setup(){
         gui->previewPanel = previewPanel.get();
     }
     
+    // Initialize video recorder
+    videoRecorder = std::make_unique<VideoRecorder>();
+    VideoRecorderSettings recSettings;
+    recSettings.fps = 30;
+    recSettings.codec = "hevc";  // HEVC with hardware encoding
+    recSettings.outputFolder = "recorded";
+    recSettings.useHardwareEncoding = true;
+    videoRecorder->setup(settings.getDisplay().internalWidth, 
+                         settings.getDisplay().internalHeight, 
+                         recSettings);
+    
     // Setup OSC/Parameter manager
     ParameterManager::getInstance().setup(settings.getOsc());
     
@@ -310,6 +321,11 @@ void ofApp::draw(){
     
     // Process shader pipeline
     pipeline->processFrame();
+    
+    // Capture frame for video recording (non-blocking PBO readback)
+    if (videoRecorder && videoRecorder->isRecording()) {
+        videoRecorder->captureFrame(pipeline->getBlock3Fbo());
+    }
     
     // Send outputs
     sendOutputs();
@@ -1850,6 +1866,22 @@ void ofApp::keyPressed(int key){
         }
     }
     
+    // 'r' key to toggle video recording
+    if (key == 'r' || key == 'R') {
+        if (videoRecorder) {
+            if (videoRecorder->isRecording()) {
+                videoRecorder->stopRecording();
+                if (gui) gui->isRecordingVideo = false;
+                ofLogNotice("ofApp") << "Video recording STOPPED";
+            } else {
+                if (videoRecorder->startRecording()) {
+                    if (gui) gui->isRecordingVideo = true;
+                    ofLogNotice("ofApp") << "Video recording STARTED";
+                }
+            }
+        }
+    }
+    
     // F10 to toggle window decoration
     if (key == OF_KEY_F10) {
         auto glfwWindow = dynamic_cast<ofAppGLFWWindow*>(mainWindow.get());
@@ -1903,6 +1935,16 @@ void ofApp::exit(){
     // 3. Clean up modular components in reverse order of creation
     // This ensures proper cleanup of GPU resources and NDI/Spout
     ofLogNotice("ofApp") << "Cleaning up modular components...";
+    
+    // Video recorder - stop recording before cleanup
+    if (videoRecorder) {
+        if (videoRecorder->isRecording()) {
+            ofLogNotice("ofApp") << "Stopping video recording...";
+            videoRecorder->stopRecording();
+        }
+        videoRecorder.reset();
+        ofLogNotice("ofApp") << "VideoRecorder cleaned up";
+    }
     
     // Audio analyzer - close sound stream before reset
     if (audioAnalyzer) {
