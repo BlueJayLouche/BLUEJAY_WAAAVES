@@ -262,7 +262,7 @@ This software is only to be distributed as source code or on a Jetson disk image
 
 ## Support
 
-If you like the work I've done here, please consider supporting me on Ko-fi: https://ko-fi.com/electronflow
+If you like the work I've done here, please consider supporting electronFlow on Ko-fi: https://ko-fi.com/electronflow
 
 **ElectronFlow's Website:** https://electronflow.tv
 
