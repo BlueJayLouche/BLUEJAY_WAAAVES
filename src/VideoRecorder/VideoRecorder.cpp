@@ -1,6 +1,10 @@
 #include "VideoRecorder.h"
 #include "ofUtils.h"
 
+#if !defined(TARGET_WIN32)
+    #include <fcntl.h>
+#endif
+
 namespace dragonwaves {
 
 //==============================================================================
@@ -229,7 +233,9 @@ bool VideoRecorder::startFFmpeg(const std::string& filename) {
         #if defined(TARGET_OSX)
             if (settings_.useHardwareEncoding) {
                 cmd << "-c:v hevc_videotoolbox ";
-                cmd << "-b:v " << (settings_.quality < 20 ? "20M" : "10M") << " ";
+                cmd << "-allow_sw 1 ";  // Allow software fallback if hardware busy
+                cmd << "-b:v " << (settings_.quality < 20 ? "16M" : "8M") << " ";
+                cmd << "-q:v " << settings_.quality << " ";
             } else {
                 cmd << "-c:v libx265 -crf " << settings_.quality << " ";
                 cmd << "-preset fast ";
@@ -244,7 +250,9 @@ bool VideoRecorder::startFFmpeg(const std::string& filename) {
         #if defined(TARGET_OSX)
             if (settings_.useHardwareEncoding) {
                 cmd << "-c:v h264_videotoolbox ";
-                cmd << "-b:v " << (settings_.quality < 20 ? "20M" : "10M") << " ";
+                cmd << "-allow_sw 1 ";  // Allow software fallback if hardware busy
+                cmd << "-b:v " << (settings_.quality < 20 ? "16M" : "8M") << " ";
+                cmd << "-q:v " << settings_.quality << " ";
             } else {
                 cmd << "-c:v libx264 -crf " << settings_.quality << " ";
                 cmd << "-preset fast ";
@@ -252,6 +260,8 @@ bool VideoRecorder::startFFmpeg(const std::string& filename) {
         #elif defined(TARGET_WIN32)
             if (settings_.useHardwareEncoding) {
                 cmd << "-c:v h264_nvenc ";
+                cmd << "-rc vbr ";
+                cmd << "-cq " << settings_.quality << " ";
             } else {
                 cmd << "-c:v libx264 -crf " << settings_.quality << " ";
             }
@@ -274,14 +284,34 @@ bool VideoRecorder::startFFmpeg(const std::string& filename) {
     
     ofLogNotice("VideoRecorder") << "FFmpeg: " << cmd.str();
     
-    // Open pipe
+    // Open pipe - use unbuffered mode for lower latency
     #if defined(TARGET_WIN32)
         ffmpegPipe_ = _popen(cmd.str().c_str(), "wb");
     #else
+        // Use "w" for text mode - FFmpeg handles binary via the protocol
         ffmpegPipe_ = popen(cmd.str().c_str(), "w");
     #endif
     
-    return ffmpegPipe_ != nullptr;
+    if (!ffmpegPipe_) {
+        ofLogError("VideoRecorder") << "Failed to open FFmpeg pipe";
+        return false;
+    }
+    
+    // Small delay to let FFmpeg initialize
+    ofSleepMillis(100);
+    
+    // Check if FFmpeg is still running by testing the file descriptor
+    // (This is a simple check - more robust would be checking process status)
+    #if !defined(TARGET_WIN32)
+        int fd = fileno(ffmpegPipe_);
+        if (fcntl(fd, F_GETFD) == -1) {
+            ofLogError("VideoRecorder") << "FFmpeg pipe closed immediately (encoder may have failed)";
+            ffmpegPipe_ = nullptr;
+            return false;
+        }
+    #endif
+    
+    return true;
 }
 
 //==============================================================================

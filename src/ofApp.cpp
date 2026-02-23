@@ -196,9 +196,9 @@ void ofApp::setup(){
     videoRecorder = std::make_unique<VideoRecorder>();
     VideoRecorderSettings recSettings;
     recSettings.fps = 30;
-    recSettings.codec = "hevc";  // HEVC with hardware encoding
+    recSettings.codec = "h264";  // H.264 for better compatibility
     recSettings.outputFolder = "recorded";
-    recSettings.useHardwareEncoding = true;
+    recSettings.useHardwareEncoding = false;  // Software encoding by default (more reliable)
     videoRecorder->setup(settings.getDisplay().internalWidth, 
                          settings.getDisplay().internalHeight, 
                          recSettings);
