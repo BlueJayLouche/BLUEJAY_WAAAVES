@@ -6,6 +6,8 @@
 use crate::audio::AudioInput;
 use crate::config::AppConfig;
 use crate::core::lfo_engine::{update_lfo_phases, apply_lfos_to_block1, apply_lfos_to_block2, apply_lfos_to_block3};
+use crate::params::preset::{apply_audio_modulations, ParamModulationData};
+use std::collections::HashMap;
 use crate::core::{OutputMode, SharedState, Vertex};
 use crate::engine::imgui_renderer::ImGuiRenderer;
 use crate::engine::pipelines::Block1Pipeline;
@@ -408,21 +410,19 @@ impl ApplicationHandler for App {
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         // Update audio input
         if let Some(ref mut audio) = self.audio_input {
-            let fft = audio.get_fft();
+            // Get processed 8-band FFT (with amplitude/smoothing/normalization applied)
+            let fft_8band = audio.get_8band_fft();
             let beat_state = audio.get_beat_state();
             
             // Update shared state with audio data
             if let Ok(mut state) = self.shared_state.lock() {
-                // Downsample FFT to 16 bands for the shader
-                let fft_bands = fft.len().max(1);
-                let band_size = fft_bands / 16;
-                for i in 0..16.min(state.audio.fft.len()) {
-                    let start = i * band_size;
-                    let end = ((i + 1) * band_size).min(fft_bands);
-                    if end > start {
-                        let avg: f32 = fft[start..end].iter().sum::<f32>() / (end - start) as f32;
-                        state.audio.fft[i] = avg;
-                    }
+                // Copy 8-band FFT to first 8 slots of shared state
+                for i in 0..8.min(state.audio.fft.len()) {
+                    state.audio.fft[i] = fft_8band[i];
+                }
+                // Fill remaining slots with zeros if needed
+                for i in 8..state.audio.fft.len() {
+                    state.audio.fft[i] = 0.0;
                 }
                 
                 state.audio.volume = beat_state.energy;
@@ -1000,6 +1000,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         apply_lfos_to_block2(&mut modulated_block2, &state.lfo_banks, &state.block2_lfo_map);
         apply_lfos_to_block3(&mut modulated_block3, &state.lfo_banks, &state.block3_lfo_map);
         
+        // Apply audio modulations - get FFT values from shared state (already processed)
+        let fft_values: [f32; 8] = std::array::from_fn(|i| state.audio.fft.get(i).copied().unwrap_or(0.0));
+        
+        // Clone modulations to avoid borrowing issues
+        let block1_mods = state.block1_modulations.clone();
+        let block2_mods = state.block2_modulations.clone();
+        let block3_mods = state.block3_modulations.clone();
+        
+        apply_audio_modulations_to_block1(&mut modulated_block1, &block1_mods, &fft_values);
+        apply_audio_modulations_to_block2(&mut modulated_block2, &block2_mods, &fft_values);
+        apply_audio_modulations_to_block3(&mut modulated_block3, &block3_mods, &fft_values);
+        
         // Apply delay time tempo sync
         // If sync is enabled, calculate delay frames from BPM
         if modulated_block1.fb1_delay_time_sync {
@@ -1402,5 +1414,101 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     /// Get the preview renderer (mutable)
     pub fn get_preview_renderer_mut(&mut self) -> Option<&mut crate::engine::preview::PreviewRenderer> {
         self.preview_renderer.as_mut()
+    }
+}
+
+/// Apply audio modulations to Block 1 parameters
+fn apply_audio_modulations_to_block1(
+    params: &mut crate::params::Block1Params,
+    modulations: &HashMap<String, ParamModulationData>,
+    fft_values: &[f32; 8],
+) {
+    for (param_name, modulation) in modulations {
+        if !modulation.audio_enabled {
+            continue;
+        }
+        
+        let fft_band = modulation.audio_fft_band.clamp(0, 7) as usize;
+        let fft_value = fft_values[fft_band];
+        let modulated = apply_audio_modulations(0.0, modulation, fft_value, 0.0);
+        
+        // Apply modulation to the parameter
+        match param_name.as_str() {
+            "ch1_x_displace" => params.ch1_x_displace += modulated,
+            "ch1_y_displace" => params.ch1_y_displace += modulated,
+            "ch1_z_displace" => params.ch1_z_displace += modulated,
+            "ch1_rotate" => params.ch1_rotate += modulated,
+            "ch1_hsb_attenuate.x" => params.ch1_hsb_attenuate.x += modulated,
+            "ch1_hsb_attenuate.y" => params.ch1_hsb_attenuate.y += modulated,
+            "ch1_hsb_attenuate.z" => params.ch1_hsb_attenuate.z += modulated,
+            "ch1_kaleidoscope_amount" => params.ch1_kaleidoscope_amount += modulated,
+            "ch1_blur_amount" => params.ch1_blur_amount += modulated,
+            "ch2_mix_amount" => params.ch2_mix_amount += modulated,
+            "ch2_x_displace" => params.ch2_x_displace += modulated,
+            "ch2_y_displace" => params.ch2_y_displace += modulated,
+            "ch2_rotate" => params.ch2_rotate += modulated,
+            "fb1_mix_amount" => params.fb1_mix_amount += modulated,
+            "fb1_x_displace" => params.fb1_x_displace += modulated,
+            "fb1_y_displace" => params.fb1_y_displace += modulated,
+            "fb1_rotate" => params.fb1_rotate += modulated,
+            _ => {} // Unknown parameter
+        }
+    }
+}
+
+/// Apply audio modulations to Block 2 parameters
+fn apply_audio_modulations_to_block2(
+    params: &mut crate::params::Block2Params,
+    modulations: &HashMap<String, ParamModulationData>,
+    fft_values: &[f32; 8],
+) {
+    for (param_name, modulation) in modulations {
+        if !modulation.audio_enabled {
+            continue;
+        }
+        
+        let fft_band = modulation.audio_fft_band.clamp(0, 7) as usize;
+        let fft_value = fft_values[fft_band];
+        let modulated = apply_audio_modulations(0.0, modulation, fft_value, 0.0);
+        
+        match param_name.as_str() {
+            "block2_input_x_displace" => params.block2_input_x_displace += modulated,
+            "block2_input_y_displace" => params.block2_input_y_displace += modulated,
+            "block2_input_rotate" => params.block2_input_rotate += modulated,
+            "block2_input_blur_amount" => params.block2_input_blur_amount += modulated,
+            "fb2_mix_amount" => params.fb2_mix_amount += modulated,
+            "fb2_x_displace" => params.fb2_x_displace += modulated,
+            "fb2_y_displace" => params.fb2_y_displace += modulated,
+            "fb2_rotate" => params.fb2_rotate += modulated,
+            _ => {}
+        }
+    }
+}
+
+/// Apply audio modulations to Block 3 parameters
+fn apply_audio_modulations_to_block3(
+    params: &mut crate::params::Block3Params,
+    modulations: &HashMap<String, ParamModulationData>,
+    fft_values: &[f32; 8],
+) {
+    for (param_name, modulation) in modulations {
+        if !modulation.audio_enabled {
+            continue;
+        }
+        
+        let fft_band = modulation.audio_fft_band.clamp(0, 7) as usize;
+        let fft_value = fft_values[fft_band];
+        let modulated = apply_audio_modulations(0.0, modulation, fft_value, 0.0);
+        
+        match param_name.as_str() {
+            "block1_reprocess_x_displace" => params.block1_x_displace += modulated,
+            "block1_reprocess_y_displace" => params.block1_y_displace += modulated,
+            "block1_reprocess_rotate" => params.block1_rotate += modulated,
+            "block2_reprocess_x_displace" => params.block2_x_displace += modulated,
+            "block2_reprocess_y_displace" => params.block2_y_displace += modulated,
+            "block2_reprocess_rotate" => params.block2_rotate += modulated,
+            "final_mix_amount" => params.final_mix_amount += modulated,
+            _ => {}
+        }
     }
 }

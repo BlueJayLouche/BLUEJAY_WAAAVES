@@ -23,6 +23,18 @@ pub const WAVEFORM_NAMES: &[&str] = &["Sine", "Triangle", "Ramp", "Saw", "Square
 /// Beat divisions for tempo-synced LFOs
 pub const BEAT_DIVISIONS: &[&str] = &["1/16", "1/8", "1/4", "1/2", "1", "2", "4", "8"];
 
+/// FFT band names for audio modulation
+pub const FFT_BAND_NAMES: &[&str] = &[
+    "Sub Bass (20-60Hz)",
+    "Bass (60-120Hz)",
+    "Low Mid (120-250Hz)",
+    "Mid (250-500Hz)",
+    "High Mid (500-2kHz)",
+    "High (2k-4kHz)",
+    "Very High (4k-8kHz)",
+    "Presence (8k-16kHz)",
+];
+
 /// Geometric overflow modes
 pub const GEO_OVERFLOW_MODES: &[&str] = &["Clamp", "Toroid", "Mirror"];
 
@@ -3056,11 +3068,19 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                 // Enable checkbox
                 ui.checkbox("Enable Audio Mod", &mut mod_settings.enabled);
                 
-                // FFT Band (0-7 for 8 bands)
-                Drag::new("FFT Band")
-                    .speed(1.0)
-                    .range(0, 7)
-                    .build(ui, &mut mod_settings.fft_band);
+                // FFT Band dropdown
+                let mut band_idx = mod_settings.fft_band as usize;
+                let band_preview = FFT_BAND_NAMES[band_idx.min(7)].to_string();
+                ComboBox::new(ui, "FFT Band")
+                    .preview_value(&band_preview)
+                    .build(|| {
+                        for (idx, name) in FFT_BAND_NAMES.iter().enumerate() {
+                            if ui.selectable_config(name).selected(idx == band_idx).build() {
+                                band_idx = idx;
+                            }
+                        }
+                    });
+                mod_settings.fft_band = band_idx.clamp(0, 7) as i32;
                 
                 // Modulation Amount
                 Drag::new("Modulation Amount")
@@ -3161,7 +3181,18 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                 ui.separator();
                 
                 ui.checkbox("Enable Audio Mod##b2", &mut mod_settings.enabled);
-                Drag::new("FFT Band##b2").speed(1.0).range(0, 7).build(ui, &mut mod_settings.fft_band);
+                let mut band_idx_b2 = mod_settings.fft_band as usize;
+                let band_preview_b2 = FFT_BAND_NAMES[band_idx_b2.min(7)].to_string();
+                ComboBox::new(ui, "FFT Band##b2")
+                    .preview_value(&band_preview_b2)
+                    .build(|| {
+                        for (idx, name) in FFT_BAND_NAMES.iter().enumerate() {
+                            if ui.selectable_config(name).selected(idx == band_idx_b2).build() {
+                                band_idx_b2 = idx;
+                            }
+                        }
+                    });
+                mod_settings.fft_band = band_idx_b2.clamp(0, 7) as i32;
                 Drag::new("Modulation Amount##b2").speed(0.01).range(0.0, 2.0).build(ui, &mut mod_settings.amount);
                 
                 ui.separator();
@@ -3255,7 +3286,18 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                 ui.separator();
                 
                 ui.checkbox("Enable Audio Mod##b3", &mut mod_settings.enabled);
-                Drag::new("FFT Band##b3").speed(1.0).range(0, 7).build(ui, &mut mod_settings.fft_band);
+                let mut band_idx_b3 = mod_settings.fft_band as usize;
+                let band_preview_b3 = FFT_BAND_NAMES[band_idx_b3.min(7)].to_string();
+                ComboBox::new(ui, "FFT Band##b3")
+                    .preview_value(&band_preview_b3)
+                    .build(|| {
+                        for (idx, name) in FFT_BAND_NAMES.iter().enumerate() {
+                            if ui.selectable_config(name).selected(idx == band_idx_b3).build() {
+                                band_idx_b3 = idx;
+                            }
+                        }
+                    });
+                mod_settings.fft_band = band_idx_b3.clamp(0, 7) as i32;
                 Drag::new("Modulation Amount##b3").speed(0.01).range(0.0, 2.0).build(ui, &mut mod_settings.amount);
                 
                 ui.separator();
