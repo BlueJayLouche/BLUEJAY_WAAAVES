@@ -5,7 +5,6 @@
 //! 2. Effects - HSB, blur (optional, skip if not needed)
 //! 3. Mixing - Combine inputs
 
-use crate::core::Block1DebugView;
 use crate::engine::blocks::{BlockResources, StageVertex};
 use crate::params::Block1Params;
 
@@ -64,8 +63,7 @@ pub struct ModularBlock1 {
     width: u32,
     height: u32,
     
-    /// Debug view mode
-    pub debug_view: Block1DebugView,
+
 }
 
 /// Stage 1 uniforms (must match shader)
@@ -272,7 +270,6 @@ impl ModularBlock1 {
             vertex_buffer,
             width,
             height,
-            debug_view: Block1DebugView::Normal,
         }
     }
     
@@ -1833,65 +1830,64 @@ impl ModularBlock1 {
         // ============================================
         // CRITICAL: Must complete CH1 Stage 2 before CH2 Stage 1, 
         // because CH2 Stage 1 will overwrite buffer_a which Stage 2 needs to read!
-        if self.debug_view != Block1DebugView::Stage1Input {
-            if let Some(ref stage2_pipeline) = self.stage2_pipeline {
-                let stage2_ch1_uniforms = Stage2Uniforms {
-                    hsb_h: params.ch1_hsb_attenuate.x,
-                    hsb_s: params.ch1_hsb_attenuate.y,
-                    hsb_b: params.ch1_hsb_attenuate.z,
-                    filters_boost: params.ch1_filters_boost,
-                    blur_amount: params.ch1_blur_amount,
-                    blur_radius: params.ch1_blur_radius,
-                    _pad1: 0.0,
-                    _pad2: 0.0,
-                    sharpen_amount: params.ch1_sharpen_amount,
-                    sharpen_radius: params.ch1_sharpen_radius,
-                    _pad3: 0.0,
-                    _pad4: 0.0,
-                    width: self.width as f32,
-                    height: self.height as f32,
-                    inv_width: 1.0 / self.width as f32,
-                    inv_height: 1.0 / self.height as f32,
-                    hue_invert: if params.ch1_hue_invert { 1.0 } else { 0.0 },
-                    saturation_invert: if params.ch1_saturation_invert { 1.0 } else { 0.0 },
-                    bright_invert: if params.ch1_bright_invert { 1.0 } else { 0.0 },
-                    rgb_invert: if params.ch1_rgb_invert { 1.0 } else { 0.0 },
-                    solarize: if params.ch1_solarize { 1.0 } else { 0.0 },
-                    _pad5: 0.0,
-                    _pad6: 0.0,
-                    _pad7: 0.0,
-                    posterize: params.ch1_posterize,
-                    posterize_switch: if params.ch1_posterize_switch { 1.0 } else { 0.0 },
-                    _pad8: 0.0,
-                    _pad9: 0.0,
-                };
-                self.write_stage2_uniforms(queue, &self.stage2_uniforms_ch1, &stage2_ch1_uniforms);
+        // TODO: Phase 2 - conditionally skip stage 2 when no effects enabled
+        if let Some(ref stage2_pipeline) = self.stage2_pipeline {
+            let stage2_ch1_uniforms = Stage2Uniforms {
+                hsb_h: params.ch1_hsb_attenuate.x,
+                hsb_s: params.ch1_hsb_attenuate.y,
+                hsb_b: params.ch1_hsb_attenuate.z,
+                filters_boost: params.ch1_filters_boost,
+                blur_amount: params.ch1_blur_amount,
+                blur_radius: params.ch1_blur_radius,
+                _pad1: 0.0,
+                _pad2: 0.0,
+                sharpen_amount: params.ch1_sharpen_amount,
+                sharpen_radius: params.ch1_sharpen_radius,
+                _pad3: 0.0,
+                _pad4: 0.0,
+                width: self.width as f32,
+                height: self.height as f32,
+                inv_width: 1.0 / self.width as f32,
+                inv_height: 1.0 / self.height as f32,
+                hue_invert: if params.ch1_hue_invert { 1.0 } else { 0.0 },
+                saturation_invert: if params.ch1_saturation_invert { 1.0 } else { 0.0 },
+                bright_invert: if params.ch1_bright_invert { 1.0 } else { 0.0 },
+                rgb_invert: if params.ch1_rgb_invert { 1.0 } else { 0.0 },
+                solarize: if params.ch1_solarize { 1.0 } else { 0.0 },
+                _pad5: 0.0,
+                _pad6: 0.0,
+                _pad7: 0.0,
+                posterize: params.ch1_posterize,
+                posterize_switch: if params.ch1_posterize_switch { 1.0 } else { 0.0 },
+                _pad8: 0.0,
+                _pad9: 0.0,
+            };
+            self.write_stage2_uniforms(queue, &self.stage2_uniforms_ch1, &stage2_ch1_uniforms);
+            
+            let stage2_ch1_bind_group = self.create_stage2_bind_group(
+                device, &self.stage2_uniforms_ch1, &self.resources.buffer_a.view
+            );
+            
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Block1 Stage2 CH1"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.resources.buffer_b.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
                 
-                let stage2_ch1_bind_group = self.create_stage2_bind_group(
-                    device, &self.stage2_uniforms_ch1, &self.resources.buffer_a.view
-                );
-                
-                {
-                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Block1 Stage2 CH1"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &self.resources.buffer_b.view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-                    
-                    render_pass.set_pipeline(stage2_pipeline);
-                    render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                    render_pass.set_bind_group(0, &stage2_ch1_bind_group, &[]);
-                    render_pass.draw(0..6, 0..1);
-                }
+                render_pass.set_pipeline(stage2_pipeline);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.set_bind_group(0, &stage2_ch1_bind_group, &[]);
+                render_pass.draw(0..6, 0..1);
             }
         }
         
@@ -1900,12 +1896,8 @@ impl ModularBlock1 {
         // NOTE: This MUST happen after CH1 Stage 2 is complete, 
         // because CH2 Stage 1 overwrites buffer_a
         // ============================================
-        // Only process CH2 if it's being mixed or for debug views
-        let process_ch2 = params.ch2_mix_amount > 0.001 || 
-                          self.debug_view == Block1DebugView::Stage1Input ||
-                          self.debug_view == Block1DebugView::Stage2Effects;
-        
-        if process_ch2 {
+        // Only process CH2 if it's being mixed
+        if params.ch2_mix_amount > 0.001 {
             // CH2 input select: 0=input1, 1=input2
             let ch2_use_input2 = params.ch2_input_select == 1;
             let stage1_ch2_uniforms = Stage1Uniforms {
@@ -1968,8 +1960,8 @@ impl ModularBlock1 {
             // ============================================
             // CHANNEL 2: Stage 2 (Effects) → CH2 Buffer
             // ============================================
-            if self.debug_view != Block1DebugView::Stage1Input {
-                if let Some(ref stage2_pipeline) = self.stage2_pipeline {
+            // TODO: Phase 2 - conditionally skip stage 2 when no effects enabled
+            if let Some(ref stage2_pipeline) = self.stage2_pipeline {
                     let stage2_ch2_uniforms = Stage2Uniforms {
                         hsb_h: params.ch2_hsb_attenuate.x,
                         hsb_s: params.ch2_hsb_attenuate.y,
@@ -2029,14 +2021,12 @@ impl ModularBlock1 {
                         render_pass.draw(0..6, 0..1);
                     }
                 }
-            }
         }
         
         // ============================================
         // Stage 3: Mixing (CH1 + CH2 + FB) → Buffer A
         // ============================================
-        if self.debug_view == Block1DebugView::Normal || self.debug_view == Block1DebugView::Stage3Mix {
-            let stage3_uniforms = Stage3Uniforms {
+        let stage3_uniforms = Stage3Uniforms {
                 input2_amount: params.ch2_mix_amount,
                 input2_mix_type: params.ch2_mix_type,
                 input2_mix_overflow: params.ch2_mix_overflow,
@@ -2101,62 +2091,55 @@ impl ModularBlock1 {
                 _pad5: 0,
                 _pad6: 0,
                 _pad7: 0,
-            };
-            self.write_stage3_uniforms(queue, &stage3_uniforms);
-            
-            let stage3_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Block1 Stage3 Bind Group"),
-                layout: &self.stage3_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: self.stage3_uniforms.as_entire_binding() },
-                    // Processed CH1 (from buffer_b)
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.resources.buffer_b.view) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
-                    // Processed CH2 (from ch2_buffer)
-                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&self.resources.ch2_buffer.view) },
-                    wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
-                    // Feedback
-                    wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(self.resources.get_feedback_view()) },
-                    wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
-                    // Delay buffer (for feedback delay)
-                    wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(self.resources.get_delay_view(params.fb1_delay_time as usize)) },
-                    wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
-                ],
+        };
+        self.write_stage3_uniforms(queue, &stage3_uniforms);
+        
+        let stage3_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Block1 Stage3 Bind Group"),
+            layout: &self.stage3_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: self.stage3_uniforms.as_entire_binding() },
+                // Processed CH1 (from buffer_b)
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.resources.buffer_b.view) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
+                // Processed CH2 (from ch2_buffer)
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&self.resources.ch2_buffer.view) },
+                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
+                // Feedback
+                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(self.resources.get_feedback_view()) },
+                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
+                // Delay buffer (for feedback delay)
+                wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(self.resources.get_delay_view(params.fb1_delay_time as usize)) },
+                wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
+            ],
+        });
+        
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Block1 Stage3"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.resources.buffer_a.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
             
-            {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Block1 Stage3"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &self.resources.buffer_a.view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-                
-                render_pass.set_pipeline(&self.stage3_pipeline);
-                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-                render_pass.set_bind_group(0, &stage3_bind_group, &[]);
-                render_pass.draw(0..6, 0..1);
-            }
-            
-            self.resources.current_output = 0;
-            
-            // Update delay buffer ring with current output
-            self.resources.update_delay_buffer(encoder);
-        } else if self.debug_view == Block1DebugView::Stage2Effects {
-            // For Stage 2 debug view, output depends on which channel
-            self.resources.current_output = 1;
-        } else {
-            // For Stage 1 debug view, output is buffer_a
-            self.resources.current_output = 0;
+            render_pass.set_pipeline(&self.stage3_pipeline);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_bind_group(0, &stage3_bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
         }
+        
+    self.resources.current_output = 0;
+    
+    // Update delay buffer ring with current output
+    self.resources.update_delay_buffer(encoder);
     }
     
     /// Helper to write Stage 1 uniforms
@@ -2234,20 +2217,10 @@ impl ModularBlock1 {
         })
     }
     
-    /// Get the output view based on debug mode
+    /// Get the output view (final result from Stage 3)
     pub fn get_output_view(&self) -> &wgpu::TextureView {
-        match self.debug_view {
-            // Normal: Stage 3 output is in buffer_a
-            Block1DebugView::Normal => &self.resources.buffer_a.view,
-            // Stage 1: buffer_a (before Stage 2)
-            Block1DebugView::Stage1Input => &self.resources.buffer_a.view,
-            // Stage 2: buffer_b (after effects, before mixing)
-            Block1DebugView::Stage2Effects => &self.resources.buffer_b.view,
-            // Stage 3: buffer_a (final output after mixing)
-            Block1DebugView::Stage3Mix => &self.resources.buffer_a.view,
-            // Feedback buffer
-            Block1DebugView::FeedbackBuffer => &self.resources.feedback.view,
-        }
+        // Stage 3 output is always in buffer_a
+        &self.resources.buffer_a.view
     }
     
     /// Update feedback for next frame

@@ -1324,8 +1324,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         self.modular_block2.update_params(&self.queue, &modulated_block2);
         // Block 3 params are passed to render method
         
-        // Get debug view and preview source for modular Block 1 before dropping state
-        let block1_debug_view = state.block1_debug_view;
+        // Get preview source for modular Block 1 before dropping state
         let preview_source = state.preview_source;
         
         drop(state);
@@ -1392,9 +1391,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Also render modular Block 1 (parallel implementation)
         // This renders to modular_block1's internal buffers
         {
-            // Use debug view captured earlier (state already dropped)
-            self.modular_block1.debug_view = block1_debug_view;
-            
             // Render modular Block 1
             self.modular_block1.render(
                 &mut encoder,

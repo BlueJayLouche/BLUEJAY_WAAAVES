@@ -4,7 +4,7 @@
 //! Provides real-time parameter control, preset management, and input configuration.
 
 use crate::config::{AppConfig, LayoutConfig, TabId};
-use crate::core::{Block1DebugView, InputChangeRequest, OutputMode, PreviewSource, SharedState};
+use crate::core::{InputChangeRequest, OutputMode, PreviewSource, SharedState};
 use crate::input::InputType;
 use crate::params::preset::{PresetData, PresetManager};
 use crate::params::{Block1Params, Block2Params, Block3Params};

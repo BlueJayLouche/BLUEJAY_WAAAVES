@@ -46,22 +46,6 @@ pub enum AudioChangeRequest {
     ChangeDevice { device_index: i32 },
 }
 
-/// Debug visualization modes for modular Block 1
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Block1DebugView {
-    /// Normal final output
-    #[default]
-    Normal,
-    /// Stage 1: Input sampling output
-    Stage1Input,
-    /// Stage 2: Effects output (if enabled)
-    Stage2Effects,
-    /// Stage 3: Mixing output
-    Stage3Mix,
-    /// Feedback buffer contents
-    FeedbackBuffer,
-}
-
 /// Output display mode - which block to show
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum OutputMode {
@@ -129,8 +113,6 @@ pub struct SharedState {
     pub output_mode: OutputMode,
     /// Global BPM for tempo-synced LFOs
     pub bpm: f32,
-    /// Debug view for modular Block 1
-    pub block1_debug_view: Block1DebugView,
     /// Active audio/BPM modulations for Block 1
     pub block1_modulations: HashMap<String, ParamModulationData>,
     /// Active audio/BPM modulations for Block 2
@@ -189,7 +171,6 @@ impl SharedState {
             audio_change_request: AudioChangeRequest::None,
             output_mode: OutputMode::default(),
             bpm: 120.0,
-            block1_debug_view: Block1DebugView::default(),
             block1_modulations: HashMap::new(),
             block2_modulations: HashMap::new(),
             block3_modulations: HashMap::new(),
