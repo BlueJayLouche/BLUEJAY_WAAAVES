@@ -2843,14 +2843,14 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
             
             // Audio processing controls
             if let Ok(mut state) = self.shared_state.lock() {
-                // Amplitude slider (0-10x)
+                // Amplitude slider (0-1x, unity gain at 1.0)
                 let mut amplitude = state.audio.amplitude;
                 if imgui::Drag::new("Amplitude##audio")
-                    .range(0.0, 10.0)
-                    .speed(0.1)
+                    .range(0.0, 1.0)
+                    .speed(0.01)
                     .build(ui, &mut amplitude) 
                 {
-                    state.audio.amplitude = amplitude.clamp(0.0, 10.0);
+                    state.audio.amplitude = amplitude.clamp(0.0, 1.0);
                 }
                 
                 // Smoothing slider (0-0.99)

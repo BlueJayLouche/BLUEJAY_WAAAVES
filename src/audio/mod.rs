@@ -312,10 +312,10 @@ impl AudioInput {
         self.settings.lock().map(|s| s.smoothing).unwrap_or(0.7)
     }
     
-    /// Set amplitude multiplier
+    /// Set amplitude multiplier (0-1, unity gain at 1.0)
     pub fn set_amplitude(&mut self, amplitude: f32) {
         if let Ok(mut settings) = self.settings.lock() {
-            settings.amplitude = amplitude.clamp(0.0, 10.0);
+            settings.amplitude = amplitude.clamp(0.0, 1.0);
         }
     }
     
