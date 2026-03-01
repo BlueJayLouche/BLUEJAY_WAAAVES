@@ -3128,10 +3128,10 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                     });
                 mod_settings.fft_band = band_idx.clamp(0, 7) as i32;
                 
-                // Modulation Amount
+                // Modulation Amount (bipolar: negative = inverse, positive = direct)
                 Drag::new("Modulation Amount")
                     .speed(0.01)
-                    .range(0.0, 2.0)
+                    .range(-2.0, 2.0)
                     .build(ui, &mut mod_settings.amount);
                 
                 ui.separator();
@@ -3239,7 +3239,7 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                         }
                     });
                 mod_settings.fft_band = band_idx_b2.clamp(0, 7) as i32;
-                Drag::new("Modulation Amount##b2").speed(0.01).range(0.0, 2.0).build(ui, &mut mod_settings.amount);
+                Drag::new("Modulation Amount##b2").speed(0.01).range(-2.0, 2.0).build(ui, &mut mod_settings.amount);
                 
                 ui.separator();
                 
@@ -3344,7 +3344,7 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                         }
                     });
                 mod_settings.fft_band = band_idx_b3.clamp(0, 7) as i32;
-                Drag::new("Modulation Amount##b3").speed(0.01).range(0.0, 2.0).build(ui, &mut mod_settings.amount);
+                Drag::new("Modulation Amount##b3").speed(0.01).range(-2.0, 2.0).build(ui, &mut mod_settings.amount);
                 
                 ui.separator();
                 
