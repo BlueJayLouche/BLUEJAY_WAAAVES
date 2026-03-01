@@ -31,6 +31,26 @@ pub struct ParamModulationData {
     pub bpm_bipolar: bool,
 }
 
+/// Audio settings for presets
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct PresetAudioSettings {
+    pub amplitude: f32,
+    pub smoothing: f32,
+    pub normalization: bool,
+    pub pink_compensation: bool,
+}
+
+impl Default for PresetAudioSettings {
+    fn default() -> Self {
+        Self {
+            amplitude: 1.0,
+            smoothing: 0.7,
+            normalization: false,
+            pink_compensation: false,
+        }
+    }
+}
+
 /// Tempo settings for presets
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PresetTempoData {
@@ -60,6 +80,9 @@ pub struct PresetData {
     pub block2_modulations: HashMap<String, ParamModulationData>,
     pub block3_modulations: HashMap<String, ParamModulationData>,
     
+    // Audio processing settings
+    pub audio: PresetAudioSettings,
+    
     // Tempo settings
     pub tempo: PresetTempoData,
     
@@ -77,6 +100,7 @@ impl Default for PresetData {
             block1_modulations: HashMap::new(),
             block2_modulations: HashMap::new(),
             block3_modulations: HashMap::new(),
+            audio: PresetAudioSettings::default(),
             tempo: PresetTempoData::default(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             name: "Untitled".to_string(),
@@ -410,6 +434,7 @@ impl PresetManager {
             block1_modulations: HashMap::new(), // TODO: Extract LFO modulation data
             block2_modulations: HashMap::new(),
             block3_modulations: HashMap::new(),
+            audio: PresetAudioSettings::default(),
             tempo: PresetTempoData::default(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             name: preset_name.clone(),

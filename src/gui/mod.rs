@@ -706,14 +706,39 @@ impl ControlGui {
         // Save button
         if ui.button("Save") {
             if !self.preset_name_input.is_empty() {
+                // Read modulations and audio settings from shared state
+                let (block1_mods, block2_mods, block3_mods, audio_settings, tempo) = 
+                    if let Ok(state) = self.shared_state.lock() {
+                        (
+                            state.block1_modulations.clone(),
+                            state.block2_modulations.clone(),
+                            state.block3_modulations.clone(),
+                            crate::params::preset::PresetAudioSettings {
+                                amplitude: state.audio.amplitude,
+                                smoothing: state.audio.smoothing,
+                                normalization: state.audio.normalization,
+                                pink_compensation: state.audio.pink_compensation,
+                            },
+                            crate::params::preset::PresetTempoData {
+                                bpm: state.bpm,
+                                enabled: true,
+                            },
+                        )
+                    } else {
+                        (HashMap::new(), HashMap::new(), HashMap::new(),
+                         crate::params::preset::PresetAudioSettings::default(),
+                         crate::params::preset::PresetTempoData::default())
+                    };
+                
                 let preset_data = PresetData {
                     block1: self.block1_edit,
                     block2: self.block2_edit,
                     block3: self.block3_edit,
-                    block1_modulations: HashMap::new(),
-                    block2_modulations: HashMap::new(),
-                    block3_modulations: HashMap::new(),
-                    tempo: crate::params::preset::PresetTempoData::default(),
+                    block1_modulations: block1_mods,
+                    block2_modulations: block2_mods,
+                    block3_modulations: block3_mods,
+                    audio: audio_settings,
+                    tempo,
                     version: env!("CARGO_PKG_VERSION").to_string(),
                     name: self.preset_name_input.clone(),
                 };
@@ -765,6 +790,19 @@ impl ControlGui {
                         self.block1_edit = data.block1;
                         self.block2_edit = data.block2;
                         self.block3_edit = data.block3;
+                        
+                        // Restore modulations and audio settings to shared state
+                        if let Ok(mut state) = self.shared_state.lock() {
+                            state.block1_modulations = data.block1_modulations;
+                            state.block2_modulations = data.block2_modulations;
+                            state.block3_modulations = data.block3_modulations;
+                            state.audio.amplitude = data.audio.amplitude;
+                            state.audio.smoothing = data.audio.smoothing;
+                            state.audio.normalization = data.audio.normalization;
+                            state.audio.pink_compensation = data.audio.pink_compensation;
+                            state.bpm = data.tempo.bpm;
+                        }
+                        
                         self.sync_to_shared_state();
                         self.show_status(&format!("Loaded preset '{}'", name));
                     }

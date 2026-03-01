@@ -471,6 +471,7 @@ pub fn convert_of_preset_to_rust(
         block1_modulations: HashMap::new(), // TODO: Extract LFO data
         block2_modulations: HashMap::new(),
         block3_modulations: HashMap::new(),
+        audio: super::PresetAudioSettings::default(),
         tempo: super::PresetTempoData::default(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         name: name.to_string(),
