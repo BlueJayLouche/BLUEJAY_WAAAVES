@@ -167,8 +167,10 @@ pub struct ControlGui {
     selected_block1_param: i32,
     selected_block2_param: i32,
     selected_block3_param: i32,
-    audio_mod_fft_band: i32,
-    audio_mod_amount: f32,
+    // Per-block audio mod settings (keyed by parameter name)
+    block1_audio_mods: HashMap<String, ParamAudioModulation>,
+    block2_audio_mods: HashMap<String, ParamAudioModulation>,
+    block3_audio_mods: HashMap<String, ParamAudioModulation>,
     
     // LFO editor state
     selected_lfo_bank: i32,
@@ -335,8 +337,9 @@ impl ControlGui {
             selected_block1_param: 0,
             selected_block2_param: 0,
             selected_block3_param: 0,
-            audio_mod_fft_band: 0,
-            audio_mod_amount: 0.5,
+            block1_audio_mods: HashMap::new(),
+            block2_audio_mods: HashMap::new(),
+            block3_audio_mods: HashMap::new(),
             selected_lfo_bank: 0,
             
             // Tempo state
@@ -3028,6 +3031,7 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
             .build(|| {
                 let param_names = get_block1_param_names();
                 
+                // Parameter selection
                 ui.text("Select Parameter:");
                 let preview = param_names[self.selected_block1_param as usize].clone();
                 let mut selected = self.selected_block1_param;
@@ -3042,19 +3046,88 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                     });
                 self.selected_block1_param = selected;
                 
+                let param_name = param_names[self.selected_block1_param as usize].clone();
+                
+                // Get or create modulation settings for this parameter
+                let mod_settings = self.block1_audio_mods.entry(param_name.clone()).or_default();
+                
                 ui.separator();
                 
-                ui.checkbox("Enable Audio Mod", &mut self.audio_mod_enabled());
-                Drag::new("FFT Band").speed(1.0).range(0, 15).build(ui, &mut self.audio_mod_fft_band);
-                Drag::new("Modulation Amount").speed(0.01).range(0.0, 2.0).build(ui, &mut self.audio_mod_amount);
+                // Enable checkbox
+                ui.checkbox("Enable Audio Mod", &mut mod_settings.enabled);
                 
+                // FFT Band (0-7 for 8 bands)
+                Drag::new("FFT Band")
+                    .speed(1.0)
+                    .range(0, 7)
+                    .build(ui, &mut mod_settings.fft_band);
+                
+                // Modulation Amount
+                Drag::new("Modulation Amount")
+                    .speed(0.01)
+                    .range(0.0, 2.0)
+                    .build(ui, &mut mod_settings.amount);
+                
+                ui.separator();
+                
+                // Apply button - adds to shared state
+                let mut applied = false;
                 if ui.button("Apply Modulation") {
-                    // Apply to shared state
+                    if let Ok(mut state) = self.shared_state.lock() {
+                        let mod_data = crate::params::preset::ParamModulationData {
+                            audio_enabled: mod_settings.enabled,
+                            audio_fft_band: mod_settings.fft_band,
+                            audio_amount: mod_settings.amount,
+                            audio_use_normalization: false,
+                            audio_attack: 0.1,
+                            audio_release: 0.1,
+                            audio_range_scale: 1.0,
+                            bpm_enabled: false,
+                            bpm_division_index: 2,
+                            bpm_phase: 0.0,
+                            bpm_waveform: 0,
+                            bpm_min_value: 0.0,
+                            bpm_max_value: 1.0,
+                            bpm_bipolar: false,
+                        };
+                        state.block1_modulations.insert(param_name.clone(), mod_data);
+                        applied = true;
+                    }
+                }
+                if applied {
+                    self.show_status(&format!("Applied audio mod: {}", param_name));
                 }
                 
                 ui.separator();
                 ui.text("Active Modulations:");
-                // List active modulations
+                
+                // Show active modulations
+                let active_mods: Vec<(String, i32, f32, bool)> = if let Ok(state) = self.shared_state.lock() {
+                    state.block1_modulations
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.audio_fft_band, v.audio_amount, v.audio_enabled))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                
+                if active_mods.is_empty() {
+                    ui.text_disabled("No active modulations");
+                } else {
+                    for (key, band, amount, enabled) in active_mods {
+                        let enabled_str = if enabled { "" } else { " [OFF]" };
+                        ui.text(&format!("{}{}: Band {} @ {:.2}x", 
+                            key, enabled_str, band, amount));
+                        ui.same_line();
+                        if ui.small_button(&format!("Remove##b1_{}", key)) {
+                            if let Ok(mut state) = self.shared_state.lock() {
+                                state.block1_modulations.remove(&key);
+                            }
+                            self.block1_audio_mods.remove(&key);
+                            self.show_status(&format!("Removed modulation: {}", key));
+                        }
+                    }
+                }
             });
     }
     
@@ -3065,6 +3138,7 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
             .build(|| {
                 let param_names = get_block2_param_names();
                 
+                // Parameter selection
                 ui.text("Select Parameter:");
                 let preview = param_names[self.selected_block2_param as usize].clone();
                 let mut selected = self.selected_block2_param;
@@ -3079,11 +3153,75 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                     });
                 self.selected_block2_param = selected;
                 
+                let param_name = param_names[self.selected_block2_param as usize].clone();
+                
+                // Get or create modulation settings
+                let mod_settings = self.block2_audio_mods.entry(param_name.clone()).or_default();
+                
                 ui.separator();
                 
-                ui.checkbox("Enable Audio Mod##b2", &mut self.audio_mod_enabled());
-                Drag::new("FFT Band##b2").speed(1.0).range(0, 15).build(ui, &mut self.audio_mod_fft_band);
-                Drag::new("Modulation Amount##b2").speed(0.01).range(0.0, 2.0).build(ui, &mut self.audio_mod_amount);
+                ui.checkbox("Enable Audio Mod##b2", &mut mod_settings.enabled);
+                Drag::new("FFT Band##b2").speed(1.0).range(0, 7).build(ui, &mut mod_settings.fft_band);
+                Drag::new("Modulation Amount##b2").speed(0.01).range(0.0, 2.0).build(ui, &mut mod_settings.amount);
+                
+                ui.separator();
+                
+                let mut applied_b2 = false;
+                if ui.button("Apply Modulation##b2") {
+                    if let Ok(mut state) = self.shared_state.lock() {
+                        let mod_data = crate::params::preset::ParamModulationData {
+                            audio_enabled: mod_settings.enabled,
+                            audio_fft_band: mod_settings.fft_band,
+                            audio_amount: mod_settings.amount,
+                            audio_use_normalization: false,
+                            audio_attack: 0.1,
+                            audio_release: 0.1,
+                            audio_range_scale: 1.0,
+                            bpm_enabled: false,
+                            bpm_division_index: 2,
+                            bpm_phase: 0.0,
+                            bpm_waveform: 0,
+                            bpm_min_value: 0.0,
+                            bpm_max_value: 1.0,
+                            bpm_bipolar: false,
+                        };
+                        state.block2_modulations.insert(param_name.clone(), mod_data);
+                        applied_b2 = true;
+                    }
+                }
+                if applied_b2 {
+                    self.show_status(&format!("Applied audio mod: {}", param_name));
+                }
+                
+                ui.separator();
+                ui.text("Active Modulations:");
+                
+                let active_mods: Vec<(String, i32, f32, bool)> = if let Ok(state) = self.shared_state.lock() {
+                    state.block2_modulations
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.audio_fft_band, v.audio_amount, v.audio_enabled))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                
+                if active_mods.is_empty() {
+                    ui.text_disabled("No active modulations");
+                } else {
+                    for (key, band, amount, enabled) in active_mods {
+                        let enabled_str = if enabled { "" } else { " [OFF]" };
+                        ui.text(&format!("{}{}: Band {} @ {:.2}x", 
+                            key, enabled_str, band, amount));
+                        ui.same_line();
+                        if ui.small_button(&format!("Remove##b2_{}", key)) {
+                            if let Ok(mut state) = self.shared_state.lock() {
+                                state.block2_modulations.remove(&key);
+                            }
+                            self.block2_audio_mods.remove(&key);
+                            self.show_status(&format!("Removed modulation: {}", key));
+                        }
+                    }
+                }
             });
     }
     
@@ -3094,6 +3232,7 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
             .build(|| {
                 let param_names = get_block3_param_names();
                 
+                // Parameter selection
                 ui.text("Select Parameter:");
                 let preview = param_names[self.selected_block3_param as usize].clone();
                 let mut selected = self.selected_block3_param;
@@ -3108,17 +3247,76 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                     });
                 self.selected_block3_param = selected;
                 
+                let param_name = param_names[self.selected_block3_param as usize].clone();
+                
+                // Get or create modulation settings
+                let mod_settings = self.block3_audio_mods.entry(param_name.clone()).or_default();
+                
                 ui.separator();
                 
-                ui.checkbox("Enable Audio Mod##b3", &mut self.audio_mod_enabled());
-                Drag::new("FFT Band##b3").speed(1.0).range(0, 15).build(ui, &mut self.audio_mod_fft_band);
-                Drag::new("Modulation Amount##b3").speed(0.01).range(0.0, 2.0).build(ui, &mut self.audio_mod_amount);
+                ui.checkbox("Enable Audio Mod##b3", &mut mod_settings.enabled);
+                Drag::new("FFT Band##b3").speed(1.0).range(0, 7).build(ui, &mut mod_settings.fft_band);
+                Drag::new("Modulation Amount##b3").speed(0.01).range(0.0, 2.0).build(ui, &mut mod_settings.amount);
+                
+                ui.separator();
+                
+                let mut applied_b3 = false;
+                if ui.button("Apply Modulation##b3") {
+                    if let Ok(mut state) = self.shared_state.lock() {
+                        let mod_data = crate::params::preset::ParamModulationData {
+                            audio_enabled: mod_settings.enabled,
+                            audio_fft_band: mod_settings.fft_band,
+                            audio_amount: mod_settings.amount,
+                            audio_use_normalization: false,
+                            audio_attack: 0.1,
+                            audio_release: 0.1,
+                            audio_range_scale: 1.0,
+                            bpm_enabled: false,
+                            bpm_division_index: 2,
+                            bpm_phase: 0.0,
+                            bpm_waveform: 0,
+                            bpm_min_value: 0.0,
+                            bpm_max_value: 1.0,
+                            bpm_bipolar: false,
+                        };
+                        state.block3_modulations.insert(param_name.clone(), mod_data);
+                        applied_b3 = true;
+                    }
+                }
+                if applied_b3 {
+                    self.show_status(&format!("Applied audio mod: {}", param_name));
+                }
+                
+                ui.separator();
+                ui.text("Active Modulations:");
+                
+                let active_mods: Vec<(String, i32, f32, bool)> = if let Ok(state) = self.shared_state.lock() {
+                    state.block3_modulations
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.audio_fft_band, v.audio_amount, v.audio_enabled))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                
+                if active_mods.is_empty() {
+                    ui.text_disabled("No active modulations");
+                } else {
+                    for (key, band, amount, enabled) in active_mods {
+                        let enabled_str = if enabled { "" } else { " [OFF]" };
+                        ui.text(&format!("{}{}: Band {} @ {:.2}x", 
+                            key, enabled_str, band, amount));
+                        ui.same_line();
+                        if ui.small_button(&format!("Remove##b3_{}", key)) {
+                            if let Ok(mut state) = self.shared_state.lock() {
+                                state.block3_modulations.remove(&key);
+                            }
+                            self.block3_audio_mods.remove(&key);
+                            self.show_status(&format!("Removed modulation: {}", key));
+                        }
+                    }
+                }
             });
-    }
-    
-    /// Helper for audio mod enabled (placeholder)
-    fn audio_mod_enabled(&mut self) -> bool {
-        false // Placeholder
     }
     
     /// Draw Preview Window with color picker
