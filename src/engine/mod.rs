@@ -67,14 +67,6 @@ struct App {
     control_gui: Option<ControlGui>,
     imgui_renderer: Option<ImGuiRenderer>,
     
-    // Preview/Debug window (modular block 1 debug output)
-    preview_window: Option<Arc<Window>>,
-    preview_surface: Option<wgpu::Surface<'static>>,
-    preview_pipeline: Option<wgpu::RenderPipeline>,
-    preview_bind_group: Option<wgpu::BindGroup>,
-    preview_sampler: Option<wgpu::Sampler>,
-    preview_ready: bool,  // Flag to track if preview is fully initialized
-    
     // Audio input
     audio_input: Option<AudioInput>,
     
@@ -126,12 +118,6 @@ impl App {
             control_window: None,
             control_gui: None,
             imgui_renderer: None,
-            preview_window: None,
-            preview_surface: None,
-            preview_pipeline: None,
-            preview_bind_group: None,
-            preview_sampler: None,
-            preview_ready: false,
             audio_input,
             video_input,
             shift_pressed: false,
@@ -139,99 +125,6 @@ impl App {
     }
     
     /// Render the preview window with modular Block 1 debug output
-    fn render_preview_window(&mut self) {
-        // Check if preview window is fully initialized
-        if !self.preview_ready {
-            return;
-        }
-        
-        // Check if preview window exists and is ready
-        let (Some(surface), Some(pipeline), Some(sampler), Some(engine)) = 
-            (&self.preview_surface, &self.preview_pipeline, &self.preview_sampler, &self.output_engine) 
-        else {
-            return;
-        };
-        
-        // Get the current texture from surface
-        let surface_texture = match surface.get_current_texture() {
-            Ok(t) => t,
-            Err(_) => {
-                // Reconfigure if needed
-                if let (Some(device), Some(adapter)) = (&self.wgpu_device, &self.wgpu_adapter) {
-                    let surface_caps = surface.get_capabilities(adapter);
-                    let surface_format = surface_caps.formats[0];
-                    let window_size = self.preview_window.as_ref().unwrap().inner_size();
-                    let config = wgpu::SurfaceConfiguration {
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                        format: surface_format,
-                        width: window_size.width.max(1),
-                        height: window_size.height.max(1),
-                        present_mode: wgpu::PresentMode::AutoVsync,
-                        alpha_mode: surface_caps.alpha_modes[0],
-                        view_formats: vec![],
-                        desired_maximum_frame_latency: 2,
-                    };
-                    surface.configure(device, &config);
-                }
-                return;
-            }
-        };
-        
-        let surface_view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        
-        // Get the modular Block 1 output view
-        let modular_output_view = engine.get_modular_block1_output_view();
-        let device = engine.get_device();
-        let queue = engine.get_queue();
-        
-        // Create bind group for this frame
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Preview Bind Group"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(modular_output_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-            ],
-        });
-        
-        // Create encoder and render
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Preview Render Encoder"),
-        });
-        
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Preview Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &surface_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            
-            render_pass.set_pipeline(pipeline);
-            render_pass.set_bind_group(0, &bind_group, &[]);
-            render_pass.draw(0..6, 0..1);
-        }
-        
-        queue.submit(std::iter::once(encoder.finish()));
-        surface_texture.present();
-    }
-    
     /// Toggle fullscreen mode for the output window
     fn toggle_fullscreen(&mut self) {
         if let Some(ref output_window) = self.output_window {
@@ -383,147 +276,6 @@ impl ApplicationHandler for App {
                 }
             }
         }
-        
-        // Create preview window after control window (shows modular Block 1 debug output)
-        if self.preview_window.is_none() {
-            if let (Some(device), Some(queue)) = (&self.wgpu_device, &self.wgpu_queue) {
-                let preview_width = 400u32;
-                let preview_height = 300u32;
-                
-                let window_attrs = winit::window::WindowAttributes::default()
-                    .with_title("Block 1 Debug Preview")
-                    .with_inner_size(winit::dpi::LogicalSize::new(preview_width, preview_height))
-                    .with_resizable(true)
-                    .with_decorations(true)
-                    .with_position(winit::dpi::PhysicalPosition::new(100, 100));
-                
-                let window = Arc::new(event_loop.create_window(window_attrs).unwrap());
-                self.preview_window = Some(Arc::clone(&window));
-                
-                // Create surface for preview window
-                let surface = instance.create_surface(Arc::clone(&window)).unwrap();
-                
-                // Get surface capabilities
-                let surface_caps = surface.get_capabilities(&self.wgpu_adapter.as_ref().unwrap());
-                let surface_format = surface_caps.formats[0];
-                
-                // Configure surface
-                let config = wgpu::SurfaceConfiguration {
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                    format: surface_format,
-                    width: preview_width,
-                    height: preview_height,
-                    present_mode: wgpu::PresentMode::AutoVsync,
-                    alpha_mode: surface_caps.alpha_modes[0],
-                    view_formats: vec![],
-                    desired_maximum_frame_latency: 2,
-                };
-                surface.configure(device, &config);
-                self.preview_surface = Some(surface);
-                
-                // Create sampler for texture display
-                let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                    address_mode_u: wgpu::AddressMode::ClampToEdge,
-                    address_mode_v: wgpu::AddressMode::ClampToEdge,
-                    mag_filter: wgpu::FilterMode::Linear,
-                    min_filter: wgpu::FilterMode::Linear,
-                    ..Default::default()
-                });
-                self.preview_sampler = Some(sampler);
-                
-                // Create bind group layout for texture display
-                let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Preview Bind Group Layout"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                });
-                
-                // Create pipeline layout
-                let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Preview Pipeline Layout"),
-                    bind_group_layouts: &[&bind_group_layout],
-                    push_constant_ranges: &[],
-                });
-                
-                // Create shader for texture display
-                let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("Preview Shader"),
-                    source: wgpu::ShaderSource::Wgsl(r#"
-                        @vertex
-                        fn vs_main(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4<f32> {
-                            let pos = array<vec2<f32>, 6>(
-                                vec2<f32>(-1.0, -1.0),
-                                vec2<f32>( 1.0, -1.0),
-                                vec2<f32>(-1.0,  1.0),
-                                vec2<f32>(-1.0,  1.0),
-                                vec2<f32>( 1.0, -1.0),
-                                vec2<f32>( 1.0,  1.0)
-                            );
-                            return vec4<f32>(pos[vertex_index], 0.0, 1.0);
-                        }
-                        
-                        @group(0) @binding(0)
-                        var preview_tex: texture_2d<f32>;
-                        @group(0) @binding(1)
-                        var preview_sampler: sampler;
-                        
-                        @fragment
-                        fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
-                            let uv = frag_coord.xy / vec2<f32>(textureDimensions(preview_tex));
-                            return textureSample(preview_tex, preview_sampler, uv);
-                        }
-                    "#.into()),
-                });
-                
-                // Create render pipeline
-                let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("Preview Pipeline"),
-                    layout: Some(&pipeline_layout),
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_main"),
-                        buffers: &[],
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_main"),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: surface_format,
-                            blend: Some(wgpu::BlendState::REPLACE),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    }),
-                    primitive: wgpu::PrimitiveState::default(),
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    multiview: None,
-                    cache: None,
-                });
-                self.preview_pipeline = Some(pipeline);
-                
-                // Bind group will be created each frame with the current texture
-                self.preview_ready = true;
-                log::info!("Preview window created: {}x{}", preview_width, preview_height);
-            }
-        }
     }
     
     fn window_event(
@@ -576,9 +328,6 @@ impl ApplicationHandler for App {
                     WindowEvent::RedrawRequested => {
                         if let Some(ref mut engine) = self.output_engine {
                             engine.render();
-                            
-                            // Also render preview window if it exists
-                            self.render_preview_window();
                         }
                     }
                     _ => {}
@@ -647,43 +396,6 @@ impl ApplicationHandler for App {
                             if let Err(err) = renderer.render_frame(|ui| gui.build_ui(ui)) {
                                 eprintln!("ImGui render error: {}", err);
                             }
-                        }
-                    }
-                    _ => {}
-                }
-                return;
-            }
-        }
-        
-        // Handle preview window events
-        if let Some(ref preview_window) = self.preview_window {
-            if window_id == preview_window.id() {
-                match event {
-                    WindowEvent::CloseRequested => {
-                        // Just close the preview window
-                        self.preview_window = None;
-                        self.preview_surface = None;
-                        self.preview_pipeline = None;
-                        self.preview_bind_group = None;
-                        self.preview_sampler = None;
-                        self.preview_ready = false;
-                    }
-                    WindowEvent::Resized(size) => {
-                        // Reconfigure surface
-                        if let (Some(surface), Some(device)) = (&self.preview_surface, &self.wgpu_device) {
-                            let surface_caps = surface.get_capabilities(&self.wgpu_adapter.as_ref().unwrap());
-                            let surface_format = surface_caps.formats[0];
-                            let config = wgpu::SurfaceConfiguration {
-                                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                                format: surface_format,
-                                width: size.width.max(1),
-                                height: size.height.max(1),
-                                present_mode: wgpu::PresentMode::AutoVsync,
-                                alpha_mode: surface_caps.alpha_modes[0],
-                                view_formats: vec![],
-                                desired_maximum_frame_latency: 2,
-                            };
-                            surface.configure(device, &config);
                         }
                     }
                     _ => {}
