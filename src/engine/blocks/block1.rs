@@ -1830,8 +1830,18 @@ impl ModularBlock1 {
         // ============================================
         // CRITICAL: Must complete CH1 Stage 2 before CH2 Stage 1, 
         // because CH2 Stage 1 will overwrite buffer_a which Stage 2 needs to read!
-        // TODO: Phase 2 - conditionally skip stage 2 when no effects enabled
-        if let Some(ref stage2_pipeline) = self.stage2_pipeline {
+        // 
+        // OPTIMIZATION: Skip Stage 2 shader if no effects are enabled
+        // Just copy buffer_a → buffer_b using hardware texture copy
+        if self.should_skip_stage2_ch1(params) {
+            // Fast path: hardware texture copy (~10x faster than shader)
+            self.copy_texture_fast(
+                encoder,
+                &self.resources.buffer_a.texture,
+                &self.resources.buffer_b.texture,
+            );
+        } else if let Some(ref stage2_pipeline) = self.stage2_pipeline {
+            // Full effects shader path
             let stage2_ch1_uniforms = Stage2Uniforms {
                 hsb_h: params.ch1_hsb_attenuate.x,
                 hsb_s: params.ch1_hsb_attenuate.y,
@@ -1960,9 +1970,17 @@ impl ModularBlock1 {
             // ============================================
             // CHANNEL 2: Stage 2 (Effects) → CH2 Buffer
             // ============================================
-            // TODO: Phase 2 - conditionally skip stage 2 when no effects enabled
-            if let Some(ref stage2_pipeline) = self.stage2_pipeline {
-                    let stage2_ch2_uniforms = Stage2Uniforms {
+            // OPTIMIZATION: Skip Stage 2 shader if no effects are enabled
+            if self.should_skip_stage2_ch2(params) {
+                // Fast path: hardware texture copy
+                self.copy_texture_fast(
+                    encoder,
+                    &self.resources.buffer_a.texture,
+                    &self.resources.ch2_buffer.texture,
+                );
+            } else if let Some(ref stage2_pipeline) = self.stage2_pipeline {
+                // Full effects shader path
+                let stage2_ch2_uniforms = Stage2Uniforms {
                         hsb_h: params.ch2_hsb_attenuate.x,
                         hsb_s: params.ch2_hsb_attenuate.y,
                         hsb_b: params.ch2_hsb_attenuate.z,
@@ -2140,6 +2158,86 @@ impl ModularBlock1 {
     
     // Update delay buffer ring with current output
     self.resources.update_delay_buffer(encoder);
+    }
+    
+    /// Check if Stage 2 effects are effectively disabled for CH1
+    /// Returns true if we can skip the effects shader and just copy the texture
+    fn should_skip_stage2_ch1(&self, params: &Block1Params) -> bool {
+        // Blur and sharpen are the expensive operations
+        if params.ch1_blur_amount > 0.001 || params.ch1_sharpen_amount > 0.001 {
+            return false;
+        }
+        
+        // Check HSB adjustments (1.0 = no change)
+        let hsb_unchanged = (params.ch1_hsb_attenuate.x - 1.0).abs() < 0.001
+            && (params.ch1_hsb_attenuate.y - 1.0).abs() < 0.001
+            && (params.ch1_hsb_attenuate.z - 1.0).abs() < 0.001;
+        
+        // Check inverts
+        let no_inverts = !params.ch1_hue_invert 
+            && !params.ch1_saturation_invert 
+            && !params.ch1_bright_invert
+            && !params.ch1_rgb_invert;
+        
+        // Check solarize
+        let no_solarize = !params.ch1_solarize;
+        
+        // Check posterize (levels < 2 means effectively disabled)
+        let no_posterize = params.ch1_posterize < 2.0 || !params.ch1_posterize_switch;
+        
+        hsb_unchanged && no_inverts && no_solarize && no_posterize
+    }
+    
+    /// Check if Stage 2 effects are effectively disabled for CH2
+    fn should_skip_stage2_ch2(&self, params: &Block1Params) -> bool {
+        // Blur and sharpen are the expensive operations
+        if params.ch2_blur_amount > 0.001 || params.ch2_sharpen_amount > 0.001 {
+            return false;
+        }
+        
+        // Check HSB adjustments
+        let hsb_unchanged = (params.ch2_hsb_attenuate.x - 1.0).abs() < 0.001
+            && (params.ch2_hsb_attenuate.y - 1.0).abs() < 0.001
+            && (params.ch2_hsb_attenuate.z - 1.0).abs() < 0.001;
+        
+        let no_inverts = !params.ch2_hue_invert 
+            && !params.ch2_saturation_invert 
+            && !params.ch2_bright_invert
+            && !params.ch2_rgb_invert;
+        
+        let no_solarize = !params.ch2_solarize;
+        let no_posterize = params.ch2_posterize < 2.0 || !params.ch2_posterize_switch;
+        
+        hsb_unchanged && no_inverts && no_solarize && no_posterize
+    }
+    
+    /// Fast path: copy texture using encoder instead of shader render
+    /// Used when Stage 2 effects are disabled
+    fn copy_texture_fast(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &wgpu::Texture,
+        dest: &wgpu::Texture,
+    ) {
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: source,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: dest,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
     
     /// Helper to write Stage 1 uniforms
