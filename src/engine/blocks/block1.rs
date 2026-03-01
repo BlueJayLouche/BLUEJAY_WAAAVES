@@ -65,12 +65,14 @@ pub struct ModularBlock1 {
     height: u32,
     
     /// Bind group cache to avoid recreating every frame
-    /// Key: (input1_ptr, input2_ptr, feedback_ptr) -> BindGroup
-    stage1_bind_group_cache: RefCell<std::collections::HashMap<(u64, u64, u64), wgpu::BindGroup>>,
+    /// Key: (uniforms_ptr, input1_ptr, input2_ptr, feedback_ptr) -> BindGroup
+    /// CRITICAL: Must include uniforms_ptr since CH1/CH2 have different transforms
+    stage1_bind_group_cache: RefCell<std::collections::HashMap<(u64, u64, u64, u64), wgpu::BindGroup>>,
     
     /// Stage 2 bind group cache
-    /// Key: input_ptr -> BindGroup
-    stage2_bind_group_cache: RefCell<std::collections::HashMap<u64, wgpu::BindGroup>>,
+    /// Key: (uniforms_ptr, input_ptr) -> BindGroup
+    /// CRITICAL: Must include uniforms_ptr since CH1/CH2 have different transforms
+    stage2_bind_group_cache: RefCell<std::collections::HashMap<(u64, u64), wgpu::BindGroup>>,
     
     /// Cached samplers to avoid creating every frame
     sampler_cache: RefCell<Option<wgpu::Sampler>>,
@@ -2312,8 +2314,10 @@ impl ModularBlock1 {
         input2_view: &wgpu::TextureView,
         feedback_view: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
-        // Create cache key from texture view pointers
+        // Create cache key from texture view pointers AND uniform buffer
+        // This is critical: CH1 and CH2 use different uniform buffers for transforms
         let key = (
+            uniforms as *const _ as u64,  // Include uniform buffer in key!
             input1_view as *const _ as u64,
             input2_view as *const _ as u64,
             feedback_view as *const _ as u64,
@@ -2357,7 +2361,11 @@ impl ModularBlock1 {
         uniforms: &wgpu::Buffer,
         input_view: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
-        let key = input_view as *const _ as u64;
+        // Include uniform buffer in key - CH1 and CH2 use different uniforms
+        let key = (
+            uniforms as *const _ as u64,
+            input_view as *const _ as u64,
+        );
         
         let mut cache = self.stage2_bind_group_cache.borrow_mut();
         if !cache.contains_key(&key) {
