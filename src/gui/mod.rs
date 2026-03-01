@@ -2786,6 +2786,41 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                 ui.text_disabled("No audio devices found");
             }
             
+            ui.separator();
+            
+            // Audio processing controls
+            if let Ok(mut state) = self.shared_state.lock() {
+                // Amplitude slider (0-10x)
+                let mut amplitude = state.audio.amplitude;
+                if imgui::Drag::new("Amplitude##audio")
+                    .range(0.0, 10.0)
+                    .speed(0.1)
+                    .build(ui, &mut amplitude) 
+                {
+                    state.audio.amplitude = amplitude.clamp(0.0, 10.0);
+                }
+                
+                // Smoothing slider (0-0.99)
+                let mut smoothing = state.audio.smoothing;
+                if imgui::Drag::new("Smoothing##audio")
+                    .range(0.0, 0.99)
+                    .speed(0.01)
+                    .build(ui, &mut smoothing)
+                {
+                    state.audio.smoothing = smoothing.clamp(0.0, 0.99);
+                }
+                
+                // Normalization toggle
+                let mut normalization = state.audio.normalization;
+                if ui.checkbox("Normalization##audio", &mut normalization) {
+                    state.audio.normalization = normalization;
+                }
+                ui.same_line();
+                ui.text_disabled("(scales to min/max range)");
+            }
+            
+            ui.separator();
+            
             // Audio status display
             if let Ok(state) = self.shared_state.lock() {
                 ui.text(format!("Volume: {:.3}", state.audio.volume));

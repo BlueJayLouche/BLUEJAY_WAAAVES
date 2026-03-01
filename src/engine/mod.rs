@@ -429,6 +429,14 @@ impl ApplicationHandler for App {
                 state.audio.beat = beat_state.beat;
                 state.audio.bpm = beat_state.bpm;
                 state.audio.beat_phase = beat_state.phase;
+                
+                // Sync audio processing settings from SharedState to AudioInput
+                let amplitude = state.audio.amplitude;
+                let smoothing = state.audio.smoothing;
+                let normalization = state.audio.normalization;
+                audio.set_amplitude(amplitude);
+                audio.set_smoothing(smoothing);
+                audio.set_normalization(normalization);
             }
         }
         

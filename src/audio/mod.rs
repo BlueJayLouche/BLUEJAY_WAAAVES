@@ -168,6 +168,8 @@ pub struct FftBands {
     pub peaks: [f32; 8],
     /// Min values (for normalization)
     pub mins: [f32; 8],
+    /// Normalized values (when normalization is enabled)
+    pub normalized: [f32; 8],
 }
 
 impl Default for FftBands {
@@ -177,6 +179,7 @@ impl Default for FftBands {
             smoothed: [0.0; 8],
             peaks: [0.01; 8], // Start with small value to avoid division by zero
             mins: [1.0; 8],
+            normalized: [0.0; 8],
         }
     }
 }
@@ -203,6 +206,8 @@ pub struct AudioInput {
     smoothing: f32,
     /// Amplitude multiplier
     amplitude: f32,
+    /// Normalization enabled
+    normalization: bool,
 }
 
 /// Beat detection state
@@ -247,12 +252,19 @@ impl AudioInput {
             beat_state: Arc::new(Mutex::new(BeatState::new())),
             smoothing: 0.7, // Default smoothing
             amplitude: 1.0, // Default amplitude
+            normalization: false, // Default: no normalization
         }
     }
     
     /// Get 8-band FFT values (0-1 range, smoothed)
+    /// Returns normalized values if normalization is enabled
     pub fn get_8band_fft(&self) -> [f32; 8] {
-        self.fft_bands.lock().unwrap().smoothed
+        let bands = self.fft_bands.lock().unwrap();
+        if self.normalization {
+            bands.normalized
+        } else {
+            bands.smoothed
+        }
     }
     
     /// Get specific FFT band value
@@ -287,6 +299,16 @@ impl AudioInput {
     /// Get amplitude multiplier
     pub fn get_amplitude(&self) -> f32 {
         self.amplitude
+    }
+    
+    /// Set normalization enabled
+    pub fn set_normalization(&mut self, enabled: bool) {
+        self.normalization = enabled;
+    }
+    
+    /// Get normalization enabled
+    pub fn get_normalization(&self) -> bool {
+        self.normalization
     }
     
     /// Initialize audio input with default device
@@ -373,6 +395,7 @@ impl AudioInput {
         let sample_rate = self.sample_rate;
         let amplitude = self.amplitude;
         let smoothing = self.smoothing;
+        let normalization = self.normalization;
         let audio_buffer = Arc::clone(&self.audio_buffer);
         let fft_output = Arc::clone(&self.fft_output);
         let fft_bands = Arc::clone(&self.fft_bands);
@@ -423,7 +446,7 @@ impl AudioInput {
                             
                             // Compute 8-band FFT
                             if let Ok(mut bands) = fft_bands.lock() {
-                                compute_8band_fft(&bins, sample_rate, fft_size, &mut bands, smoothing);
+                                compute_8band_fft(&bins, sample_rate, fft_size, &mut bands, smoothing, normalization);
                             }
                             
                             // Update beat detection
@@ -634,7 +657,7 @@ pub fn get_treble_energy(bins: &[f32], sample_rate: u32, fft_size: usize) -> f32
 }
 
 /// Compute 8-band FFT from raw FFT bins
-fn compute_8band_fft(bins: &[f32], sample_rate: u32, fft_size: usize, bands: &mut FftBands, smoothing: f32) {
+fn compute_8band_fft(bins: &[f32], sample_rate: u32, fft_size: usize, bands: &mut FftBands, smoothing: f32, normalization: bool) {
     // Define frequency ranges for each band (min, max) in Hz
     let band_ranges = [
         (20.0_f32, 60.0_f32),      // Sub Bass
@@ -676,6 +699,14 @@ fn compute_8band_fft(bins: &[f32], sample_rate: u32, fft_size: usize, bands: &mu
             // Update min (for normalization)
             if bands.smoothed[i] < bands.mins[i] && bands.smoothed[i] > 0.001 {
                 bands.mins[i] = bands.smoothed[i];
+            }
+            
+            // Calculate normalized value (0-1 based on min/max range)
+            let range = bands.peaks[i] - bands.mins[i];
+            if range > 0.001 {
+                bands.normalized[i] = (bands.smoothed[i] - bands.mins[i]) / range;
+            } else {
+                bands.normalized[i] = bands.smoothed[i];
             }
         }
     }

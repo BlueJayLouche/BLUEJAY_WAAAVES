@@ -147,6 +147,12 @@ pub struct AudioState {
     pub bpm: f32,
     /// Beat phase (0-1)
     pub beat_phase: f32,
+    /// Amplitude multiplier (0-10x)
+    pub amplitude: f32,
+    /// Smoothing factor (0-1)
+    pub smoothing: f32,
+    /// Normalization enabled
+    pub normalization: bool,
 }
 
 impl SharedState {
@@ -192,6 +198,9 @@ impl Default for AudioState {
             beat: false,
             bpm: 120.0,
             beat_phase: 0.0,
+            amplitude: 1.0,      // Default: 1x amplitude
+            smoothing: 0.7,      // Default: 70% smoothing
+            normalization: false, // Default: off
         }
     }
 }
