@@ -434,9 +434,11 @@ impl ApplicationHandler for App {
                 let amplitude = state.audio.amplitude;
                 let smoothing = state.audio.smoothing;
                 let normalization = state.audio.normalization;
+                let pink_compensation = state.audio.pink_compensation;
                 audio.set_amplitude(amplitude);
                 audio.set_smoothing(smoothing);
                 audio.set_normalization(normalization);
+                audio.set_pink_compensation(pink_compensation);
             }
         }
         

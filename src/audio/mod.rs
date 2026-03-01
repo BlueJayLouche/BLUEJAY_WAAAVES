@@ -193,6 +193,8 @@ pub struct AudioSettings {
     pub amplitude: f32,
     /// Normalization enabled
     pub normalization: bool,
+    /// Pink noise compensation (makes pink noise appear flat)
+    pub pink_compensation: bool,
 }
 
 impl Default for AudioSettings {
@@ -201,6 +203,7 @@ impl Default for AudioSettings {
             smoothing: 0.7,
             amplitude: 1.0,
             normalization: false,
+            pink_compensation: false,
         }
     }
 }
@@ -333,6 +336,18 @@ impl AudioInput {
         self.settings.lock().map(|s| s.normalization).unwrap_or(false)
     }
     
+    /// Set pink noise compensation
+    pub fn set_pink_compensation(&mut self, enabled: bool) {
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.pink_compensation = enabled;
+        }
+    }
+    
+    /// Get pink noise compensation
+    pub fn get_pink_compensation(&self) -> bool {
+        self.settings.lock().map(|s| s.pink_compensation).unwrap_or(false)
+    }
+    
     /// Initialize audio input with default device
     pub fn initialize(&mut self) -> Result<()> {
         self.initialize_with_device(-1)
@@ -430,10 +445,10 @@ impl AudioInput {
         let stream = device.build_input_stream(
             config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                // Read current settings (amplitude, smoothing, normalization)
-                let (amplitude, smoothing, normalization) = settings.lock()
-                    .map(|s| (s.amplitude, s.smoothing, s.normalization))
-                    .unwrap_or((1.0, 0.7, false));
+                // Read current settings (amplitude, smoothing, normalization, pink_compensation)
+                let (amplitude, smoothing, normalization, pink_compensation) = settings.lock()
+                    .map(|s| (s.amplitude, s.smoothing, s.normalization, s.pink_compensation))
+                    .unwrap_or((1.0, 0.7, false, false));
                 
                 // Samples are already f32
                 let samples: Vec<f32> = data.to_vec();
@@ -475,7 +490,7 @@ impl AudioInput {
                             
                             // Compute 8-band FFT
                             if let Ok(mut bands) = fft_bands.lock() {
-                                compute_8band_fft(&bins, sample_rate, fft_size, &mut bands, smoothing, normalization);
+                                compute_8band_fft(&bins, sample_rate, fft_size, &mut bands, smoothing, normalization, pink_compensation);
                             }
                             
                             // Update beat detection
@@ -685,8 +700,21 @@ pub fn get_treble_energy(bins: &[f32], sample_rate: u32, fft_size: usize) -> f32
     }
 }
 
+/// Pink noise compensation gains for each band (+3dB/octave slope)
+/// Makes pink noise appear flat across all bands
+const PINK_NOISE_GAINS: [f32; 8] = [
+    1.0,       // Sub Bass (reference)
+    1.4,       // Bass (+3dB)
+    2.0,       // Low Mid (+6dB)
+    2.8,       // Mid (+9dB)
+    4.0,       // High Mid (+12dB)
+    5.6,       // High (+15dB)
+    8.0,       // Very High (+18dB)
+    11.3,      // Presence (+21dB)
+];
+
 /// Compute 8-band FFT from raw FFT bins
-fn compute_8band_fft(bins: &[f32], sample_rate: u32, fft_size: usize, bands: &mut FftBands, smoothing: f32, normalization: bool) {
+fn compute_8band_fft(bins: &[f32], sample_rate: u32, fft_size: usize, bands: &mut FftBands, smoothing: f32, normalization: bool, pink_compensation: bool) {
     // Define frequency ranges for each band (min, max) in Hz
     let band_ranges = [
         (20.0_f32, 60.0_f32),      // Sub Bass
@@ -712,11 +740,18 @@ fn compute_8band_fft(bins: &[f32], sample_rate: u32, fft_size: usize, bands: &mu
             let sum: f32 = bins[start_bin..end_bin].iter().sum();
             let avg = sum / (end_bin - start_bin) as f32;
             
+            // Apply pink noise compensation if enabled
+            let compensated = if pink_compensation {
+                avg * PINK_NOISE_GAINS[i]
+            } else {
+                avg
+            };
+            
             // Update raw band value
-            bands.bands[i] = avg;
+            bands.bands[i] = compensated;
             
             // Update smoothed value
-            bands.smoothed[i] = bands.smoothed[i] * smoothing + avg * (1.0 - smoothing);
+            bands.smoothed[i] = bands.smoothed[i] * smoothing + compensated * (1.0 - smoothing);
             
             // Update peak (slow decay)
             if bands.smoothed[i] > bands.peaks[i] {

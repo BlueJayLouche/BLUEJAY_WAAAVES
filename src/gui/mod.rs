@@ -2832,6 +2832,14 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                 }
                 ui.same_line();
                 ui.text_disabled("(scales to min/max range)");
+                
+                // Pink noise compensation toggle
+                let mut pink_comp = state.audio.pink_compensation;
+                if ui.checkbox("Pink Noise Comp##audio", &mut pink_comp) {
+                    state.audio.pink_compensation = pink_comp;
+                }
+                ui.same_line();
+                ui.text_disabled("(flat response for pink noise)");
             }
             
             ui.separator();

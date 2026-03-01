@@ -153,6 +153,8 @@ pub struct AudioState {
     pub smoothing: f32,
     /// Normalization enabled
     pub normalization: bool,
+    /// Pink noise compensation (makes pink noise appear flat)
+    pub pink_compensation: bool,
 }
 
 impl SharedState {
@@ -201,6 +203,7 @@ impl Default for AudioState {
             amplitude: 1.0,      // Default: 1x amplitude
             smoothing: 0.7,      // Default: 70% smoothing
             normalization: false, // Default: off
+            pink_compensation: false, // Default: off
         }
     }
 }
