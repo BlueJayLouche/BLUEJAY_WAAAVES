@@ -2118,41 +2118,59 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
                     });
                 p.block1_colorize_hsb_rgb = mode_idx.clamp(0, 1) as i32;
                 
-                let mut band1 = [p.block1_colorize_band1.x, p.block1_colorize_band1.y, p.block1_colorize_band1.z];
-                ui.color_edit3("Band 1##b3b1", &mut band1);
-                p.block1_colorize_band1 = Vec3::new(band1[0], band1[1], band1[2]);
-                // Sync individual components for LFO modulation
-                p.block1_colorize_band1_x = band1[0];
-                p.block1_colorize_band1_y = band1[1];
-                p.block1_colorize_band1_z = band1[2];
+                // Colorize bands are stored as HSB values (matching the shader)
+                // Convert RGB color picker output to HSB
+                let mut band1_rgb = [0.0f32; 3];
+                // Convert current HSB to RGB for display
+                let (r, g, b) = crate::utils::color::hsb_to_rgb(p.block1_colorize_band1.x, p.block1_colorize_band1.y, p.block1_colorize_band1.z);
+                band1_rgb = [r, g, b];
+                ui.color_edit3("Band 1##b3b1", &mut band1_rgb);
+                // Convert back to HSB for storage
+                let (h, s, v) = crate::utils::color::rgb_to_hsb(band1_rgb[0], band1_rgb[1], band1_rgb[2]);
+                p.block1_colorize_band1 = Vec3::new(h, s, v);
+                p.block1_colorize_band1_x = h;
+                p.block1_colorize_band1_y = s;
+                p.block1_colorize_band1_z = v;
                 
-                let mut band2 = [p.block1_colorize_band2.x, p.block1_colorize_band2.y, p.block1_colorize_band2.z];
-                ui.color_edit3("Band 2##b3b1", &mut band2);
-                p.block1_colorize_band2 = Vec3::new(band2[0], band2[1], band2[2]);
-                p.block1_colorize_band2_x = band2[0];
-                p.block1_colorize_band2_y = band2[1];
-                p.block1_colorize_band2_z = band2[2];
+                let mut band2_rgb = [0.0f32; 3];
+                let (r, g, b) = crate::utils::color::hsb_to_rgb(p.block1_colorize_band2.x, p.block1_colorize_band2.y, p.block1_colorize_band2.z);
+                band2_rgb = [r, g, b];
+                ui.color_edit3("Band 2##b3b1", &mut band2_rgb);
+                let (h, s, v) = crate::utils::color::rgb_to_hsb(band2_rgb[0], band2_rgb[1], band2_rgb[2]);
+                p.block1_colorize_band2 = Vec3::new(h, s, v);
+                p.block1_colorize_band2_x = h;
+                p.block1_colorize_band2_y = s;
+                p.block1_colorize_band2_z = v;
                 
-                let mut band3 = [p.block1_colorize_band3.x, p.block1_colorize_band3.y, p.block1_colorize_band3.z];
-                ui.color_edit3("Band 3##b3b1", &mut band3);
-                p.block1_colorize_band3 = Vec3::new(band3[0], band3[1], band3[2]);
-                p.block1_colorize_band3_x = band3[0];
-                p.block1_colorize_band3_y = band3[1];
-                p.block1_colorize_band3_z = band3[2];
+                let mut band3_rgb = [0.0f32; 3];
+                let (r, g, b) = crate::utils::color::hsb_to_rgb(p.block1_colorize_band3.x, p.block1_colorize_band3.y, p.block1_colorize_band3.z);
+                band3_rgb = [r, g, b];
+                ui.color_edit3("Band 3##b3b1", &mut band3_rgb);
+                let (h, s, v) = crate::utils::color::rgb_to_hsb(band3_rgb[0], band3_rgb[1], band3_rgb[2]);
+                p.block1_colorize_band3 = Vec3::new(h, s, v);
+                p.block1_colorize_band3_x = h;
+                p.block1_colorize_band3_y = s;
+                p.block1_colorize_band3_z = v;
                 
-                let mut band4 = [p.block1_colorize_band4.x, p.block1_colorize_band4.y, p.block1_colorize_band4.z];
-                ui.color_edit3("Band 4##b3b1", &mut band4);
-                p.block1_colorize_band4 = Vec3::new(band4[0], band4[1], band4[2]);
-                p.block1_colorize_band4_x = band4[0];
-                p.block1_colorize_band4_y = band4[1];
-                p.block1_colorize_band4_z = band4[2];
+                let mut band4_rgb = [0.0f32; 3];
+                let (r, g, b) = crate::utils::color::hsb_to_rgb(p.block1_colorize_band4.x, p.block1_colorize_band4.y, p.block1_colorize_band4.z);
+                band4_rgb = [r, g, b];
+                ui.color_edit3("Band 4##b3b1", &mut band4_rgb);
+                let (h, s, v) = crate::utils::color::rgb_to_hsb(band4_rgb[0], band4_rgb[1], band4_rgb[2]);
+                p.block1_colorize_band4 = Vec3::new(h, s, v);
+                p.block1_colorize_band4_x = h;
+                p.block1_colorize_band4_y = s;
+                p.block1_colorize_band4_z = v;
                 
-                let mut band5 = [p.block1_colorize_band5.x, p.block1_colorize_band5.y, p.block1_colorize_band5.z];
-                ui.color_edit3("Band 5##b3b1", &mut band5);
-                p.block1_colorize_band5 = Vec3::new(band5[0], band5[1], band5[2]);
-                p.block1_colorize_band5_x = band5[0];
-                p.block1_colorize_band5_y = band5[1];
-                p.block1_colorize_band5_z = band5[2];
+                let mut band5_rgb = [0.0f32; 3];
+                let (r, g, b) = crate::utils::color::hsb_to_rgb(p.block1_colorize_band5.x, p.block1_colorize_band5.y, p.block1_colorize_band5.z);
+                band5_rgb = [r, g, b];
+                ui.color_edit3("Band 5##b3b1", &mut band5_rgb);
+                let (h, s, v) = crate::utils::color::rgb_to_hsb(band5_rgb[0], band5_rgb[1], band5_rgb[2]);
+                p.block1_colorize_band5 = Vec3::new(h, s, v);
+                p.block1_colorize_band5_x = h;
+                p.block1_colorize_band5_y = s;
+                p.block1_colorize_band5_z = v;
             }
         }
         
@@ -2248,41 +2266,57 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
                     });
                 p.block2_colorize_hsb_rgb = mode_idx.clamp(0, 1) as i32;
                 
-                let mut band1 = [p.block2_colorize_band1.x, p.block2_colorize_band1.y, p.block2_colorize_band1.z];
-                ui.color_edit3("Band 1##b3b2", &mut band1);
-                p.block2_colorize_band1 = Vec3::new(band1[0], band1[1], band1[2]);
-                // Sync individual components for LFO modulation
-                p.block2_colorize_band1_x = band1[0];
-                p.block2_colorize_band1_y = band1[1];
-                p.block2_colorize_band1_z = band1[2];
+                // Colorize bands are stored as HSB values (matching the shader)
+                // Convert RGB color picker output to HSB
+                let mut band1_rgb = [0.0f32; 3];
+                let (r, g, b) = crate::utils::color::hsb_to_rgb(p.block2_colorize_band1.x, p.block2_colorize_band1.y, p.block2_colorize_band1.z);
+                band1_rgb = [r, g, b];
+                ui.color_edit3("Band 1##b3b2", &mut band1_rgb);
+                let (h, s, v) = crate::utils::color::rgb_to_hsb(band1_rgb[0], band1_rgb[1], band1_rgb[2]);
+                p.block2_colorize_band1 = Vec3::new(h, s, v);
+                p.block2_colorize_band1_x = h;
+                p.block2_colorize_band1_y = s;
+                p.block2_colorize_band1_z = v;
                 
-                let mut band2 = [p.block2_colorize_band2.x, p.block2_colorize_band2.y, p.block2_colorize_band2.z];
-                ui.color_edit3("Band 2##b3b2", &mut band2);
-                p.block2_colorize_band2 = Vec3::new(band2[0], band2[1], band2[2]);
-                p.block2_colorize_band2_x = band2[0];
-                p.block2_colorize_band2_y = band2[1];
-                p.block2_colorize_band2_z = band2[2];
+                let mut band2_rgb = [0.0f32; 3];
+                let (r, g, b) = crate::utils::color::hsb_to_rgb(p.block2_colorize_band2.x, p.block2_colorize_band2.y, p.block2_colorize_band2.z);
+                band2_rgb = [r, g, b];
+                ui.color_edit3("Band 2##b3b2", &mut band2_rgb);
+                let (h, s, v) = crate::utils::color::rgb_to_hsb(band2_rgb[0], band2_rgb[1], band2_rgb[2]);
+                p.block2_colorize_band2 = Vec3::new(h, s, v);
+                p.block2_colorize_band2_x = h;
+                p.block2_colorize_band2_y = s;
+                p.block2_colorize_band2_z = v;
                 
-                let mut band3 = [p.block2_colorize_band3.x, p.block2_colorize_band3.y, p.block2_colorize_band3.z];
-                ui.color_edit3("Band 3##b3b2", &mut band3);
-                p.block2_colorize_band3 = Vec3::new(band3[0], band3[1], band3[2]);
-                p.block2_colorize_band3_x = band3[0];
-                p.block2_colorize_band3_y = band3[1];
-                p.block2_colorize_band3_z = band3[2];
+                let mut band3_rgb = [0.0f32; 3];
+                let (r, g, b) = crate::utils::color::hsb_to_rgb(p.block2_colorize_band3.x, p.block2_colorize_band3.y, p.block2_colorize_band3.z);
+                band3_rgb = [r, g, b];
+                ui.color_edit3("Band 3##b3b2", &mut band3_rgb);
+                let (h, s, v) = crate::utils::color::rgb_to_hsb(band3_rgb[0], band3_rgb[1], band3_rgb[2]);
+                p.block2_colorize_band3 = Vec3::new(h, s, v);
+                p.block2_colorize_band3_x = h;
+                p.block2_colorize_band3_y = s;
+                p.block2_colorize_band3_z = v;
                 
-                let mut band4 = [p.block2_colorize_band4.x, p.block2_colorize_band4.y, p.block2_colorize_band4.z];
-                ui.color_edit3("Band 4##b3b2", &mut band4);
-                p.block2_colorize_band4 = Vec3::new(band4[0], band4[1], band4[2]);
-                p.block2_colorize_band4_x = band4[0];
-                p.block2_colorize_band4_y = band4[1];
-                p.block2_colorize_band4_z = band4[2];
+                let mut band4_rgb = [0.0f32; 3];
+                let (r, g, b) = crate::utils::color::hsb_to_rgb(p.block2_colorize_band4.x, p.block2_colorize_band4.y, p.block2_colorize_band4.z);
+                band4_rgb = [r, g, b];
+                ui.color_edit3("Band 4##b3b2", &mut band4_rgb);
+                let (h, s, v) = crate::utils::color::rgb_to_hsb(band4_rgb[0], band4_rgb[1], band4_rgb[2]);
+                p.block2_colorize_band4 = Vec3::new(h, s, v);
+                p.block2_colorize_band4_x = h;
+                p.block2_colorize_band4_y = s;
+                p.block2_colorize_band4_z = v;
                 
-                let mut band5 = [p.block2_colorize_band5.x, p.block2_colorize_band5.y, p.block2_colorize_band5.z];
-                ui.color_edit3("Band 5##b3b2", &mut band5);
-                p.block2_colorize_band5 = Vec3::new(band5[0], band5[1], band5[2]);
-                p.block2_colorize_band5_x = band5[0];
-                p.block2_colorize_band5_y = band5[1];
-                p.block2_colorize_band5_z = band5[2];
+                let mut band5_rgb = [0.0f32; 3];
+                let (r, g, b) = crate::utils::color::hsb_to_rgb(p.block2_colorize_band5.x, p.block2_colorize_band5.y, p.block2_colorize_band5.z);
+                band5_rgb = [r, g, b];
+                ui.color_edit3("Band 5##b3b2", &mut band5_rgb);
+                let (h, s, v) = crate::utils::color::rgb_to_hsb(band5_rgb[0], band5_rgb[1], band5_rgb[2]);
+                p.block2_colorize_band5 = Vec3::new(h, s, v);
+                p.block2_colorize_band5_x = h;
+                p.block2_colorize_band5_y = s;
+                p.block2_colorize_band5_z = v;
             }
         }
         
