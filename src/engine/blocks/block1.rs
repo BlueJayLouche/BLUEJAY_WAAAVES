@@ -5,6 +5,7 @@
 //! 2. Effects - HSB, blur (optional, skip if not needed)
 //! 3. Mixing - Combine inputs
 
+use std::cell::RefCell;
 use crate::engine::blocks::{BlockResources, StageVertex};
 use crate::params::Block1Params;
 
@@ -63,6 +64,16 @@ pub struct ModularBlock1 {
     width: u32,
     height: u32,
     
+    /// Bind group cache to avoid recreating every frame
+    /// Key: (input1_ptr, input2_ptr, feedback_ptr) -> BindGroup
+    stage1_bind_group_cache: RefCell<std::collections::HashMap<(u64, u64, u64), wgpu::BindGroup>>,
+    
+    /// Stage 2 bind group cache
+    /// Key: input_ptr -> BindGroup
+    stage2_bind_group_cache: RefCell<std::collections::HashMap<u64, wgpu::BindGroup>>,
+    
+    /// Cached samplers to avoid creating every frame
+    sampler_cache: RefCell<Option<wgpu::Sampler>>,
 
 }
 
@@ -270,6 +281,10 @@ impl ModularBlock1 {
             vertex_buffer,
             width,
             height,
+            // Initialize bind group caches
+            stage1_bind_group_cache: RefCell::new(std::collections::HashMap::new()),
+            stage2_bind_group_cache: RefCell::new(std::collections::HashMap::new()),
+            sampler_cache: RefCell::new(None),
         }
     }
     
@@ -1798,7 +1813,7 @@ impl ModularBlock1 {
         let ch1_input_view = if ch1_use_input2 { input2_view } else { input1_view };
         // Bind dummy black to input2 since we're not using it
         let dummy_view = self.resources.get_feedback_view(); // Reuse as dummy
-        let stage1_ch1_bind_group = self.create_stage1_bind_group(
+        let stage1_ch1_bind_group = self.get_stage1_bind_group(
             device, &self.stage1_uniforms_ch1, ch1_input_view, dummy_view, dummy_view
         );
         
@@ -1874,7 +1889,7 @@ impl ModularBlock1 {
             };
             self.write_stage2_uniforms(queue, &self.stage2_uniforms_ch1, &stage2_ch1_uniforms);
             
-            let stage2_ch1_bind_group = self.create_stage2_bind_group(
+            let stage2_ch1_bind_group = self.get_stage2_bind_group(
                 device, &self.stage2_uniforms_ch1, &self.resources.buffer_a.view
             );
             
@@ -1940,7 +1955,7 @@ impl ModularBlock1 {
             let ch2_input_view = if ch2_use_input2 { input2_view } else { input1_view };
             // Bind dummy black to unused slots
             let dummy_view = self.resources.get_feedback_view();
-            let stage1_ch2_bind_group = self.create_stage1_bind_group(
+            let stage1_ch2_bind_group = self.get_stage1_bind_group(
                 device, &self.stage1_uniforms_ch2, ch2_input_view, dummy_view, dummy_view
             );
             
@@ -2013,7 +2028,7 @@ impl ModularBlock1 {
                     self.write_stage2_uniforms(queue, &self.stage2_uniforms_ch2, &stage2_ch2_uniforms);
                     
                     // Read from buffer_a (Stage1 CH2 output), write to ch2_buffer
-                    let stage2_ch2_bind_group = self.create_stage2_bind_group(
+                    let stage2_ch2_bind_group = self.get_stage2_bind_group(
                         device, &self.stage2_uniforms_ch2, &self.resources.buffer_a.view
                     );
                     
@@ -2273,8 +2288,23 @@ impl ModularBlock1 {
         queue.write_buffer(&self.stage3_uniforms, 0, uniform_bytes);
     }
     
-    /// Helper to create Stage 1 bind group
-    fn create_stage1_bind_group(
+    /// Get or create cached sampler
+    fn get_sampler(&self, device: &wgpu::Device) -> wgpu::Sampler {
+        let mut cache = self.sampler_cache.borrow_mut();
+        if cache.is_none() {
+            *cache = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            }));
+        }
+        cache.as_ref().unwrap().clone()
+    }
+    
+    /// Get cached Stage 1 bind group or create if inputs changed
+    fn get_stage1_bind_group(
         &self,
         device: &wgpu::Device,
         uniforms: &wgpu::Buffer,
@@ -2282,37 +2312,75 @@ impl ModularBlock1 {
         input2_view: &wgpu::TextureView,
         feedback_view: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Block1 Stage1 Bind Group"),
-            layout: &self.stage1_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: uniforms.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(input1_view) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
-                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(input2_view) },
-                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
-                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(feedback_view) },
-                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
-            ],
-        })
+        // Create cache key from texture view pointers
+        let key = (
+            input1_view as *const _ as u64,
+            input2_view as *const _ as u64,
+            feedback_view as *const _ as u64,
+        );
+        
+        // Check cache
+        let mut cache = self.stage1_bind_group_cache.borrow_mut();
+        if !cache.contains_key(&key) {
+            // Create new bind group
+            let sampler = self.get_sampler(device);
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Block1 Stage1 Bind Group"),
+                layout: &self.stage1_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: uniforms.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(input1_view) },
+                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
+                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(input2_view) },
+                    wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&sampler) },
+                    wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(feedback_view) },
+                    wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&sampler) },
+                ],
+            });
+            cache.insert(key, bind_group);
+            
+            // Limit cache size to prevent unbounded growth
+            if cache.len() > 16 {
+                // Remove oldest entry (simple approach)
+                let oldest_key = *cache.keys().next().unwrap();
+                cache.remove(&oldest_key);
+            }
+        }
+        
+        cache.get(&key).unwrap().clone()
     }
     
-    /// Helper to create Stage 2 bind group
-    fn create_stage2_bind_group(
+    /// Get cached Stage 2 bind group or create if input changed
+    fn get_stage2_bind_group(
         &self,
         device: &wgpu::Device,
         uniforms: &wgpu::Buffer,
         input_view: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Block1 Stage2 Bind Group"),
-            layout: &self.stage2_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: uniforms.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(input_view) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.create_sampler(device)) },
-            ],
-        })
+        let key = input_view as *const _ as u64;
+        
+        let mut cache = self.stage2_bind_group_cache.borrow_mut();
+        if !cache.contains_key(&key) {
+            let sampler = self.get_sampler(device);
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Block1 Stage2 Bind Group"),
+                layout: &self.stage2_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: uniforms.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(input_view) },
+                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
+                ],
+            });
+            cache.insert(key, bind_group);
+            
+            // Limit cache size
+            if cache.len() > 8 {
+                let oldest_key = *cache.keys().next().unwrap();
+                cache.remove(&oldest_key);
+            }
+        }
+        
+        cache.get(&key).unwrap().clone()
     }
     
     /// Get the output view (final result from Stage 3)
