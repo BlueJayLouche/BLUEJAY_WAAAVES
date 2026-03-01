@@ -458,8 +458,12 @@ impl AudioInput {
                             
                             for i in 0..(fft_size / 2) {
                                 let magnitude = output[i].norm();
-                                let db = 20.0 * (magnitude + 1e-10).log10();
-                                let normalized = ((db + 60.0) / 60.0).clamp(0.0, 1.0) * amplitude;
+                                // Apply amplitude as gain BEFORE dB conversion
+                                // This preserves dynamic range and noise floor behavior
+                                let gain = amplitude.max(0.0001); // Prevent zero gain issues
+                                let scaled_magnitude = magnitude * gain;
+                                let db = 20.0 * (scaled_magnitude + 1e-10).log10();
+                                let normalized = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
                                 bins.push(normalized);
                                 total_energy += normalized;
                             }
@@ -727,11 +731,13 @@ fn compute_8band_fft(bins: &[f32], sample_rate: u32, fft_size: usize, bands: &mu
             }
             
             // Calculate normalized value (0-1 based on min/max range)
-            let range = bands.peaks[i] - bands.mins[i];
+            // Ensure peaks >= mins to avoid negative ranges
+            let peaks = bands.peaks[i].max(bands.mins[i]);
+            let range = peaks - bands.mins[i];
             if range > 0.001 {
-                bands.normalized[i] = (bands.smoothed[i] - bands.mins[i]) / range;
+                bands.normalized[i] = ((bands.smoothed[i] - bands.mins[i]) / range).clamp(0.0, 1.0);
             } else {
-                bands.normalized[i] = bands.smoothed[i];
+                bands.normalized[i] = bands.smoothed[i].clamp(0.0, 1.0);
             }
         }
     }
