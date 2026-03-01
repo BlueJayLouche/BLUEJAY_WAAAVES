@@ -157,6 +157,11 @@ pub struct ControlGui {
     pub selected_webcam2: i32,
     pub webcam_devices: Vec<String>,
     
+    // Audio device selection
+    pub audio_devices: Vec<String>,
+    pub selected_audio_device: i32,
+    pub audio_device_dirty: bool,
+    
     // Audio modulation UI state
     show_audio_panel: bool,
     selected_block1_param: i32,
@@ -262,6 +267,10 @@ impl ControlGui {
         let webcam_devices = crate::input::webcam::list_cameras();
         log::info!("Found {} webcam device(s)", webcam_devices.len());
         
+        // Load audio devices
+        let audio_devices = crate::audio::AudioInput::list_devices();
+        log::info!("Found {} audio device(s)", audio_devices.len());
+        
         // Load input settings from config
         let input1_type = match config.inputs.input1_type {
             0 => InputType::None,
@@ -319,6 +328,9 @@ impl ControlGui {
             selected_webcam1,
             selected_webcam2,
             webcam_devices,
+            audio_devices,
+            selected_audio_device: -1,
+            audio_device_dirty: false,
             show_audio_panel: false,
             selected_block1_param: 0,
             selected_block2_param: 0,
@@ -443,12 +455,19 @@ impl ControlGui {
         self.webcam_devices = crate::input::webcam::list_cameras();
         log::info!("Refreshed device list: {} webcam(s) found", self.webcam_devices.len());
         
+        // Scan for audio devices
+        self.audio_devices = crate::audio::AudioInput::list_devices();
+        log::info!("Refreshed device list: {} audio device(s) found", self.audio_devices.len());
+        
         // Reset selections if they're now out of bounds
         if self.selected_webcam1 >= 0 && (self.selected_webcam1 as usize) >= self.webcam_devices.len() {
             self.selected_webcam1 = -1;
         }
         if self.selected_webcam2 >= 0 && (self.selected_webcam2 as usize) >= self.webcam_devices.len() {
             self.selected_webcam2 = -1;
+        }
+        if self.selected_audio_device >= 0 && (self.selected_audio_device as usize) >= self.audio_devices.len() {
+            self.selected_audio_device = -1;
         }
     }
     
@@ -2735,6 +2754,39 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
         
         // Audio input section
         if CollapsingHeader::new("Audio Input").default_open(true).build(ui) {
+            // Audio device selection
+            let audio_devices: Vec<&str> = self.audio_devices.iter().map(|s| s.as_str()).collect();
+            if !audio_devices.is_empty() {
+                let preview = if self.selected_audio_device >= 0 { 
+                    self.audio_devices[self.selected_audio_device as usize].clone()
+                } else { "Select audio device...".to_string() };
+                
+                let mut selected = self.selected_audio_device;
+                ComboBox::new(ui, "##audio_device_select")
+                    .preview_value(&preview)
+                    .build(|| {
+                        for (idx, opt) in audio_devices.iter().enumerate() {
+                            if ui.selectable_config(opt).selected(idx == selected as usize).build() {
+                                selected = idx as i32;
+                            }
+                        }
+                    });
+                let device_changed = self.selected_audio_device != selected;
+                self.selected_audio_device = selected;
+                
+                // Send change request to engine
+                if device_changed && self.selected_audio_device >= 0 {
+                    if let Ok(mut state) = self.shared_state.lock() {
+                        state.audio_change_request = crate::core::AudioChangeRequest::ChangeDevice {
+                            device_index: self.selected_audio_device,
+                        };
+                    }
+                }
+            } else {
+                ui.text_disabled("No audio devices found");
+            }
+            
+            // Audio status display
             if let Ok(state) = self.shared_state.lock() {
                 ui.text(format!("Volume: {:.3}", state.audio.volume));
                 ui.text(format!("BPM: {:.1}", state.audio.bpm));
