@@ -184,6 +184,27 @@ impl Default for FftBands {
     }
 }
 
+/// Audio processing settings (shared between threads)
+#[derive(Debug, Clone)]
+pub struct AudioSettings {
+    /// Smoothing factor (0-1)
+    pub smoothing: f32,
+    /// Amplitude multiplier
+    pub amplitude: f32,
+    /// Normalization enabled
+    pub normalization: bool,
+}
+
+impl Default for AudioSettings {
+    fn default() -> Self {
+        Self {
+            smoothing: 0.7,
+            amplitude: 1.0,
+            normalization: false,
+        }
+    }
+}
+
 /// Audio input manager
 pub struct AudioInput {
     /// Whether audio capture is active
@@ -202,12 +223,8 @@ pub struct AudioInput {
     fft_bands: Arc<Mutex<FftBands>>,
     /// Beat detection state
     beat_state: Arc<Mutex<BeatState>>,
-    /// Smoothing factor (0-1)
-    smoothing: f32,
-    /// Amplitude multiplier
-    amplitude: f32,
-    /// Normalization enabled
-    normalization: bool,
+    /// Audio processing settings (shared with audio thread)
+    settings: Arc<Mutex<AudioSettings>>,
 }
 
 /// Beat detection state
@@ -250,9 +267,7 @@ impl AudioInput {
             fft_output: Arc::new(Mutex::new(vec![0.0; fft_size / 2])),
             fft_bands: Arc::new(Mutex::new(FftBands::default())),
             beat_state: Arc::new(Mutex::new(BeatState::new())),
-            smoothing: 0.7, // Default smoothing
-            amplitude: 1.0, // Default amplitude
-            normalization: false, // Default: no normalization
+            settings: Arc::new(Mutex::new(AudioSettings::default())),
         }
     }
     
@@ -260,7 +275,8 @@ impl AudioInput {
     /// Returns normalized values if normalization is enabled
     pub fn get_8band_fft(&self) -> [f32; 8] {
         let bands = self.fft_bands.lock().unwrap();
-        if self.normalization {
+        let use_normalization = self.settings.lock().map(|s| s.normalization).unwrap_or(false);
+        if use_normalization {
             bands.normalized
         } else {
             bands.smoothed
@@ -283,32 +299,38 @@ impl AudioInput {
     
     /// Set smoothing factor (0-1)
     pub fn set_smoothing(&mut self, smoothing: f32) {
-        self.smoothing = smoothing.clamp(0.0, 0.99);
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.smoothing = smoothing.clamp(0.0, 0.99);
+        }
     }
     
     /// Get smoothing factor
     pub fn get_smoothing(&self) -> f32 {
-        self.smoothing
+        self.settings.lock().map(|s| s.smoothing).unwrap_or(0.7)
     }
     
     /// Set amplitude multiplier
     pub fn set_amplitude(&mut self, amplitude: f32) {
-        self.amplitude = amplitude.clamp(0.0, 10.0);
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.amplitude = amplitude.clamp(0.0, 10.0);
+        }
     }
     
     /// Get amplitude multiplier
     pub fn get_amplitude(&self) -> f32 {
-        self.amplitude
+        self.settings.lock().map(|s| s.amplitude).unwrap_or(1.0)
     }
     
     /// Set normalization enabled
     pub fn set_normalization(&mut self, enabled: bool) {
-        self.normalization = enabled;
+        if let Ok(mut settings) = self.settings.lock() {
+            settings.normalization = enabled;
+        }
     }
     
     /// Get normalization enabled
     pub fn get_normalization(&self) -> bool {
-        self.normalization
+        self.settings.lock().map(|s| s.normalization).unwrap_or(false)
     }
     
     /// Initialize audio input with default device
@@ -393,9 +415,7 @@ impl AudioInput {
     fn build_stream(&self, device: &cpal::Device, config: &cpal::StreamConfig) -> Result<cpal::Stream> {
         let fft_size = self.fft_size;
         let sample_rate = self.sample_rate;
-        let amplitude = self.amplitude;
-        let smoothing = self.smoothing;
-        let normalization = self.normalization;
+        let settings = Arc::clone(&self.settings);
         let audio_buffer = Arc::clone(&self.audio_buffer);
         let fft_output = Arc::clone(&self.fft_output);
         let fft_bands = Arc::clone(&self.fft_bands);
@@ -410,6 +430,11 @@ impl AudioInput {
         let stream = device.build_input_stream(
             config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                // Read current settings (amplitude, smoothing, normalization)
+                let (amplitude, smoothing, normalization) = settings.lock()
+                    .map(|s| (s.amplitude, s.smoothing, s.normalization))
+                    .unwrap_or((1.0, 0.7, false));
+                
                 // Samples are already f32
                 let samples: Vec<f32> = data.to_vec();
                 
