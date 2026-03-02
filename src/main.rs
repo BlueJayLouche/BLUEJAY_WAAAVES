@@ -35,6 +35,7 @@ mod engine;
 mod gui;
 mod input;
 mod params;
+mod recorder;
 mod utils;
 
 // Simple mode module

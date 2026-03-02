@@ -71,6 +71,64 @@ pub struct LfoAssignment {
 /// LFO parameter mappings for a block
 pub type LfoParameterMap = HashMap<String, LfoAssignment>;
 
+/// Recording command from GUI to engine
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RecordingCommand {
+    #[default]
+    None,
+    Start,
+    Stop,
+    Toggle,
+}
+
+/// Video codec options
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VideoCodec {
+    #[default]
+    H264,       // H.264 (AVC) - good compatibility
+    H265,       // H.265 (HEVC) - better compression
+    ProRes,     // Apple ProRes - professional editing
+    VP9,        // VP9 - web optimized
+    AV1,        // AV1 - next gen compression
+}
+
+/// Recording quality preset
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RecordingQuality {
+    #[default]
+    High,       // High quality, larger file
+    Medium,     // Balanced
+    Low,        // Smaller file, lower quality
+    Lossless,   // Uncompressed (very large)
+}
+
+/// Recording settings
+#[derive(Debug, Clone)]
+pub struct RecordingSettings {
+    /// Video codec to use
+    pub codec: VideoCodec,
+    /// Quality preset
+    pub quality: RecordingQuality,
+    /// Output filename (without extension)
+    pub filename: String,
+    /// Include audio in recording
+    pub include_audio: bool,
+    /// Frame rate (usually matches display refresh)
+    pub fps: u32,
+}
+
+impl Default for RecordingSettings {
+    fn default() -> Self {
+        Self {
+            codec: VideoCodec::H264,
+            quality: RecordingQuality::High,
+            filename: String::from("output"),
+            include_audio: true,
+            fps: 60,
+        }
+    }
+}
+
 /// Shared application state between windows
 /// 
 /// This struct is wrapped in an Arc<Mutex<>> and shared between
@@ -103,6 +161,10 @@ pub struct SharedState {
     pub internal_size: (u32, u32),
     /// Recording state
     pub is_recording: bool,
+    /// Recording command from GUI (Start/Stop/Toggle)
+    pub recording_command: RecordingCommand,
+    /// Recording settings (codec, quality, etc.)
+    pub recording_settings: RecordingSettings,
     /// Input 1 change request (GUI -> Engine)
     pub input1_change_request: InputChangeRequest,
     /// Input 2 change request (GUI -> Engine)
@@ -174,6 +236,8 @@ impl SharedState {
             output_size: (config.output_window.width, config.output_window.height),
             internal_size: (config.pipeline.internal_width, config.pipeline.internal_height),
             is_recording: false,
+            recording_command: RecordingCommand::None,
+            recording_settings: RecordingSettings::default(),
             input1_change_request: InputChangeRequest::None,
             input2_change_request: InputChangeRequest::None,
             audio_change_request: AudioChangeRequest::None,

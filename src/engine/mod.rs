@@ -158,6 +158,15 @@ impl App {
             log::debug!("Tap tempo triggered from keyboard");
         }
     }
+    
+    /// Toggle recording from keyboard shortcut (Shift+R)
+    fn toggle_recording(&mut self) {
+        // Send toggle command to engine through shared state
+        if let Ok(mut state) = self.shared_state.lock() {
+            state.recording_command = crate::core::RecordingCommand::Toggle;
+            log::info!("Recording toggle requested (Shift+R)");
+        }
+    }
 }
 
 impl ApplicationHandler for App {
@@ -316,6 +325,9 @@ impl ApplicationHandler for App {
                                     } else if self.shift_pressed && key == "t" {
                                         // Shift+T: Tap tempo
                                         self.trigger_tap_tempo();
+                                    } else if self.shift_pressed && key == "r" {
+                                        // Shift+R: Toggle recording
+                                        self.toggle_recording();
                                     }
                                 }
                                 _ => {}
@@ -608,6 +620,9 @@ pub struct WgpuEngine {
     
     /// Preview renderer for color picker
     preview_renderer: Option<crate::engine::preview::PreviewRenderer>,
+    
+    /// Video recorder
+    recorder: Option<crate::recorder::Recorder>,
 }
 
 impl WgpuEngine {
@@ -896,6 +911,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             preview_renderer: Some(crate::engine::preview::PreviewRenderer::new(
                 &device, 320, 180
             )),
+            
+            // Initialize recorder (will be created when recording starts)
+            recorder: None,
         })
     }
     

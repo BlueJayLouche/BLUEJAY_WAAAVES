@@ -3042,11 +3042,84 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
             }
         }
         
-        // Recording toggle
-        if let Ok(mut state) = self.shared_state.lock() {
-            let mut recording = state.is_recording;
-            if ui.checkbox("Recording", &mut recording) {
-                state.is_recording = recording;
+        // Recording Section
+        if CollapsingHeader::new("Recording (Shift+R)").default_open(true).build(ui) {
+            if let Ok(mut state) = self.shared_state.lock() {
+                // Recording status with red indicator
+                let is_recording = state.is_recording;
+                if is_recording {
+                    ui.text_colored([1.0, 0.0, 0.0, 1.0], "● REC");
+                } else {
+                    ui.text("○ Ready");
+                }
+                
+                // Start/Stop button
+                let button_label = if is_recording { "Stop Recording" } else { "Start Recording" };
+                if ui.button(button_label) {
+                    state.recording_command = crate::core::RecordingCommand::Toggle;
+                }
+                ui.same_line();
+                ui.text_disabled("or press Shift+R");
+                
+                ui.separator();
+                
+                // Codec selection
+                let codec_names = ["H.264 (AVC)", "H.265 (HEVC)", "ProRes", "VP9", "AV1"];
+                let mut codec_idx = state.recording_settings.codec as usize;
+                let codec_preview = codec_names[codec_idx.min(4)];
+                
+                ComboBox::new(ui, "Codec##rec")
+                    .preview_value(codec_preview)
+                    .build(|| {
+                        for (idx, name) in codec_names.iter().enumerate() {
+                            if ui.selectable_config(name).selected(idx == codec_idx).build() {
+                                codec_idx = idx;
+                            }
+                        }
+                    });
+                
+                state.recording_settings.codec = match codec_idx {
+                    0 => crate::core::VideoCodec::H264,
+                    1 => crate::core::VideoCodec::H265,
+                    2 => crate::core::VideoCodec::ProRes,
+                    3 => crate::core::VideoCodec::VP9,
+                    4 => crate::core::VideoCodec::AV1,
+                    _ => crate::core::VideoCodec::H264,
+                };
+                
+                // Quality selection
+                let quality_names = ["Lossless", "High", "Medium", "Low"];
+                let mut quality_idx = state.recording_settings.quality as usize;
+                let quality_preview = quality_names[quality_idx.min(3)];
+                
+                ComboBox::new(ui, "Quality##rec")
+                    .preview_value(quality_preview)
+                    .build(|| {
+                        for (idx, name) in quality_names.iter().enumerate() {
+                            if ui.selectable_config(name).selected(idx == quality_idx).build() {
+                                quality_idx = idx;
+                            }
+                        }
+                    });
+                
+                state.recording_settings.quality = match quality_idx {
+                    0 => crate::core::RecordingQuality::Lossless,
+                    1 => crate::core::RecordingQuality::High,
+                    2 => crate::core::RecordingQuality::Medium,
+                    3 => crate::core::RecordingQuality::Low,
+                    _ => crate::core::RecordingQuality::High,
+                };
+                
+                // Include audio toggle
+                ui.checkbox("Include Audio", &mut state.recording_settings.include_audio);
+                
+                // Filename input
+                ui.text("Filename:");
+                imgui::InputText::new(ui, "##rec_filename", &mut state.recording_settings.filename)
+                    .hint("output")
+                    .build();
+                ui.same_line();
+                ui.text(".mp4");
             }
         }
         
