@@ -76,14 +76,20 @@ pub struct PresetData {
     pub block3: Block3Params,
     
     // Audio/BPM modulations for all blocks (key = parameter name)
+    // Backward compatible - uses empty HashMap if missing
+    #[serde(default)]
     pub block1_modulations: HashMap<String, ParamModulationData>,
+    #[serde(default)]
     pub block2_modulations: HashMap<String, ParamModulationData>,
+    #[serde(default)]
     pub block3_modulations: HashMap<String, ParamModulationData>,
     
-    // Audio processing settings
+    // Audio processing settings (backward compatible - uses default if missing)
+    #[serde(default)]
     pub audio: PresetAudioSettings,
     
-    // Tempo settings
+    // Tempo settings (backward compatible - uses default if missing)
+    #[serde(default)]
     pub tempo: PresetTempoData,
     
     // Metadata
