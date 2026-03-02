@@ -14,6 +14,7 @@ pub use of_preset_compat::*;
 
 /// Block 1 parameters - Channel mixing and feedback
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Block1Params {
     // Channel 1 parameters
     pub ch1_x_displace: f32,
@@ -170,6 +171,7 @@ pub struct Block1Params {
 
 /// Block 2 parameters - Secondary processing
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Block2Params {
     // Block 2 input
     pub block2_input_x_displace: f32,
@@ -279,6 +281,7 @@ pub struct Block2Params {
 
 /// Block 3 parameters - Final mixing and output
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Block3Params {
     // Block 1 geo (re-processing block 1 output)
     pub block1_x_displace: f32,
@@ -416,6 +419,14 @@ pub struct Block3Params {
     pub final_mix_type: i32,
     pub final_mix_overflow: i32,
     pub final_key_order: i32,
+    
+    // Final dither (output dither)
+    #[serde(default = "default_dither_amount")]
+    pub final_dither: f32,
+    #[serde(default)]
+    pub final_dither_switch: bool,
+    #[serde(default)]
+    pub final_dither_type: i32,
 }
 
 /// LFO (Low Frequency Oscillator) bank
@@ -655,6 +666,11 @@ impl Default for Block2Params {
     }
 }
 
+// Default functions for serde
+fn default_dither_amount() -> f32 {
+    16.0
+}
+
 impl Default for Block3Params {
     fn default() -> Self {
         Self {
@@ -773,6 +789,9 @@ impl Default for Block3Params {
             final_mix_type: 0,
             final_mix_overflow: 0,
             final_key_order: 0,
+            final_dither: 16.0,
+            final_dither_switch: false,
+            final_dither_type: 0,
         }
     }
 }

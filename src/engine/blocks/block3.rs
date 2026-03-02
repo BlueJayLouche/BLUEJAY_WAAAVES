@@ -121,6 +121,12 @@ struct Stage2Uniforms {
     final_mix_overflow: i32,// 104
     final_key_order: i32,   // 108
     _pad8: f32,             // 112
+    
+    // Final dither (112-128)
+    final_dither_amount: f32,  // 112
+    final_dither_switch: f32,  // 116
+    final_dither_type: i32,    // 120
+    _pad9: f32,                // 124
 }
 
 /// Modular Block 3 implementation
@@ -513,34 +519,203 @@ impl ModularBlock3 {
                 return result;
             }
             
-            // Bayer dither functions
+            // === DITHER ALGORITHMS ===
+            // Comprehensive collection from classic to glitchy
+            
+            // --- Helper: Hash/Noise functions ---
+            fn hash12(p: vec2<f32>) -> f32 {
+                let p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+                let p4 = p3 + dot(p3, p3.yzx + 33.33);
+                return fract((p4.x + p4.y) * p4.z);
+            }
+            
+            fn hash13(p: vec3<f32>) -> f32 {
+                let p3 = fract(p * 0.1031);
+                let p4 = p3 + dot(p3, p3.zxy + 33.33);
+                return fract((p4.x + p4.y) * p4.z);
+            }
+            
+            // --- 1. ORDERED DITHERS (Bayer) ---
             fn bayer4x4(coord: vec2<f32>) -> f32 {
-                let x = i32(coord.x) % 4;
-                let y = i32(coord.y) % 4;
-                let v = ((x ^ y) << 1) | ((x & 1) ^ ((y & 2) >> 1));
-                return f32(v) / 16.0;
+                let x = i32(coord.x) & 3;
+                let y = i32(coord.y) & 3;
+                let matrix = array<i32, 16>(
+                    0, 8, 2, 10,
+                    12, 4, 14, 6,
+                    3, 11, 1, 9,
+                    15, 7, 13, 5
+                );
+                return f32(matrix[y * 4 + x]) / 16.0;
             }
             
             fn bayer8x8(coord: vec2<f32>) -> f32 {
-                let b4 = bayer4x4(coord);
-                let b4offset = bayer4x4(coord * 0.5 + vec2<f32>(0.5));
-                return (b4 + b4offset * 0.25) * 0.8;
+                let x = i32(coord.x) & 7;
+                let y = i32(coord.y) & 7;
+                let matrix = array<i32, 64>(
+                    0, 32, 8, 40, 2, 34, 10, 42,
+                    48, 16, 56, 24, 50, 18, 58, 26,
+                    12, 44, 4, 36, 14, 46, 6, 38,
+                    60, 28, 52, 20, 62, 30, 54, 22,
+                    3, 35, 11, 43, 1, 33, 9, 41,
+                    51, 19, 59, 27, 49, 17, 57, 25,
+                    15, 47, 7, 39, 13, 45, 5, 37,
+                    63, 31, 55, 23, 61, 29, 53, 21
+                );
+                return f32(matrix[y * 8 + x]) / 64.0;
             }
             
-            fn quantize(in_color: f32, palette_size: f32) -> f32 {
-                let scaled = in_color * palette_size;
-                let lower = floor(scaled) / palette_size;
-                let upper = ceil(scaled) / palette_size;
-                return select(upper, lower, (in_color - lower) < (upper - in_color));
+            // --- 2. NOISE DITHERS ---
+            fn blue_noise(coord: vec2<f32>) -> f32 {
+                // Blue noise approximation - more high-frequency content
+                let x = i32(coord.x);
+                let y = i32(coord.y);
+                var n = x * 374761 + y * 668265;
+                n = (n << 13) ^ n;
+                n = n * (n * n * 15731 + 789221) + 1376312589;
+                return f32(n & 0x7fffffff) / f32(0x7fffffff);
             }
             
-            fn dither2(in_color: f32, coord: vec2<f32>, palette: f32, dither_type: i32) -> f32 {
-                let bayer4 = bayer4x4(coord);
-                let bayer8 = bayer8x8(coord);
-                let index_value = mix(bayer4, bayer8, f32(dither_type));
-                let noise = (index_value - 0.5) / palette;
-                let dithered = in_color + noise * 0.5;
-                return quantize(clamp(dithered, 0.0, 1.0), palette);
+            fn white_noise(coord: vec2<f32>) -> f32 {
+                return fract(sin(dot(coord, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+            }
+            
+            fn triangular_noise(coord: vec2<f32>) -> f32 {
+                let n1 = white_noise(coord);
+                let n2 = white_noise(coord + vec2<f32>(1.0));
+                return (n1 + n2) * 0.5;
+            }
+            
+            fn ign_noise(coord: vec2<f32>) -> f32 {
+                // Interleaved Gradient Noise - good for animation
+                return fract(52.9829189 * fract(0.06711056 * coord.x + 0.00583715 * coord.y));
+            }
+            
+            // --- 3. GLITCH / ARTIFACT DITHERS ---
+            
+            fn scanline_dither(in_color: f32, coord: vec2<f32>, palette: f32) -> f32 {
+                // Horizontal scanlines like CRT
+                let y = i32(coord.y);
+                let pattern = f32(y % 4);
+                let threshold = pattern / 4.0;
+                let scaled = in_color * palette;
+                let dithered = scaled + threshold - 0.5;
+                return clamp(floor(dithered) / palette, 0.0, 1.0);
+            }
+            
+            fn checkerboard_dither(in_color: f32, coord: vec2<f32>, palette: f32) -> f32 {
+                // 2x2 checker pattern
+                let x = i32(coord.x) & 1;
+                let y = i32(coord.y) & 1;
+                let threshold = f32(x ^ y);
+                let scaled = in_color * palette;
+                let dithered = scaled + threshold - 0.5;
+                return clamp(floor(dithered) / palette, 0.0, 1.0);
+            }
+            
+            fn stripe_dither(in_color: f32, coord: vec2<f32>, palette: f32) -> f32 {
+                // Vertical stripes - corrupted signal look
+                let x = i32(coord.x);
+                let threshold = f32(x % 8) / 8.0;
+                let scaled = in_color * palette;
+                let dithered = scaled + threshold - 0.5;
+                return clamp(floor(dithered) / palette, 0.0, 1.0);
+            }
+            
+            fn bitcrush_dither(in_color: f32, coord: vec2<f32>, bits: f32) -> f32 {
+                // Digital bit-depth reduction with noise
+                let step_size = 1.0 / bits;
+                let noise = white_noise(coord);
+                let dithered = in_color + (noise - 0.5) * step_size;
+                return floor(dithered * bits) / bits;
+            }
+            
+            fn threshold_dither(in_color: f32, coord: vec2<f32>) -> f32 {
+                // Extreme 1-bit with noise variation
+                let noise = white_noise(coord);
+                let threshold = 0.5 + (noise - 0.5) * 0.15;
+                return select(0.0, 1.0, in_color > threshold);
+            }
+            
+            fn pixelsort_dither(in_color: f32, coord: vec2<f32>, palette: f32) -> f32 {
+                // Simulates pixel sorting glitch
+                let y = i32(coord.y);
+                let pattern = f32(y % 2);
+                let step_size = 1.0 / palette;
+                let offset = select(0.0, step_size, pattern > 0.5);
+                let dithered = in_color + offset;
+                return clamp(floor(dithered * palette) / palette, 0.0, 1.0);
+            }
+            
+            fn atkinson_dither(in_color: f32, coord: vec2<f32>, palette: f32) -> f32 {
+                // Simulates error diffusion
+                let step_size = 1.0 / palette;
+                let x = i32(coord.x);
+                let y = i32(coord.y);
+                let noise = fract(sin(f32(x * 7 + y * 13)) * 43758.5453);
+                let threshold = noise;
+                let scaled = in_color * palette;
+                let dithered = scaled + threshold - 0.5;
+                return clamp(floor(dithered) / palette, 0.0, 1.0);
+            }
+            
+            fn glitch_channel_dither(in_color: f32, coord: vec2<f32>, palette: f32, channel: i32) -> f32 {
+                // RGB channel offset - creates color fringing
+                let offset = vec2<f32>(f32(channel) * 3.0, f32(channel) * 7.0);
+                let threshold = white_noise(coord + offset);
+                let scaled = in_color * palette;
+                let dithered = scaled + threshold - 0.5;
+                return clamp(floor(dithered) / palette, 0.0, 1.0);
+            }
+            
+            // --- Main Dither Router ---
+            fn dither_channel(in_color: f32, coord: vec2<f32>, palette: f32, dither_type: i32, channel: i32) -> f32 {
+                let step_size = 1.0 / palette;
+                
+                switch(dither_type) {
+                    // Ordered (0-1) - Standard Bayer ordered dither
+                    case 0: {
+                        let threshold = bayer4x4(coord);
+                        // Map input to palette range, add threshold, then quantize
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    case 1: {
+                        let threshold = bayer8x8(coord);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    // Noise (2-4) - Use noise as threshold
+                    case 2: {
+                        let threshold = blue_noise(coord);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    case 3: {
+                        let threshold = white_noise(coord);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    case 4: {
+                        let threshold = ign_noise(coord);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    // Glitch/Artifact (5-12)
+                    case 5: { return scanline_dither(in_color, coord, palette); }
+                    case 6: { return checkerboard_dither(in_color, coord, palette); }
+                    case 7: { return stripe_dither(in_color, coord, palette); }
+                    case 8: { return bitcrush_dither(in_color, coord, palette); }
+                    case 9: { return threshold_dither(in_color, coord); }
+                    case 10: { return pixelsort_dither(in_color, coord, palette); }
+                    case 11: { return atkinson_dither(in_color, coord, palette); }
+                    case 12: { return glitch_channel_dither(in_color, coord, palette, channel); }
+                    default: { return in_color; }
+                }
             }
             
             fn apply_dither(color: vec3<f32>, coord: vec2<f32>) -> vec3<f32> {
@@ -548,10 +723,11 @@ impl ModularBlock3 {
                     return color;
                 }
                 let dither_type = i32(uniforms.dither_type);
+                let palette = uniforms.dither_amount;
                 return vec3<f32>(
-                    dither2(color.r, coord, uniforms.dither_amount, dither_type),
-                    dither2(color.g, coord, uniforms.dither_amount, dither_type),
-                    dither2(color.b, coord, uniforms.dither_amount, dither_type)
+                    dither_channel(color.r, coord, palette, dither_type, 0),
+                    dither_channel(color.g, coord, palette, dither_type, 1),
+                    dither_channel(color.b, coord, palette, dither_type, 2)
                 );
             }
             
@@ -742,6 +918,11 @@ impl ModularBlock3 {
                 final_mix_overflow: i32,
                 final_key_order: i32,
                 _pad8: f32,
+                // Final dither (add at end to not break alignment)
+                final_dither_amount: f32,
+                final_dither_switch: f32,
+                final_dither_type: i32,
+                _pad9: f32,
             };
             
             @group(0) @binding(0)
@@ -854,6 +1035,164 @@ impl ModularBlock3 {
                 return out_color;
             }
             
+            // === DITHER FUNCTIONS FOR FINAL OUTPUT ===
+            fn hash12(p: vec2<f32>) -> f32 {
+                let p3 = fract(vec3<f32>(p.xyx) * 0.1031);
+                let p4 = p3 + dot(p3, p3.yzx + 33.33);
+                return fract((p4.x + p4.y) * p4.z);
+            }
+            
+            fn bayer4x4_final(coord: vec2<f32>) -> f32 {
+                let x = i32(coord.x) & 3;
+                let y = i32(coord.y) & 3;
+                let matrix = array<i32, 16>(
+                    0, 8, 2, 10,
+                    12, 4, 14, 6,
+                    3, 11, 1, 9,
+                    15, 7, 13, 5
+                );
+                return f32(matrix[y * 4 + x]) / 16.0;
+            }
+            
+            fn bayer8x8_final(coord: vec2<f32>) -> f32 {
+                let x = i32(coord.x) & 7;
+                let y = i32(coord.y) & 7;
+                let matrix = array<i32, 64>(
+                    0, 32, 8, 40, 2, 34, 10, 42,
+                    48, 16, 56, 24, 50, 18, 58, 26,
+                    12, 44, 4, 36, 14, 46, 6, 38,
+                    60, 28, 52, 20, 62, 30, 54, 22,
+                    3, 35, 11, 43, 1, 33, 9, 41,
+                    51, 19, 59, 27, 49, 17, 57, 25,
+                    15, 47, 7, 39, 13, 45, 5, 37,
+                    63, 31, 55, 23, 61, 29, 53, 21
+                );
+                return f32(matrix[y * 8 + x]) / 64.0;
+            }
+            
+            fn blue_noise_final(coord: vec2<f32>) -> f32 {
+                let x = i32(coord.x);
+                let y = i32(coord.y);
+                var n = x * 374761 + y * 668265;
+                n = (n << 13) ^ n;
+                n = n * (n * n * 15731 + 789221) + 1376312589;
+                return f32(n & 0x7fffffff) / f32(0x7fffffff);
+            }
+            
+            fn white_noise_final(coord: vec2<f32>) -> f32 {
+                return fract(sin(dot(coord, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+            }
+            
+            fn ign_noise_final(coord: vec2<f32>) -> f32 {
+                return fract(52.9829189 * fract(0.06711056 * coord.x + 0.00583715 * coord.y));
+            }
+            
+            fn dither_channel_final(in_color: f32, coord: vec2<f32>, palette: f32, dither_type: i32, channel: i32) -> f32 {
+                var threshold: f32 = 0.5;
+                
+                switch(dither_type) {
+                    // Ordered (0-1)
+                    case 0: { 
+                        threshold = bayer4x4_final(coord);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    case 1: { 
+                        threshold = bayer8x8_final(coord);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    // Noise (2-4)
+                    case 2: { 
+                        threshold = blue_noise_final(coord);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    case 3: { 
+                        threshold = white_noise_final(coord);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    case 4: { 
+                        threshold = ign_noise_final(coord);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    // Glitch (5-12)
+                    case 5: { // Scanlines
+                        let y = i32(coord.y);
+                        let pattern = f32(y % 4);
+                        threshold = pattern / 4.0;
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    case 6: { // Checkerboard
+                        let x = i32(coord.x) & 1;
+                        let y = i32(coord.y) & 1;
+                        threshold = f32(x ^ y);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    case 7: { // Stripes
+                        let x = i32(coord.x);
+                        threshold = f32(x % 8) / 8.0;
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    case 8: { // Bit Crush
+                        let step_size = 1.0 / palette;
+                        let noise = white_noise_final(coord);
+                        return floor((in_color + (noise - 0.5) * step_size) * palette) / palette;
+                    }
+                    case 9: { // 1-Bit Threshold
+                        let noise = white_noise_final(coord);
+                        let t = 0.5 + (noise - 0.5) * 0.15;
+                        return select(0.0, 1.0, in_color > t);
+                    }
+                    case 10: { // Pixel Sort
+                        let step_size = 1.0 / palette;
+                        let y = i32(coord.y);
+                        let offset = select(0.0, step_size * 0.5, f32(y % 2) > 0.5);
+                        return clamp(round((in_color + offset) * palette) / palette, 0.0, 1.0);
+                    }
+                    case 11: { // Atkinson
+                        let step_size = 1.0 / palette;
+                        let noise = fract(sin(f32(i32(coord.x) * 7 + i32(coord.y) * 13)) * 43758.5453);
+                        let dithered = in_color + (noise - 0.5) * step_size * 1.2;
+                        return clamp(floor(dithered * palette + 0.4) / palette, 0.0, 1.0);
+                    }
+                    case 12: { // RGB Split
+                        let offset = vec2<f32>(f32(channel) * 3.0, f32(channel) * 7.0);
+                        threshold = white_noise_final(coord + offset);
+                        let scaled = in_color * palette;
+                        let dithered = scaled + threshold - 0.5;
+                        return clamp(floor(dithered) / palette, 0.0, 1.0);
+                    }
+                    default: { return in_color; }
+                }
+            }
+            
+            fn apply_final_dither(color: vec3<f32>, coord: vec2<f32>) -> vec3<f32> {
+                if (uniforms.final_dither_switch < 0.5) {
+                    return color;
+                }
+                let dither_type = i32(uniforms.final_dither_type);
+                let palette = uniforms.final_dither_amount;
+                return vec3<f32>(
+                    dither_channel_final(color.r, coord, palette, dither_type, 0),
+                    dither_channel_final(color.g, coord, palette, dither_type, 1),
+                    dither_channel_final(color.b, coord, palette, dither_type, 2)
+                );
+            }
+            
             @fragment
             fn fs_main(@location(0) texcoord: vec2<f32>) -> @location(0) vec4<f32> {
                 let block1_color = textureSample(block1_tex, block1_sampler, texcoord);
@@ -874,7 +1213,11 @@ impl ModularBlock3 {
                 // Final Mix with keying
                 let final_color = final_mix(vec4<f32>(mixed, 1.0), vec4<f32>(bg, 1.0));
                 
-                return final_color;
+                // Apply final dither to output
+                let pixel_coord = texcoord * vec2<f32>(textureDimensions(block1_tex));
+                let dithered_color = apply_final_dither(final_color.rgb, pixel_coord);
+                
+                return vec4<f32>(dithered_color, 1.0);
             }
         "#;
         
@@ -990,6 +1333,8 @@ impl ModularBlock3 {
         // Update uniform buffers first (these don't borrow self mutably)
         self.update_stage1_uniforms(queue, params);
         self.update_stage2_uniforms(queue, params);
+        
+
         
         // Stage 1a: Process Block 1
         // We need to select output buffers manually to avoid borrow issues
@@ -1287,6 +1632,10 @@ impl ModularBlock3 {
             final_mix_overflow: params.final_mix_overflow,
             final_key_order: params.final_key_order,
             _pad8: 0.0,
+            final_dither_amount: params.final_dither,
+            final_dither_switch: if params.final_dither_switch { 1.0 } else { 0.0 },
+            final_dither_type: params.final_dither_type,
+            _pad9: 0.0,
         };
         
         queue.write_buffer(

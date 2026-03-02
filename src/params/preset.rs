@@ -69,6 +69,7 @@ impl Default for PresetTempoData {
 
 /// Complete preset data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PresetData {
     // Block parameters
     pub block1: Block1Params,

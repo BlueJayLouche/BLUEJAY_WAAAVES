@@ -646,8 +646,6 @@ fn fs_main(@location(0) texcoord: vec2<f32>) -> @location(0) vec4<f32> {{
     }
     
     pub fn update_params(&self, queue: &wgpu::Queue, params: &SimpleFeedbackUniforms) {
-        log::debug!("[SIMPLE] Updating params - hue_lfo: {:.3}, rotate_lfo: {:.3}", params.hue_lfo, params.rotate_lfo);
-        
         let bytes = unsafe {
             std::slice::from_raw_parts(
                 params as *const _ as *const u8,

@@ -8,9 +8,8 @@ pub mod block1;
 pub mod block2;
 pub mod block3;
 
-pub use block1::Block1Pipeline;
-pub use block2::Block2Pipeline;
-pub use block3::Block3Pipeline;
+// Legacy pipeline files kept for reference but not used in modular architecture
+// The modular blocks (ModularBlock1/2/3) replaced these monolithic pipelines
 
 /// Common vertex shader for full-screen quad
 pub const COMMON_VERTEX_SHADER: &str = r#"

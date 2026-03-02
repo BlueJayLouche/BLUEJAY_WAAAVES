@@ -2048,6 +2048,19 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
             osc_tooltip(ui, "/block2/fb2/filters_boost", Some(p.fb2_filters_boost));
             
             ui.separator();
+            
+            // Temporal Filters
+            Drag::new("Temp Filter 1 Amount##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_temporal_filter1_amount);
+            osc_tooltip(ui, "/block2/fb2/temp_filter1_amount", Some(p.fb2_temporal_filter1_amount));
+            Drag::new("Temp Filter 1 Res##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_temporal_filter1_resonance);
+            osc_tooltip(ui, "/block2/fb2/temp_filter1_res", Some(p.fb2_temporal_filter1_resonance));
+            
+            Drag::new("Temp Filter 2 Amount##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_temporal_filter2_amount);
+            osc_tooltip(ui, "/block2/fb2/temp_filter2_amount", Some(p.fb2_temporal_filter2_amount));
+            Drag::new("Temp Filter 2 Res##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_temporal_filter2_resonance);
+            osc_tooltip(ui, "/block2/fb2/temp_filter2_res", Some(p.fb2_temporal_filter2_resonance));
+            
+            ui.separator();
             // Delay section with tempo sync
             ui.text("Feedback Delay");
             
@@ -2259,8 +2272,23 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
             ui.checkbox("Dither##b3b1", &mut p.block1_dither_switch);
             if p.block1_dither_switch {
                 Drag::new("Dither Amount##b3b1").speed(0.1).range(1.0, 64.0).build(ui, &mut p.block1_dither);
-                let dither_types = ["4x4", "8x8"];
+                let dither_types = [
+                    "Bayer 4x4",
+                    "Bayer 8x8", 
+                    "Blue Noise",
+                    "White Noise",
+                    "IGN",
+                    "Scanlines",
+                    "Checkerboard",
+                    "Stripes",
+                    "Bit Crush",
+                    "1-Bit Threshold",
+                    "Pixel Sort",
+                    "Atkinson",
+                    "RGB Split"
+                ];
                 let mut dither_idx = p.block1_dither_type as usize;
+                dither_idx = dither_idx.min(dither_types.len() - 1);
                 let preview = dither_types[dither_idx].to_string();
                 ComboBox::new(ui, "Dither Type##b3b1")
                     .preview_value(&preview)
@@ -2271,7 +2299,7 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
                             }
                         }
                     });
-                p.block1_dither_type = dither_idx.clamp(0, 1) as i32;
+                p.block1_dither_type = dither_idx.clamp(0, dither_types.len() - 1) as i32;
             }
         }
     }
@@ -2405,8 +2433,23 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
             ui.checkbox("Dither##b3b2", &mut p.block2_dither_switch);
             if p.block2_dither_switch {
                 Drag::new("Dither Amount##b3b2").speed(0.1).range(1.0, 64.0).build(ui, &mut p.block2_dither);
-                let dither_types = ["4x4", "8x8"];
+                let dither_types = [
+                    "Bayer 4x4",
+                    "Bayer 8x8", 
+                    "Blue Noise",
+                    "White Noise",
+                    "IGN",
+                    "Scanlines",
+                    "Checkerboard",
+                    "Stripes",
+                    "Bit Crush",
+                    "1-Bit Threshold",
+                    "Pixel Sort",
+                    "Atkinson",
+                    "RGB Split"
+                ];
                 let mut dither_idx = p.block2_dither_type as usize;
+                dither_idx = dither_idx.min(dither_types.len() - 1);
                 let preview = dither_types[dither_idx].to_string();
                 ComboBox::new(ui, "Dither Type##b3b2")
                     .preview_value(&preview)
@@ -2417,7 +2460,7 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
                             }
                         }
                     });
-                p.block2_dither_type = dither_idx.clamp(0, 1) as i32;
+                p.block2_dither_type = dither_idx.clamp(0, dither_types.len() - 1) as i32;
             }
         }
     }
@@ -2536,6 +2579,42 @@ Drag::new("Mix Amount##final").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fin
             // Key threshold with fine control
 Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.final_key_threshold);
             Drag::new("Key Soft##final").speed(0.002).range(0.0, 1.0).build(ui, &mut p.final_key_soft);
+        }
+        
+        // Output Dither section
+        if CollapsingHeader::new("Output Dither").default_open(true).build(ui) {
+            ui.checkbox("Dither##final", &mut p.final_dither_switch);
+            if p.final_dither_switch {
+                Drag::new("Dither Amount##final").speed(0.1).range(1.0, 64.0).build(ui, &mut p.final_dither);
+                let dither_types = [
+                    "Bayer 4x4",
+                    "Bayer 8x8", 
+                    "Blue Noise",
+                    "White Noise",
+                    "IGN",
+                    "Scanlines",
+                    "Checkerboard",
+                    "Stripes",
+                    "Bit Crush",
+                    "1-Bit Threshold",
+                    "Pixel Sort",
+                    "Atkinson",
+                    "RGB Split"
+                ];
+                let mut dither_idx = p.final_dither_type as usize;
+                dither_idx = dither_idx.min(dither_types.len() - 1);
+                let preview = dither_types[dither_idx].to_string();
+                ComboBox::new(ui, "Dither Type##final")
+                    .preview_value(&preview)
+                    .build(|| {
+                        for (idx, opt) in dither_types.iter().enumerate() {
+                            if ui.selectable_config(opt).selected(idx == dither_idx).build() {
+                                dither_idx = idx;
+                            }
+                        }
+                    });
+                p.final_dither_type = dither_idx.clamp(0, dither_types.len() - 1) as i32;
+            }
         }
     }
     

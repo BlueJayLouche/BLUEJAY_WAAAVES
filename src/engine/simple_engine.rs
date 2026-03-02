@@ -407,14 +407,7 @@ impl SimpleEngine {
         // Copy to surface
         self.present_output();
         
-        // Log debug info
         self.frame_count += 1;
-        if self.frame_count % 60 == 0 {
-            let frame_time = frame_start.elapsed().as_millis();
-            let fps = 1000.0 / frame_time.max(1) as f32;
-            log::info!("[SIMPLE_ENGINE] Frame {} - {:.1}ms ({:.1} FPS) - hue_lfo: {:.2}, rotate_lfo: {:.2}",
-                self.frame_count, frame_time, fps, hue_lfo, rotate_lfo);
-        }
     }
     
     fn update_inputs(&mut self) {
@@ -428,24 +421,7 @@ impl SimpleEngine {
             if let Some(frame_data) = self.input_manager.take_input1_frame() {
                 let (width, height) = self.input_manager.get_input1_resolution();
                 
-                // Debug: Check frame data
-                let mut non_zero = 0;
-                let mut total_brightness: u64 = 0;
-                for i in (0..frame_data.len().min(1000)).step_by(4) {
-                    if i + 2 < frame_data.len() {
-                        let r = frame_data[i] as u64;
-                        let g = frame_data[i+1] as u64;
-                        let b = frame_data[i+2] as u64;
-                        total_brightness += r + g + b;
-                        if r > 10 || g > 10 || b > 10 {
-                            non_zero += 1;
-                        }
-                    }
-                }
-                let avg_bright = total_brightness as f32 / (frame_data.len().min(1000) as f32 / 4.0 * 3.0);
-                
-                log::info!("[SIMPLE_ENGINE] Uploading input 1 frame: {}x{} ({} bytes), avg brightness: {:.1}, non-zero: {}", 
-                    width, height, frame_data.len(), avg_bright, non_zero);
+
                 
                 // Create or resize texture if needed
                 let current_size = self.input1_texture.as_ref()

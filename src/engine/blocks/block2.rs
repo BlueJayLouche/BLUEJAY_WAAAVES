@@ -647,31 +647,35 @@ impl ModularBlock2 {
                 else { return vec3<f32>(b, p, q); }
             }
             
-            // Apply blur
+            // Apply blur - optimized 9-tap blur
             fn apply_blur(uv: vec2<f32>, amount: f32, radius: f32) -> vec3<f32> {
                 if (amount <= 0.001 || radius <= 0.001) {
                     return textureSample(input_tex, input_sampler, uv).rgb;
                 }
                 
                 let texel_size = vec2<f32>(uniforms.inv_width, uniforms.inv_height);
+                let blur_radius = radius * 15.0; // Increased scale for comparable blur
+                
+                // 9-tap box blur (3x3 kernel) - much faster than 81 samples
                 var result = vec3<f32>(0.0);
-                var total_weight = 0.0;
                 
-                // Simple box blur with 9 samples
-                for (var x: i32 = -4; x <= 4; x = x + 1) {
-                    for (var y: i32 = -4; y <= 4; y = y + 1) {
-                        let offset = vec2<f32>(f32(x), f32(y)) * texel_size * radius;
-                        let weight = 1.0 - (length(vec2<f32>(f32(x), f32(y))) / 6.0);
-                        if (weight > 0.0) {
-                            result = result + textureSample(input_tex, input_sampler, uv + offset).rgb * weight;
-                            total_weight = total_weight + weight;
-                        }
-                    }
-                }
+                // Center sample (weight 4)
+                result = result + textureSample(input_tex, input_sampler, uv).rgb * 4.0;
                 
-                if (total_weight > 0.0) {
-                    result = result / total_weight;
-                }
+                // Edge samples (weight 2 each)
+                result = result + textureSample(input_tex, input_sampler, uv + vec2<f32>( blur_radius, 0.0) * texel_size).rgb * 2.0;
+                result = result + textureSample(input_tex, input_sampler, uv + vec2<f32>(-blur_radius, 0.0) * texel_size).rgb * 2.0;
+                result = result + textureSample(input_tex, input_sampler, uv + vec2<f32>(0.0,  blur_radius) * texel_size).rgb * 2.0;
+                result = result + textureSample(input_tex, input_sampler, uv + vec2<f32>(0.0, -blur_radius) * texel_size).rgb * 2.0;
+                
+                // Corner samples (weight 1 each)
+                result = result + textureSample(input_tex, input_sampler, uv + vec2<f32>( blur_radius,  blur_radius) * texel_size).rgb;
+                result = result + textureSample(input_tex, input_sampler, uv + vec2<f32>(-blur_radius,  blur_radius) * texel_size).rgb;
+                result = result + textureSample(input_tex, input_sampler, uv + vec2<f32>( blur_radius, -blur_radius) * texel_size).rgb;
+                result = result + textureSample(input_tex, input_sampler, uv + vec2<f32>(-blur_radius, -blur_radius) * texel_size).rgb;
+                
+                // Normalize (total weight = 16)
+                result = result / 16.0;
                 
                 let original = textureSample(input_tex, input_sampler, uv).rgb;
                 return mix(original, result, amount);

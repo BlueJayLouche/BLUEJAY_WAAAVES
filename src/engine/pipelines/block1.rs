@@ -568,6 +568,11 @@ fn blur_and_sharpen(tex: texture_2d<f32>, tex_sampler: sampler, coord: vec2<f32>
     let boost_factor = mix(1.0, 1.0 + sharpen_amount + sharpen_boost, step(0.001, sharpen_amount));
     color_blur_hsb.z *= boost_factor;
     
+    // Clamp HSB values before converting back to RGB
+    color_blur_hsb.x = fract(color_blur_hsb.x);
+    color_blur_hsb.y = clamp(color_blur_hsb.y, 0.0, 1.0);
+    color_blur_hsb.z = clamp(color_blur_hsb.z, 0.0, 1.0);
+    
     return vec4<f32>(hsb2rgb(color_blur_hsb), 1.0);
 }}
 
@@ -801,6 +806,10 @@ fn process_channel(uv: vec2<f32>, coords: vec2<f32>,
             ch_hsb.z = apply_solarize(ch_hsb.z);
         }}
         
+        // Clamp saturation and brightness before converting back to RGB
+        ch_hsb.y = clamp(ch_hsb.y, 0.0, 1.0);
+        ch_hsb.z = clamp(ch_hsb.z, 0.0, 1.0);
+        
         ch_rgb = hsb2rgb(ch_hsb);
     }}
     
@@ -942,6 +951,8 @@ fn fs_main(@location(0) texcoord: vec2<f32>) -> @location(0) vec4<f32> {{
     }}
     
     fb1_hsb.x = fract(fb1_hsb.x);
+    fb1_hsb.y = clamp(fb1_hsb.y, 0.0, 1.0);
+    fb1_hsb.z = clamp(fb1_hsb.z, 0.0, 1.0);
     var fb1_rgb = hsb2rgb(fb1_hsb);
     
     // FB1 Posterize

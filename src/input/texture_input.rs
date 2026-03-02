@@ -117,22 +117,6 @@ impl InputTextureManager {
             return;
         }
         
-        // DEBUG: Check if frame has non-zero pixels
-        let mut non_zero_pixels = 0;
-        let mut total_brightness: u64 = 0;
-        for i in (0..data.len()).step_by(4) {
-            let r = data[i] as u64;
-            let g = data[i+1] as u64;
-            let b = data[i+2] as u64;
-            total_brightness += r + g + b;
-            if r > 10 || g > 10 || b > 10 {
-                non_zero_pixels += 1;
-            }
-        }
-        let avg_brightness = total_brightness as f32 / (data.len() as f32 / 4.0 * 3.0);
-        log::info!("Input 1 frame: {}x{}, non-zero pixels: {}, avg brightness: {:.1}", 
-            width, height, non_zero_pixels, avg_brightness);
-        
         // Recreate texture if size changed
         if let Some(ref mut input) = self.input1 {
             if input.width != width || input.height != height {

@@ -10,7 +10,7 @@ use crate::params::preset::{apply_audio_modulations, ParamModulationData};
 use std::collections::HashMap;
 use crate::core::{OutputMode, SharedState, Vertex};
 use crate::engine::imgui_renderer::ImGuiRenderer;
-use crate::engine::pipelines::Block1Pipeline;
+
 use crate::engine::blocks::{ModularBlock1, ModularBlock2, ModularBlock3};
 
 use crate::engine::texture::Texture;
@@ -192,6 +192,10 @@ impl ApplicationHandler for App {
                 .with_decorations(self.config.output_window.decorated);
             
             let window = Arc::new(event_loop.create_window(window_attrs).unwrap());
+            
+            // Hide cursor by default for output window
+            window.set_cursor_visible(false);
+            
             self.output_window = Some(Arc::clone(&window));
             
             // Initialize output engine using shared instance
@@ -301,6 +305,14 @@ impl ApplicationHandler for App {
                 match event {
                     WindowEvent::CloseRequested => {
                         event_loop.exit();
+                    }
+                    WindowEvent::CursorEntered { .. } => {
+                        // Hide cursor when entering output window
+                        output_window.set_cursor_visible(false);
+                    }
+                    WindowEvent::CursorLeft { .. } => {
+                        // Show cursor when leaving output window
+                        output_window.set_cursor_visible(true);
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
                         // Track modifier state
@@ -548,7 +560,6 @@ impl ApplicationHandler for App {
             if video.input1_has_new_frame() {
                 if let Some(frame_data) = video.take_input1_frame() {
                     let (width, height) = video.get_input1_resolution();
-                    log::info!("Uploading input 1 frame to GPU: {}x{} ({} bytes)", width, height, frame_data.len());
                     engine.input_texture_manager.update_input1(&frame_data, width, height);
                 }
             }
@@ -557,7 +568,6 @@ impl ApplicationHandler for App {
             if video.input2_has_new_frame() {
                 if let Some(frame_data) = video.take_input2_frame() {
                     let (width, height) = video.get_input2_resolution();
-                    log::info!("Uploading input 2 frame to GPU: {}x{} ({} bytes)", width, height, frame_data.len());
                     engine.input_texture_manager.update_input2(&frame_data, width, height);
                 }
             }
@@ -591,8 +601,7 @@ pub struct WgpuEngine {
     modular_block2: ModularBlock2,
     modular_block3: ModularBlock3,
     
-    // Legacy pipeline (to be replaced)
-    block1_pipeline: Block1Pipeline,
+
     
     // Simple blit pipeline for output
     blit_pipeline: wgpu::RenderPipeline,
@@ -603,13 +612,8 @@ pub struct WgpuEngine {
     block2_texture: Texture,
     block3_texture: Texture,
     
-    // Feedback textures (separate from render targets to avoid usage conflicts)
+    // Feedback texture (legacy - modular blocks manage their own feedback)
     fb1_texture: Texture,
-    fb2_texture: Texture,
-    
-    // Temporal filter textures
-    temporal1_texture: Texture,
-    temporal2_texture: Texture,
     
     /// Input texture manager for video sources
     pub input_texture_manager: InputTextureManager,
@@ -723,7 +727,7 @@ impl WgpuEngine {
             "Block3 Texture",
         );
         
-        // Feedback textures (for sampling in shaders)
+        // Feedback texture (legacy - modular blocks manage their own feedback)
         let fb1_texture = Texture::create_render_target(
             &device,
             internal_width,
@@ -731,33 +735,6 @@ impl WgpuEngine {
             "FB1 Texture",
         );
         fb1_texture.clear_to_black(&queue);
-        
-        let fb2_texture = Texture::create_render_target(
-            &device,
-            internal_width,
-            internal_height,
-            "FB2 Texture",
-        );
-        fb2_texture.clear_to_black(&queue);
-        
-        // Temporal filter textures
-        let temporal1_texture = Texture::create_render_target(
-            &device,
-            internal_width,
-            internal_height,
-            "Temporal1 Texture",
-        );
-        temporal1_texture.clear_to_black(&queue);
-        
-        let temporal2_texture = Texture::create_render_target(
-            &device,
-            internal_width,
-            internal_height,
-            "Temporal2 Texture",
-        );
-        temporal2_texture.clear_to_black(&queue);
-        
-        let block1_pipeline = Block1Pipeline::new(&device, internal_width, internal_height);
         
         // Create modular blocks (new 3-stage implementation)
         let modular_block1 = ModularBlock1::new(&device, &queue, internal_width, internal_height);
@@ -899,16 +876,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             modular_block1,
             modular_block2,
             modular_block3,
-            block1_pipeline,
             blit_pipeline,
             blit_bind_group_layout,
             block1_texture,
             block2_texture,
             block3_texture,
             fb1_texture,
-            fb2_texture,
-            temporal1_texture,
-            temporal2_texture,
             input_texture_manager,
             vertex_buffer,
             frame_count: 0,
@@ -968,32 +941,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 "Block2 Texture",
             );
             
-            // Recreate feedback textures
+            // Recreate feedback texture
             self.fb1_texture = Texture::create_render_target(
                 &self.device,
                 width,
                 height,
                 "FB1 Texture",
-            );
-            self.fb2_texture = Texture::create_render_target(
-                &self.device,
-                width,
-                height,
-                "FB2 Texture",
-            );
-            
-            // Recreate temporal textures
-            self.temporal1_texture = Texture::create_render_target(
-                &self.device,
-                width,
-                height,
-                "Temporal1 Texture",
-            );
-            self.temporal2_texture = Texture::create_render_target(
-                &self.device,
-                width,
-                height,
-                "Temporal2 Texture",
             );
             
             // Update shared state
@@ -1047,41 +1000,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             );
         }
         
-        // Log output mode and params periodically (every 60 frames)
-        if self.frame_count % 60 == 0 {
-            log::info!("=== Frame {} ===", self.frame_count);
-            log::info!("Output mode: {:?}, Block2 input select: {}", output_mode, block2_input_select);
-            // Log texture resolutions
-            log::info!("Texture sizes: Block1={}x{}, Block2={}x{}, Block3={}x{}",
-                self.block1_texture.width, self.block1_texture.height,
-                self.block2_texture.width, self.block2_texture.height,
-                self.block3_texture.width, self.block3_texture.height);
-            log::info!("Surface size: {}x{}, Internal resolution: {:?}",
-                self.config.width, self.config.height, state.internal_size);
-            // Check if inputs have data
-            let has_input1 = self.input_texture_manager.input1.is_some();
-            let has_input2 = self.input_texture_manager.input2.is_some();
-            let input1_has_data = self.input_texture_manager.input1_has_data();
-            let input2_has_data = self.input_texture_manager.input2_has_data();
-            log::info!("Input textures: input1_exists={}, input2_exists={}, input1_has_data={}, input2_has_data={}", 
-                has_input1, has_input2, input1_has_data, input2_has_data);
-            // Log block1 input selection
-            log::info!("Block1 params: ch1_input_select={}, ch2_input_select={}", 
-                state.block1.ch1_input_select,
-                state.block1.ch2_input_select);
-            // Log key parameters that affect visibility
-            log::info!("Block1: ch1_z_displace={}, ch1_hsb_attenuate={:?}", 
-                state.block1.ch1_z_displace, state.block1.ch1_hsb_attenuate);
-            log::info!("Block1: fb1_mix_amount={}, ch2_mix_amount={}",
-                state.block1.fb1_mix_amount, state.block1.ch2_mix_amount);
-        }
+
         
         // Get input texture sizes for proper UV scaling
         let input1_size = self.input_texture_manager.get_input1_resolution();
         let input2_size = self.input_texture_manager.get_input2_resolution();
         
         // Use modulated parameters for rendering
-        self.block1_pipeline.update_params(&self.queue, &modulated_block1, input1_size, input2_size);
         self.modular_block2.update_params(&self.queue, &modulated_block2);
         // Block 3 params are passed to render method
         
@@ -1095,20 +1020,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let input2_view = self.input_texture_manager.get_input2_view();
         let input1_has_data = self.input_texture_manager.input1_has_data();
         let input2_has_data = self.input_texture_manager.input2_has_data();
-        
-        // Log texture binding periodically
-        if self.frame_count % 60 == 0 {
-            log::info!("[BIND] Updating textures - input1_has_data: {}, input2_has_data: {}",
-                input1_has_data, input2_has_data);
-        }
-        
-        self.block1_pipeline.update_textures(
-            &self.device,
-            input1_view,
-            input2_view,
-            &self.fb1_texture.view,
-            &self.temporal1_texture.view,
-        );
         
         let surface_texture = match self.surface.get_current_texture() {
             Ok(t) => t,
@@ -1126,30 +1037,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             label: Some("Render Encoder"),
         });
         
-        // Render Block 1
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Block1 Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.block1_texture.view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            
-            render_pass.set_pipeline(&self.block1_pipeline.pipeline);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.block1_pipeline.bind_group, &[]);
-            render_pass.draw(0..6, 0..1);
-        }
-        
-        // Also render modular Block 1 (parallel implementation)
+        // Render modular Block 1
         // This renders to modular_block1's internal buffers
         {
             // Render modular Block 1
@@ -1162,32 +1050,30 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 &modulated_block1,
             );
             
-            // Copy modular Block 1 output to block1_texture so it gets used downstream
-            // This also applies the debug view selection
-            // Use internal resolution (same as modular Block 1 textures)
-            encoder.copy_texture_to_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &self.modular_block1.resources.get_output_texture(),
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: &self.block1_texture.texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width: self.block1_texture.width,
-                    height: self.block1_texture.height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            
             // Update feedback for next frame
             self.modular_block1.update_feedback(&mut encoder);
         }
+        
+        // Copy modular Block 1 output to block1_texture for downstream use
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.modular_block1.resources.get_output_texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.block1_texture.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.block1_texture.width,
+                height: self.block1_texture.height,
+                depth_or_array_layers: 1,
+            },
+        );
         
         // Determine Block2 input based on block2_input_select
         // 0 = block1, 1 = input1, 2 = input2
@@ -1195,26 +1081,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let input2_has_data = self.input_texture_manager.input2_has_data();
         
         let block2_input_view: &wgpu::TextureView = match block2_input_select {
-            1 => {
-                if input1_has_data {
-                    log::info!("Block2 using Input 1 (has data)");
-                } else {
-                    log::info!("Block2 using Input 1 (NO DATA - using black texture)");
-                }
-                input1_view
-            }
-            2 => {
-                if input2_has_data {
-                    log::info!("Block2 using Input 2 (has data)");
-                } else {
-                    log::info!("Block2 using Input 2 (NO DATA - using black texture)");
-                }
-                input2_view
-            }
-            _ => {
-                log::info!("Block2 using Block 1 output (default)");
-                &self.block1_texture.view
-            }
+            1 => input1_view,
+            2 => input2_view,
+            _ => &self.block1_texture.view,
         };
         
         // Render Block 2 using modular implementation
@@ -1265,6 +1134,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         };
         
         // Render Block 3 using modular implementation
+        log::debug!("Block3 input: block1_texture={}x{}, block2_texture={}x{}",
+            self.block1_texture.width, self.block1_texture.height,
+            self.block2_texture.width, self.block2_texture.height);
         let block3_output_view = self.modular_block3.render(
             &mut encoder,
             &self.device,
@@ -1530,7 +1402,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             }
             
             let frame_size = (width * height * 4) as usize;
-            log::info!("Recording frame {}: {}x{} ({} bytes)", self.frame_count, width, height, frame_size);
             
             let buffer_size = (width * height * 4) as u64; // RGBA = 4 bytes per pixel
             let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
