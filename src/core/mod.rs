@@ -222,6 +222,15 @@ pub struct AudioState {
 impl SharedState {
     /// Create new shared state from configuration
     pub fn new(config: &AppConfig) -> Self {
+        // Get dimensions from the new resolution config (with fallback to legacy config)
+        let (internal_width, internal_height) = config.resolution.internal.dimensions();
+        let (output_width, output_height) = config.resolution.output.dimensions();
+        
+        log::info!("SharedState::new() - Resolution config:");
+        log::info!("  Internal: {}x{} (preset: {:?})", internal_width, internal_height, config.resolution.internal.preset);
+        log::info!("  Output: {}x{} (preset: {:?})", output_width, output_height, config.resolution.output.preset);
+        log::info!("  Input: {:?} (preset: {:?})", config.resolution.input.dimensions(), config.resolution.input.preset);
+        
         Self {
             block1: Block1Params::default(),
             block2: Block2Params::default(),
@@ -233,8 +242,8 @@ impl SharedState {
             audio: AudioState::default(),
             frame_count: 0,
             clear_feedback: false,
-            output_size: (config.output_window.width, config.output_window.height),
-            internal_size: (config.pipeline.internal_width, config.pipeline.internal_height),
+            output_size: (output_width, output_height),
+            internal_size: (internal_width, internal_height),
             is_recording: false,
             recording_command: RecordingCommand::None,
             recording_settings: RecordingSettings::default(),

@@ -3,7 +3,7 @@
 //! ImGui-based control interface for the VJ application.
 //! Provides real-time parameter control, preset management, and input configuration.
 
-use crate::config::{AppConfig, LayoutConfig, TabId};
+use crate::config::{AppConfig, LayoutConfig, ResolutionPreset, TabId};
 use crate::core::{InputChangeRequest, OutputMode, PreviewSource, SharedState};
 use crate::input::InputType;
 use crate::params::preset::{PresetData, PresetManager};
@@ -2952,6 +2952,11 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
             }
         }
         
+        // Resolution Configuration
+        if CollapsingHeader::new("Resolution Settings").default_open(true).build(ui) {
+            self.build_resolution_panel(ui);
+        }
+        
         // UI Scale - Match oF version with discrete presets
         if CollapsingHeader::new("UI Scale").default_open(true).build(ui) {
             ui.text("Adjust UI scale for better visibility on high-DPI displays:");
@@ -3044,83 +3049,113 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
         
         // Recording Section
         if CollapsingHeader::new("Recording (Shift+R)").default_open(true).build(ui) {
-            if let Ok(mut state) = self.shared_state.lock() {
-                // Recording status with red indicator
-                let is_recording = state.is_recording;
-                if is_recording {
-                    ui.text_colored([1.0, 0.0, 0.0, 1.0], "● REC");
-                } else {
-                    ui.text("○ Ready");
-                }
-                
-                // Start/Stop button
-                let button_label = if is_recording { "Stop Recording" } else { "Start Recording" };
-                if ui.button(button_label) {
+            // Read recording state
+            let is_recording = self.shared_state.lock()
+                .map(|s| s.is_recording)
+                .unwrap_or(false);
+            
+            // Recording status with red indicator
+            if is_recording {
+                ui.text_colored([1.0, 0.0, 0.0, 1.0], "● REC");
+            } else {
+                ui.text("○ Ready");
+            }
+            
+            // Start/Stop button
+            let button_label = if is_recording { "Stop Recording" } else { "Start Recording" };
+            if ui.button(button_label) {
+                if let Ok(mut state) = self.shared_state.lock() {
                     state.recording_command = crate::core::RecordingCommand::Toggle;
                 }
-                ui.same_line();
-                ui.text_disabled("or press Shift+R");
-                
-                ui.separator();
-                
-                // Codec selection
-                let codec_names = ["H.264 (AVC)", "H.265 (HEVC)", "ProRes", "VP9", "AV1"];
-                let mut codec_idx = state.recording_settings.codec as usize;
-                let codec_preview = codec_names[codec_idx.min(4)];
-                
-                ComboBox::new(ui, "Codec##rec")
-                    .preview_value(codec_preview)
-                    .build(|| {
-                        for (idx, name) in codec_names.iter().enumerate() {
-                            if ui.selectable_config(name).selected(idx == codec_idx).build() {
-                                codec_idx = idx;
-                            }
-                        }
-                    });
-                
-                state.recording_settings.codec = match codec_idx {
-                    0 => crate::core::VideoCodec::H264,
-                    1 => crate::core::VideoCodec::H265,
-                    2 => crate::core::VideoCodec::ProRes,
-                    3 => crate::core::VideoCodec::VP9,
-                    4 => crate::core::VideoCodec::AV1,
-                    _ => crate::core::VideoCodec::H264,
-                };
-                
-                // Quality selection
-                let quality_names = ["Lossless", "High", "Medium", "Low"];
-                let mut quality_idx = state.recording_settings.quality as usize;
-                let quality_preview = quality_names[quality_idx.min(3)];
-                
-                ComboBox::new(ui, "Quality##rec")
-                    .preview_value(quality_preview)
-                    .build(|| {
-                        for (idx, name) in quality_names.iter().enumerate() {
-                            if ui.selectable_config(name).selected(idx == quality_idx).build() {
-                                quality_idx = idx;
-                            }
-                        }
-                    });
-                
-                state.recording_settings.quality = match quality_idx {
-                    0 => crate::core::RecordingQuality::Lossless,
-                    1 => crate::core::RecordingQuality::High,
-                    2 => crate::core::RecordingQuality::Medium,
-                    3 => crate::core::RecordingQuality::Low,
-                    _ => crate::core::RecordingQuality::High,
-                };
-                
-                // Include audio toggle
-                ui.checkbox("Include Audio", &mut state.recording_settings.include_audio);
-                
-                // Filename input
-                ui.text("Filename:");
-                imgui::InputText::new(ui, "##rec_filename", &mut state.recording_settings.filename)
-                    .hint("output")
-                    .build();
-                ui.same_line();
-                ui.text(".mp4");
             }
+            ui.same_line();
+            ui.text_disabled("or press Shift+R");
+            
+            ui.separator();
+            
+            // Read current settings
+            let (codec, quality, include_audio, filename) = self.shared_state.lock()
+                .map(|s| (
+                    s.recording_settings.codec,
+                    s.recording_settings.quality,
+                    s.recording_settings.include_audio,
+                    s.recording_settings.filename.clone(),
+                ))
+                .unwrap_or_default();
+            
+            // Codec selection
+            let codec_names = ["H.264 (AVC)", "H.265 (HEVC)", "ProRes", "VP9", "AV1"];
+            let mut codec_idx = codec as usize;
+            let codec_preview = codec_names[codec_idx.min(4)];
+            
+            ComboBox::new(ui, "Codec##rec")
+                .preview_value(codec_preview)
+                .build(|| {
+                    for (idx, name) in codec_names.iter().enumerate() {
+                        if ui.selectable_config(name).selected(idx == codec_idx).build() {
+                            codec_idx = idx;
+                        }
+                    }
+                });
+            
+            if codec_idx != codec as usize {
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.recording_settings.codec = match codec_idx {
+                        0 => crate::core::VideoCodec::H264,
+                        1 => crate::core::VideoCodec::H265,
+                        2 => crate::core::VideoCodec::ProRes,
+                        3 => crate::core::VideoCodec::VP9,
+                        4 => crate::core::VideoCodec::AV1,
+                        _ => crate::core::VideoCodec::H264,
+                    };
+                }
+            }
+            
+            // Quality selection
+            let quality_names = ["Lossless", "High", "Medium", "Low"];
+            let mut quality_idx = quality as usize;
+            let quality_preview = quality_names[quality_idx.min(3)];
+            
+            ComboBox::new(ui, "Quality##rec")
+                .preview_value(quality_preview)
+                .build(|| {
+                    for (idx, name) in quality_names.iter().enumerate() {
+                        if ui.selectable_config(name).selected(idx == quality_idx).build() {
+                            quality_idx = idx;
+                        }
+                    }
+                });
+            
+            if quality_idx != quality as usize {
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.recording_settings.quality = match quality_idx {
+                        0 => crate::core::RecordingQuality::Lossless,
+                        1 => crate::core::RecordingQuality::High,
+                        2 => crate::core::RecordingQuality::Medium,
+                        3 => crate::core::RecordingQuality::Low,
+                        _ => crate::core::RecordingQuality::High,
+                    };
+                }
+            }
+            
+            // Include audio toggle (disabled - not yet implemented)
+            let mut include_audio_mut = include_audio;
+            ui.checkbox("Include Audio (coming soon)", &mut include_audio_mut);
+            ui.text_disabled("Audio recording will be added in a future update");
+            
+            // Filename input
+            ui.text("Filename:");
+            let mut filename_mut = filename.clone();
+            imgui::InputText::new(ui, "##rec_filename", &mut filename_mut)
+                .hint("output")
+                .build();
+            if filename_mut != filename {
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.recording_settings.filename = filename_mut;
+                }
+            }
+            ui.same_line();
+            ui.text(".mp4");
         }
         
         // Window Layout Management
@@ -3153,6 +3188,164 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                 }
             }
         }
+    }
+    
+    /// Build resolution configuration panel
+    fn build_resolution_panel(&mut self, ui: &Ui) {
+        use crate::config::ResolutionPreset;
+        
+        let presets = ResolutionPreset::all();
+        
+        // Helper to handle resolution dropdown
+        let mut handle_res_dropdown = |ui: &Ui, current_preset: ResolutionPreset, id: &str| -> ResolutionPreset {
+            let mut selected_idx = presets.iter().position(|&p| p == current_preset).unwrap_or(0);
+            let preview = presets[selected_idx].name();
+            
+            ComboBox::new(ui, &format!("##res_{}", id))
+                .preview_value(preview)
+                .build(|| {
+                    for (idx, preset) in presets.iter().enumerate() {
+                        if ui.selectable_config(preset.name()).selected(idx == selected_idx).build() {
+                            selected_idx = idx;
+                        }
+                    }
+                });
+            
+            presets[selected_idx]
+        };
+        
+        // Input Resolution
+        ui.text("Input Resolution:");
+        let input_preset = self.config.resolution.input.preset;
+        let new_input_preset = handle_res_dropdown(ui, input_preset, "input");
+        
+        if !new_input_preset.is_custom() {
+            if let Some((w, h)) = new_input_preset.dimensions() {
+                ui.same_line();
+                ui.text_disabled(&format!("({}x{})", w, h));
+            }
+        }
+        
+        if new_input_preset != input_preset {
+            self.config.resolution.input.set_preset(new_input_preset);
+            let _ = self.config.save();
+        }
+        
+        if self.config.resolution.input.preset.is_custom() {
+            ui.indent();
+            let mut w = self.config.resolution.input.custom_width;
+            let mut h = self.config.resolution.input.custom_height;
+            ui.text("Custom:");
+            ui.same_line();
+            ui.set_next_item_width(80.0);
+            if Drag::new("Width##input").range(1, 7680).speed(1.0).build(ui, &mut w) {
+                self.config.resolution.input.custom_width = w;
+                let _ = self.config.save();
+            }
+            ui.same_line();
+            ui.text("x");
+            ui.same_line();
+            ui.set_next_item_width(80.0);
+            if Drag::new("Height##input").range(1, 4320).speed(1.0).build(ui, &mut h) {
+                self.config.resolution.input.custom_height = h;
+                let _ = self.config.save();
+            }
+            ui.unindent();
+        }
+        ui.text_disabled("Resolution for camera/video inputs");
+        
+        ui.separator();
+        
+        // Internal Resolution
+        ui.text("Internal Resolution:");
+        let internal_preset = self.config.resolution.internal.preset;
+        let new_internal_preset = handle_res_dropdown(ui, internal_preset, "internal");
+        
+        if !new_internal_preset.is_custom() {
+            if let Some((w, h)) = new_internal_preset.dimensions() {
+                ui.same_line();
+                ui.text_disabled(&format!("({}x{})", w, h));
+            }
+        }
+        
+        if new_internal_preset != internal_preset {
+            self.config.resolution.internal.set_preset(new_internal_preset);
+            let _ = self.config.save();
+        }
+        
+        if self.config.resolution.internal.preset.is_custom() {
+            ui.indent();
+            let mut w = self.config.resolution.internal.custom_width;
+            let mut h = self.config.resolution.internal.custom_height;
+            ui.text("Custom:");
+            ui.same_line();
+            ui.set_next_item_width(80.0);
+            if Drag::new("Width##internal").range(1, 7680).speed(1.0).build(ui, &mut w) {
+                self.config.resolution.internal.custom_width = w;
+                let _ = self.config.save();
+            }
+            ui.same_line();
+            ui.text("x");
+            ui.same_line();
+            ui.set_next_item_width(80.0);
+            if Drag::new("Height##internal").range(1, 4320).speed(1.0).build(ui, &mut h) {
+                self.config.resolution.internal.custom_height = h;
+                let _ = self.config.save();
+            }
+            ui.unindent();
+        }
+        ui.text_disabled("Resolution for texture processing (affects performance)");
+        
+        ui.separator();
+        
+        // Output Resolution
+        ui.text("Output Resolution:");
+        let output_preset = self.config.resolution.output.preset;
+        let new_output_preset = handle_res_dropdown(ui, output_preset, "output");
+        
+        if !new_output_preset.is_custom() {
+            if let Some((w, h)) = new_output_preset.dimensions() {
+                ui.same_line();
+                ui.text_disabled(&format!("({}x{})", w, h));
+            }
+        }
+        
+        if new_output_preset != output_preset {
+            self.config.resolution.output.set_preset(new_output_preset);
+            let _ = self.config.save();
+        }
+        
+        if self.config.resolution.output.preset.is_custom() {
+            ui.indent();
+            let mut w = self.config.resolution.output.custom_width;
+            let mut h = self.config.resolution.output.custom_height;
+            ui.text("Custom:");
+            ui.same_line();
+            ui.set_next_item_width(80.0);
+            if Drag::new("Width##output").range(1, 7680).speed(1.0).build(ui, &mut w) {
+                self.config.resolution.output.custom_width = w;
+                let _ = self.config.save();
+            }
+            ui.same_line();
+            ui.text("x");
+            ui.same_line();
+            ui.set_next_item_width(80.0);
+            if Drag::new("Height##output").range(1, 4320).speed(1.0).build(ui, &mut h) {
+                self.config.resolution.output.custom_height = h;
+                let _ = self.config.save();
+            }
+            ui.unindent();
+        }
+        ui.text_disabled("Resolution for display and recording output");
+        
+        ui.separator();
+        
+        // Apply button
+        if ui.button("Apply Resolution Changes") {
+            self.show_status("Resolution changes will take effect on next restart");
+        }
+        ui.same_line();
+        ui.text_disabled("(Restart required)");
     }
     
     /// Draw Block 1 audio modulation panel

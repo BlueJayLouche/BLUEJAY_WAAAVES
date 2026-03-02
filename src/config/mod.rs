@@ -11,9 +11,12 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub mod layout;
+pub mod resolution;
 
 // Re-export layout types
 pub use layout::{LayoutConfig, TabId, WindowState};
+// Re-export resolution types
+pub use resolution::{ResolutionConfig, ResolutionPreset, ResolutionSettings};
 
 /// Main application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +39,8 @@ pub struct AppConfig {
     pub ui_scale: f32,
     /// Show OSC addresses on parameter hover
     pub show_osc_addresses: bool,
+    /// Resolution settings (input, internal, output)
+    pub resolution: ResolutionSettings,
 }
 
 /// Window configuration
@@ -201,6 +206,7 @@ impl Default for AppConfig {
             },
             ui_scale: 1.0,
             show_osc_addresses: false,
+            resolution: ResolutionSettings::default(),
         }
     }
 }

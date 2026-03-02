@@ -694,8 +694,14 @@ impl WgpuEngine {
         };
         surface.configure(&device, &config);
         
-        let internal_width = app_config.pipeline.internal_width;
-        let internal_height = app_config.pipeline.internal_height;
+        // Get dimensions from the new resolution config
+        let (internal_width, internal_height) = app_config.resolution.internal.dimensions();
+        let (output_width, output_height) = app_config.resolution.output.dimensions();
+        
+        log::info!("WgpuEngine::new() - Creating textures with resolution:");
+        log::info!("  Internal: {}x{} (from config.resolution.internal)", internal_width, internal_height);
+        log::info!("  Output/Surface: {}x{} (from config.resolution.output)", output_width, output_height);
+        log::info!("  Legacy pipeline config was: {}x{}", app_config.pipeline.internal_width, app_config.pipeline.internal_height);
         
         // Render targets
         let block1_texture = Texture::create_render_target(
@@ -712,8 +718,8 @@ impl WgpuEngine {
         );
         let block3_texture = Texture::create_render_target(
             &device,
-            config.width,
-            config.height,
+            output_width,
+            output_height,
             "Block3 Texture",
         );
         
@@ -756,8 +762,8 @@ impl WgpuEngine {
         // Create modular blocks (new 3-stage implementation)
         let modular_block1 = ModularBlock1::new(&device, &queue, internal_width, internal_height);
         let modular_block2 = ModularBlock2::new(&device, &queue, internal_width, internal_height);
-        // Block 3 renders to output surface size (not internal resolution)
-        let modular_block3 = ModularBlock3::new(&device, &queue, config.width, config.height);
+        // Block 3 renders to configured output resolution (will be upscaled to window size in blit)
+        let modular_block3 = ModularBlock3::new(&device, &queue, output_width, output_height);
         
         // Create simple blit pipeline for final output
         let blit_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -938,14 +944,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             
-            // Resize Block3 texture and modular Block3 to match surface size
-            self.block3_texture = Texture::create_render_target(
-                &self.device,
-                width,
-                height,
-                "Block3 Texture",
-            );
-            self.modular_block3.resize(&self.device, &self.queue, width, height);
+            // Note: Block3 texture is NOT resized here - it stays at configured output resolution
+            // The blit pass handles upscaling/downscaling to the window surface size
+            // This allows users to set a fixed render resolution independent of window size
+            log::debug!("Window resized to {}x{}, but Block3 remains at configured output resolution (blit will scale)", width, height);
         }
     }
     
@@ -1049,6 +1051,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         if self.frame_count % 60 == 0 {
             log::info!("=== Frame {} ===", self.frame_count);
             log::info!("Output mode: {:?}, Block2 input select: {}", output_mode, block2_input_select);
+            // Log texture resolutions
+            log::info!("Texture sizes: Block1={}x{}, Block2={}x{}, Block3={}x{}",
+                self.block1_texture.width, self.block1_texture.height,
+                self.block2_texture.width, self.block2_texture.height,
+                self.block3_texture.width, self.block3_texture.height);
+            log::info!("Surface size: {}x{}, Internal resolution: {:?}",
+                self.config.width, self.config.height, state.internal_size);
             // Check if inputs have data
             let has_input1 = self.input_texture_manager.input1.is_some();
             let has_input2 = self.input_texture_manager.input2.is_some();
@@ -1227,9 +1236,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         
         // Determine which block to display based on output_mode
         let (output_texture, _output_view): (&wgpu::Texture, &wgpu::TextureView) = match output_mode {
-            OutputMode::Block1 => (&self.block1_texture.texture, &self.block1_texture.view),
-            OutputMode::Block2 => (&self.block2_texture.texture, &self.block2_texture.view),
-            OutputMode::Block3 => (&self.block3_texture.texture, &self.block3_texture.view),
+            OutputMode::Block1 => {
+                log::debug!("Output mode: Block1 (texture: {}x{})", self.block1_texture.width, self.block1_texture.height);
+                (&self.block1_texture.texture, &self.block1_texture.view)
+            }
+            OutputMode::Block2 => {
+                log::debug!("Output mode: Block2 (texture: {}x{})", self.block2_texture.width, self.block2_texture.height);
+                (&self.block2_texture.texture, &self.block2_texture.view)
+            }
+            OutputMode::Block3 => {
+                log::debug!("Output mode: Block3 (texture: {}x{})", self.block3_texture.width, self.block3_texture.height);
+                (&self.block3_texture.texture, &self.block3_texture.view)
+            }
             OutputMode::PreviewInput1 => {
                 if let Some(ref input) = self.input_texture_manager.input1 {
                     (&input.texture.texture, &input.texture.view)
@@ -1405,7 +1423,183 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             }
         }
         
-        self.queue.submit(std::iter::once(encoder.finish()));
+        // Handle recording commands
+        let recording_command = {
+            if let Ok(mut state) = self.shared_state.lock() {
+                let cmd = state.recording_command;
+                state.recording_command = crate::core::RecordingCommand::None;
+                cmd
+            } else {
+                crate::core::RecordingCommand::None
+            }
+        };
+        
+        match recording_command {
+            crate::core::RecordingCommand::Start | crate::core::RecordingCommand::Toggle => {
+                if self.recorder.is_none() {
+                    // Determine resolution based on current output mode
+                    // Different blocks may have different texture sizes
+                    let resolution = match output_mode {
+                        OutputMode::Block1 => (self.block1_texture.width, self.block1_texture.height),
+                        OutputMode::Block2 => (self.block2_texture.width, self.block2_texture.height),
+                        OutputMode::Block3 => (self.block3_texture.width, self.block3_texture.height),
+                        OutputMode::PreviewInput1 => {
+                            if let Some(ref input) = self.input_texture_manager.input1 {
+                                (input.texture.width, input.texture.height)
+                            } else {
+                                (self.block1_texture.width, self.block1_texture.height)
+                            }
+                        }
+                        OutputMode::PreviewInput2 => {
+                            if let Some(ref input) = self.input_texture_manager.input2 {
+                                (input.texture.width, input.texture.height)
+                            } else {
+                                (self.block1_texture.width, self.block1_texture.height)
+                            }
+                        }
+                    };
+                    
+                    log::info!("Starting recording at resolution: {}x{} (output mode: {:?})", 
+                        resolution.0, resolution.1, output_mode);
+                    
+                    if let Ok(state) = self.shared_state.lock() {
+                        let settings = state.recording_settings.clone();
+                        drop(state);
+                        
+                        let mut recorder = crate::recorder::Recorder::new(settings, resolution);
+                        match recorder.start() {
+                            Ok(_) => {
+                                log::info!("Recording started");
+                                if let Ok(mut state) = self.shared_state.lock() {
+                                    state.is_recording = true;
+                                }
+                                self.recorder = Some(recorder);
+                            }
+                            Err(e) => {
+                                log::error!("Failed to start recording: {}", e);
+                                if let Ok(mut state) = self.shared_state.lock() {
+                                    state.is_recording = false;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Already recording, toggle means stop
+                    if let Some(recorder) = self.recorder.take() {
+                        drop(recorder); // This will stop recording
+                        log::info!("Recording stopped");
+                        if let Ok(mut state) = self.shared_state.lock() {
+                            state.is_recording = false;
+                        }
+                    }
+                }
+            }
+            crate::core::RecordingCommand::Stop => {
+                if let Some(recorder) = self.recorder.take() {
+                    drop(recorder); // This will stop recording
+                    log::info!("Recording stopped");
+                    if let Ok(mut state) = self.shared_state.lock() {
+                        state.is_recording = false;
+                    }
+                }
+            }
+            crate::core::RecordingCommand::None => {}
+        }
+        
+        // Capture frame if recording is active
+        if self.recorder.is_some() {
+            // Get actual texture dimensions from the output texture
+            let texture_size = output_texture.size();
+            let width = texture_size.width;
+            let height = texture_size.height;
+            
+            // Validate dimensions
+            if width == 0 || height == 0 {
+                log::error!("Invalid output texture dimensions: {}x{}", width, height);
+                // Stop recording to prevent further errors
+                if let Some(recorder) = self.recorder.take() {
+                    drop(recorder);
+                }
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.is_recording = false;
+                }
+                self.queue.submit(std::iter::once(encoder.finish()));
+                surface_texture.present();
+                self.frame_count += 1;
+                return;
+            }
+            
+            let frame_size = (width * height * 4) as usize;
+            log::info!("Recording frame {}: {}x{} ({} bytes)", self.frame_count, width, height, frame_size);
+            
+            let buffer_size = (width * height * 4) as u64; // RGBA = 4 bytes per pixel
+            let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Recording Staging Buffer"),
+                size: buffer_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            
+            // Copy output texture to staging buffer
+            // Note: output_texture is captured earlier in the render function
+            // We need to copy from the texture that was used as _output_view
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo {
+                    texture: output_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &staging_buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(width * 4),
+                        rows_per_image: Some(height),
+                    },
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            
+            // Submit copy command
+            self.queue.submit(std::iter::once(encoder.finish()));
+            
+            // Map buffer and read data synchronously
+            let buffer_slice = staging_buffer.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = tx.send(result);
+            });
+            
+            // Wait for mapping to complete
+            if self.device.poll(wgpu::PollType::Wait).is_ok() {
+                if let Ok(Ok(())) = rx.recv() {
+                    // Read data and send to recorder
+                    let data = buffer_slice.get_mapped_range();
+                    let rgba_data: &[u8] = &data;
+                    if let Some(ref mut recorder) = self.recorder {
+                        if let Err(e) = recorder.write_frame(rgba_data) {
+                            log::error!("Failed to write frame to recorder: {}", e);
+                            // Stop recording on error
+                            drop(self.recorder.take());
+                            if let Ok(mut state) = self.shared_state.lock() {
+                                state.is_recording = false;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            drop(buffer_slice);
+            staging_buffer.unmap();
+        } else {
+            self.queue.submit(std::iter::once(encoder.finish()));
+        }
+        
         surface_texture.present();
         
         self.frame_count += 1;
