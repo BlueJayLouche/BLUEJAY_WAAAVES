@@ -37,6 +37,10 @@ pub enum InputChangeRequest {
     None,
     StartWebcam { input_id: u8, device_index: usize, width: u32, height: u32, fps: u32 },
     StopInput { input_id: u8 },
+    /// Set output window VSync
+    SetVsync(bool),
+    /// Set output window target FPS
+    SetOutputFps(u32),
 }
 
 /// Audio change request
@@ -194,6 +198,10 @@ pub struct SharedState {
     pub preview_pick_requested: bool,
     /// Whether preview window is open (if false, engine skips preview computation)
     pub preview_enabled: bool,
+    /// Output window target FPS (for GUI display)
+    pub output_fps: u32,
+    /// Output window VSync enabled (for GUI display)
+    pub output_vsync: bool,
 }
 
 /// Audio analysis state
@@ -261,6 +269,8 @@ impl SharedState {
             preview_pick_uv: [0.5, 0.5],             // Default to center
             preview_pick_requested: false,
             preview_enabled: true,                   // Preview starts enabled
+            output_fps: config.output_window.fps,    // Initial FPS from config
+            output_vsync: config.output_window.vsync, // Initial VSync from config
         }
     }
 }

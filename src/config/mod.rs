@@ -62,6 +62,8 @@ pub struct WindowConfig {
     pub decorated: bool,
     /// Target frame rate
     pub fps: u32,
+    /// Enable VSync
+    pub vsync: bool,
 }
 
 /// Pipeline configuration
@@ -155,6 +157,7 @@ impl Default for AppConfig {
                 resizable: false,
                 decorated: true,
                 fps: 60,
+                vsync: true,
             },
             control_window: WindowConfig {
                 width: 1920,
@@ -165,6 +168,7 @@ impl Default for AppConfig {
                 resizable: true,
                 decorated: true,
                 fps: 30,
+                vsync: true,
             },
             pipeline: PipelineConfig {
                 internal_width: 1280,

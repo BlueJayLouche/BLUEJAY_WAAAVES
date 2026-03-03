@@ -64,6 +64,10 @@ struct App {
     output_engine: Option<WgpuEngine>,
     output_fullscreen: bool,  // Track fullscreen state
     
+    // Frame rate limiting for output window
+    output_last_frame_time: Option<std::time::Instant>,
+    output_target_frame_duration: std::time::Duration,
+    
     // Control window (imgui)
     control_window: Option<Arc<Window>>,
     control_gui: Option<ControlGui>,
@@ -107,6 +111,8 @@ impl App {
         // Video input will be initialized after wgpu device is created
         let video_input: Option<InputManager> = None;
         
+        let target_fps = config.output_window.fps.max(1);
+        
         Self {
             config,
             shared_state,
@@ -117,6 +123,8 @@ impl App {
             output_window: None,
             output_engine: None,
             output_fullscreen: false,
+            output_last_frame_time: None,
+            output_target_frame_duration: std::time::Duration::from_secs_f32(1.0 / target_fps as f32),
             control_window: None,
             control_gui: None,
             imgui_renderer: None,
@@ -166,6 +174,42 @@ impl App {
             state.recording_command = crate::core::RecordingCommand::Toggle;
             log::info!("Recording toggle requested (Shift+R)");
         }
+    }
+    
+    /// Update output window target FPS
+    fn set_output_fps(&mut self, fps: u32) {
+        let fps = fps.max(1).min(240);
+        self.output_target_frame_duration = std::time::Duration::from_secs_f32(1.0 / fps as f32);
+        self.config.output_window.fps = fps;
+        
+        // Update shared state so GUI can see the change
+        if let Ok(mut state) = self.shared_state.lock() {
+            state.output_fps = fps;
+        }
+        
+        // Also update the engine if it exists
+        if let Some(ref mut engine) = self.output_engine {
+            engine.set_target_fps(fps);
+        }
+        
+        log::info!("Output FPS set to {}", fps);
+    }
+    
+    /// Update output window VSync
+    fn set_output_vsync(&mut self, enabled: bool) {
+        self.config.output_window.vsync = enabled;
+        
+        // Update shared state so GUI can see the change
+        if let Ok(mut state) = self.shared_state.lock() {
+            state.output_vsync = enabled;
+        }
+        
+        // Update the engine if it exists
+        if let Some(ref mut engine) = self.output_engine {
+            engine.set_vsync(enabled);
+        }
+        
+        log::info!("Output VSync {}", if enabled { "enabled" } else { "disabled" });
     }
 }
 
@@ -494,6 +538,12 @@ impl ApplicationHandler for App {
                         log::info!("[INPUT] Input 1 stopped");
                     }
                 }
+                crate::core::InputChangeRequest::SetVsync(enabled) => {
+                    self.set_output_vsync(enabled);
+                }
+                crate::core::InputChangeRequest::SetOutputFps(fps) => {
+                    self.set_output_fps(fps);
+                }
                 _ => {}
             }
             
@@ -573,14 +623,29 @@ impl ApplicationHandler for App {
             }
         }
         
-        // Request redraws for both windows
-        if let Some(ref window) = self.output_window {
-            window.request_redraw();
-        }
+        // Request redraw for control window (always at full rate for responsiveness)
         if let Some(ref window) = self.control_window {
             window.request_redraw();
         }
+        
+        // Request redraw for output window with frame rate limiting
+        if let Some(ref window) = self.output_window {
+            let now = std::time::Instant::now();
+            let should_render = match self.output_last_frame_time {
+                None => true,
+                Some(last_time) => {
+                    let elapsed = now.duration_since(last_time);
+                    elapsed >= self.output_target_frame_duration
+                }
+            };
+            
+            if should_render {
+                self.output_last_frame_time = Some(now);
+                window.request_redraw();
+            }
+        }
     }
+    
 }
 
 /// wgpu-based rendering engine for output
@@ -593,6 +658,10 @@ pub struct WgpuEngine {
     queue: Arc<wgpu::Queue>,
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
+    
+    // VSync and frame rate settings
+    vsync: bool,
+    target_fps: u32,
     
     shared_state: Arc<std::sync::Mutex<SharedState>>,
     
@@ -686,12 +755,21 @@ impl WgpuEngine {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
         
+        // Determine present mode based on vsync setting
+        let vsync = app_config.output_window.vsync;
+        let target_fps = app_config.output_window.fps;
+        let present_mode = if vsync {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
+        };
+        
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: wgpu::PresentMode::AutoVsync,
+            present_mode,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -871,6 +949,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             queue: Arc::clone(&queue),
             surface,
             config,
+            vsync,
+            target_fps,
 
             shared_state,
             modular_block1,
@@ -954,6 +1034,36 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 state.internal_size = (width, height);
             }
         }
+    }
+    
+    /// Get current VSync setting
+    pub fn vsync(&self) -> bool {
+        self.vsync
+    }
+    
+    /// Set VSync on/off (updates present mode)
+    pub fn set_vsync(&mut self, enabled: bool) {
+        if self.vsync != enabled {
+            self.vsync = enabled;
+            self.config.present_mode = if enabled {
+                wgpu::PresentMode::AutoVsync
+            } else {
+                wgpu::PresentMode::AutoNoVsync
+            };
+            self.surface.configure(&self.device, &self.config);
+            log::info!("VSync {}", if enabled { "enabled" } else { "disabled" });
+        }
+    }
+    
+    /// Get target FPS
+    pub fn target_fps(&self) -> u32 {
+        self.target_fps
+    }
+    
+    /// Set target FPS
+    pub fn set_target_fps(&mut self, fps: u32) {
+        self.target_fps = fps.max(1).min(240);
+        log::info!("Target FPS set to {}", self.target_fps);
     }
     
     pub fn render(&mut self) {

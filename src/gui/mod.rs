@@ -573,6 +573,27 @@ impl ControlGui {
         }
     }
     
+    /// Send an input change request to the engine
+    fn send_input_request(&mut self, request: crate::core::InputChangeRequest) {
+        if let Ok(mut state) = self.shared_state.lock() {
+            // Use input1_change_request as a general channel for output settings
+            state.input1_change_request = request.clone();
+            
+            // Also update our local config copy so it gets saved
+            match &request {
+                crate::core::InputChangeRequest::SetVsync(enabled) => {
+                    self.config.output_window.vsync = *enabled;
+                    state.output_vsync = *enabled;
+                }
+                crate::core::InputChangeRequest::SetOutputFps(fps) => {
+                    self.config.output_window.fps = *fps;
+                    state.output_fps = *fps;
+                }
+                _ => {}
+            }
+        }
+    }
+    
     /// Build the complete UI
     pub fn build_ui(&mut self, ui: &mut Ui) {
         // Update FPS counter (average over last 60 frames for smooth display)
@@ -3028,6 +3049,75 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                 ui.text(format!("Output Size: {}x{}", state.output_size.0, state.output_size.1));
                 ui.text(format!("Internal Size: {}x{}", state.internal_size.0, state.internal_size.1));
                 ui.text(format!("Frame Count: {}", state.frame_count));
+            }
+        }
+        
+        // Output Frame Rate Settings
+        if CollapsingHeader::new("Output Frame Rate").default_open(true).build(ui) {
+            // Read current values from shared state
+            let (current_vsync, current_fps) = if let Ok(state) = self.shared_state.lock() {
+                (state.output_vsync, state.output_fps)
+            } else {
+                (self.config.output_window.vsync, self.config.output_window.fps)
+            };
+            
+            // VSync toggle
+            let mut vsync = current_vsync;
+            if ui.checkbox("VSync", &mut vsync) && vsync != current_vsync {
+                self.send_input_request(crate::core::InputChangeRequest::SetVsync(vsync));
+            }
+            if ui.is_item_hovered() {
+                ui.tooltip_text("Enable VSync to match display refresh rate (reduces tearing)");
+            }
+            
+            ui.separator();
+            
+            // Common framerate presets
+            let fps_presets = [24u32, 30, 60, 120, 144];
+            let fps_labels = ["24 FPS (Cinematic)", "30 FPS", "60 FPS", "120 FPS", "144 FPS"];
+            let custom_label = "Custom...";
+            
+            // Find if current FPS matches a preset
+            let preset_idx = fps_presets.iter().position(|&fps| fps == current_fps);
+            
+            let preview = match preset_idx {
+                Some(idx) => fps_labels[idx].to_string(),
+                None => format!("{} FPS (Custom)", current_fps),
+            };
+            
+            ui.text("Target Frame Rate:");
+            ComboBox::new(ui, "##fps_combo")
+                .preview_value(&preview)
+                .build(|| {
+                    // Preset options
+                    for (idx, label) in fps_labels.iter().enumerate() {
+                        let is_selected = preset_idx == Some(idx);
+                        if ui.selectable_config(label).selected(is_selected).build() {
+                            self.send_input_request(crate::core::InputChangeRequest::SetOutputFps(fps_presets[idx]));
+                        }
+                    }
+                    // Custom option
+                    ui.separator();
+                    let is_custom = preset_idx.is_none();
+                    if ui.selectable_config(custom_label).selected(is_custom).build() {
+                        // Keep current custom value selected
+                    }
+                });
+            
+            // Custom FPS input (shown when custom or always available)
+            let mut custom_fps = current_fps as i32;
+            ui.text("Custom FPS:");
+            if Drag::new("##custom_fps").speed(1.0).range(1, 240).build(ui, &mut custom_fps) {
+                if custom_fps != current_fps as i32 {
+                    self.send_input_request(crate::core::InputChangeRequest::SetOutputFps(custom_fps as u32));
+                }
+            }
+            
+            ui.text_disabled(format!("Current: {} FPS", current_fps));
+            if !current_vsync {
+                ui.text_disabled("Frame rate limiting is active (VSync off)");
+            } else {
+                ui.text_disabled("Frame rate controlled by VSync");
             }
         }
         
