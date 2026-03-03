@@ -14,7 +14,7 @@ pub mod layout;
 pub mod resolution;
 
 // Re-export layout types
-pub use layout::{LayoutConfig, TabId, WindowState};
+pub use layout::{LayoutConfig, TabId};
 // Re-export resolution types
 pub use resolution::{ResolutionConfig, ResolutionPreset, ResolutionSettings};
 

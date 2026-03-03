@@ -3,7 +3,10 @@
 //! ImGui-based control interface for the VJ application.
 //! Provides real-time parameter control, preset management, and input configuration.
 
-use crate::config::{AppConfig, LayoutConfig, ResolutionPreset, TabId};
+// Allow deprecated ComboBox API - imgui 0.12 uses the older API
+#![allow(deprecated)]
+
+use crate::config::{LayoutConfig, ResolutionPreset, TabId};
 use crate::core::{InputChangeRequest, OutputMode, PreviewSource, SharedState};
 use crate::input::InputType;
 use crate::params::preset::{PresetData, PresetManager};
@@ -278,7 +281,10 @@ impl ControlGui {
         };
         
         // Load webcam devices
+        #[cfg(feature = "webcam")]
         let webcam_devices = crate::input::webcam::list_cameras();
+        #[cfg(not(feature = "webcam"))]
+        let webcam_devices: Vec<String> = Vec::new();
         log::info!("Found {} webcam device(s)", webcam_devices.len());
         
         // Load audio devices
@@ -467,8 +473,16 @@ impl ControlGui {
     /// Refresh the list of available devices
     fn refresh_devices(&mut self) {
         // Scan for webcam devices
-        self.webcam_devices = crate::input::webcam::list_cameras();
-        log::info!("Refreshed device list: {} webcam(s) found", self.webcam_devices.len());
+        #[cfg(feature = "webcam")]
+        {
+            self.webcam_devices = crate::input::webcam::list_cameras();
+            log::info!("Refreshed device list: {} webcam(s) found", self.webcam_devices.len());
+        }
+        #[cfg(not(feature = "webcam"))]
+        {
+            self.webcam_devices.clear();
+            log::info!("Webcam feature disabled, no devices found");
+        }
         
         // Scan for audio devices
         self.audio_devices = crate::audio::AudioInput::list_devices();
@@ -640,10 +654,7 @@ impl ControlGui {
         self.build_top_bar(ui);
         self.build_main_tabs(ui);
         
-        // Show demo window if requested
-        if self.show_demo {
-            ui.show_demo_window(&mut self.show_demo);
-        }
+        // Note: Demo window removed for cleaner UI
         
         // Sync back to shared state at end of frame
         self.sync_to_shared_state();
@@ -658,9 +669,9 @@ impl ControlGui {
                 }
             });
             
+            // View menu - currently empty, demo window removed for cleaner UI
             ui.menu("View", || {
-                if ui.menu_item_config("Show Demo Window")
-                    .build_with_ref(&mut self.show_demo) {}
+                // Placeholder for view options
             });
         });
     }
@@ -681,18 +692,20 @@ impl ControlGui {
         ui.separator();
     }
     
-    /// Build preset management section
+    /// Build preset management section - compact two-row layout
     fn build_preset_section(&mut self, ui: &Ui) {
-        ui.text("Preset:");
+        // Row 1: Bank selector, Preset name input, Save button
+        ui.text("Bank:");
         ui.same_line();
         
-        // Bank selector
+        // Bank selector (compact)
         let banks = self.preset_manager.get_bank_names();
         let current_bank = self.preset_manager.get_current_bank();
         let mut bank_idx = banks.iter().position(|b| b == current_bank).unwrap_or(0) as i32;
         
         let bank_preview = if banks.is_empty() { "Default".to_string() } else { banks[bank_idx as usize].clone() };
         
+        ui.set_next_item_width(100.0);
         ComboBox::new(ui, "##bank_select")
             .preview_value(&bank_preview)
             .build(|| {
@@ -715,11 +728,15 @@ impl ControlGui {
         }
         
         ui.same_line();
+        ui.separator();
+        ui.same_line();
         
-        // Preset name input
-        ui.set_next_item_width(150.0);
+        // Preset name input (compact)
+        ui.text("Save:");
+        ui.same_line();
+        ui.set_next_item_width(120.0);
         imgui::InputText::new(ui, "##preset_name", &mut self.preset_name_input)
-            .hint("Preset name")
+            .hint("Name...")
             .build();
         
         ui.same_line();
@@ -771,8 +788,8 @@ impl ControlGui {
             }
         }
         
-        ui.same_line();
-        ui.separator();
+        // Row 2: Load preset selector and Load button
+        ui.text("Load:");
         ui.same_line();
         
         // Load preset selector
@@ -786,6 +803,7 @@ impl ControlGui {
         };
         
         let mut selected_idx = self.selected_preset_index;
+        ui.set_next_item_width(200.0);
         ComboBox::new(ui, "##load_preset")
             .preview_value(&load_preview)
             .build(|| {
@@ -801,7 +819,7 @@ impl ControlGui {
         
         ui.same_line();
         
-        // Load button
+        // Load button - always visible
         if ui.button("Load") && self.selected_preset_index >= 0 {
             let idx = self.selected_preset_index as usize;
             if idx < preset_names.len() {

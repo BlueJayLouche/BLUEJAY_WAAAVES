@@ -3,7 +3,7 @@
 //! Handles recording of output video and audio to file using FFmpeg.
 //! Supports multiple codecs and quality presets.
 
-use crate::core::{RecordingSettings, VideoCodec, RecordingQuality};
+use crate::core::{RecordingSettings, RecordingQuality};
 use std::io::Write;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};

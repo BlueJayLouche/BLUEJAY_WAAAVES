@@ -118,7 +118,7 @@ impl SimpleEngine {
                 force_fallback_adapter: false,
             })
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to find suitable adapter: {:?}", e))?;;
+            .map_err(|e| anyhow::anyhow!("Failed to find suitable adapter: {:?}", e))?;
         
         log::info!("[SIMPLE_ENGINE] Using adapter: {:?}", adapter.get_info());
         

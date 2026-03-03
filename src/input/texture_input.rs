@@ -112,10 +112,24 @@ impl InputTextureManager {
         // Validate data size (RGBA = 4 bytes per pixel)
         let expected_size = (width * height * 4) as usize;
         if data.len() != expected_size {
-            log::warn!("Input 1 frame data size mismatch: got {} bytes, expected {}", 
-                data.len(), expected_size);
+            log::warn!("Input 1 frame data size mismatch: got {} bytes, expected {} for {}x{}", 
+                data.len(), expected_size, width, height);
+            // Try to use the actual data size to determine dimensions
+            if data.len() % 4 == 0 {
+                let actual_pixels = data.len() / 4;
+                // Try to find a reasonable width/height
+                if actual_pixels % width as usize == 0 {
+                    let actual_height = (actual_pixels / width as usize) as u32;
+                    log::info!("Adjusting height from {} to {} based on data size", height, actual_height);
+                    return self.update_input1_internal(data, width, actual_height);
+                }
+            }
             return;
         }
+        self.update_input1_internal(data, width, height);
+    }
+    
+    fn update_input1_internal(&mut self, data: &[u8], width: u32, height: u32) {
         
         // Recreate texture if size changed
         if let Some(ref mut input) = self.input1 {

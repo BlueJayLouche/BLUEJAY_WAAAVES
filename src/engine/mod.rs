@@ -610,7 +610,9 @@ impl ApplicationHandler for App {
             if video.input1_has_new_frame() {
                 if let Some(frame_data) = video.take_input1_frame() {
                     let (width, height) = video.get_input1_resolution();
+                    log::debug!("[INPUT] Uploading input 1 frame to GPU: {}x{} ({} bytes)", width, height, frame_data.len());
                     engine.input_texture_manager.update_input1(&frame_data, width, height);
+                    log::debug!("[INPUT] Input 1 frame uploaded, has_data={}", engine.input_texture_manager.input1_has_data());
                 }
             }
             
@@ -1128,8 +1130,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Update input textures in the pipeline
         let input1_view = self.input_texture_manager.get_input1_view();
         let input2_view = self.input_texture_manager.get_input2_view();
-        let input1_has_data = self.input_texture_manager.input1_has_data();
-        let input2_has_data = self.input_texture_manager.input2_has_data();
+        let _input1_has_data = self.input_texture_manager.input1_has_data();
+        let _input2_has_data = self.input_texture_manager.input2_has_data();
+        
+        if self.frame_count % 60 == 0 {
+            log::info!("[RENDER] Frame {}: input1_has_data={}, input2_has_data={}",
+                self.frame_count, _input1_has_data, _input2_has_data);
+        }
         
         let surface_texture = match self.surface.get_current_texture() {
             Ok(t) => t,
@@ -1187,8 +1194,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         
         // Determine Block2 input based on block2_input_select
         // 0 = block1, 1 = input1, 2 = input2
-        let input1_has_data = self.input_texture_manager.input1_has_data();
-        let input2_has_data = self.input_texture_manager.input2_has_data();
+        let _input1_has_data = self.input_texture_manager.input1_has_data();
+        let _input2_has_data = self.input_texture_manager.input2_has_data();
         
         let block2_input_view: &wgpu::TextureView = match block2_input_select {
             1 => input1_view,
@@ -1575,7 +1582,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 }
             }
             
-            drop(buffer_slice);
+            // buffer_slice is automatically dropped when it goes out of scope
+            let _ = buffer_slice;
             staging_buffer.unmap();
         } else {
             self.queue.submit(std::iter::once(encoder.finish()));

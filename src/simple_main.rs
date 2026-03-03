@@ -4,6 +4,9 @@
 //! Auto-starts webcam and runs a single feedback shader with LFOs.
 //! Includes a second control window with ImGui for hue slider and tap tempo.
 
+// Allow deprecated ComboBox API - imgui 0.12 uses the older API
+#![allow(deprecated)]
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;

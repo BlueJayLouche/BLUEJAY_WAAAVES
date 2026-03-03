@@ -10,6 +10,7 @@ use nokhwa::{
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
+use std::io::Cursor;
 
 /// A captured webcam frame
 #[derive(Debug, Clone)]
@@ -373,34 +374,95 @@ fn capture_thread(
                 
                 // Convert to RGBA based on actual format
                 let frame_data = buffer.buffer();
-                let frame_width = actual_width;
-                let frame_height = actual_height;
+                let reported_width = actual_width;
+                let reported_height = actual_height;
                 let frame_format = actual_format.format();
+                let expected_rgb_size = (reported_width * reported_height * 3) as usize;
+                let expected_rgba_size = (reported_width * reported_height * 4) as usize;
+                let expected_yuyv_size = (reported_width * reported_height * 2) as usize;
                 
                 if frame_count == 1 {
-                    log::info!("[WEBCAM] First frame received: {} bytes, format: {:?}", 
-                        frame_data.len(), frame_format);
+                    log::info!("[WEBCAM] First frame: {} bytes, format: {:?}, expected RGB={}/RGBA={}/YUYV={}", 
+                        frame_data.len(), frame_format, expected_rgb_size, expected_rgba_size, expected_yuyv_size);
                 }
                 
-                // Convert based on the actual pixel format
-                let rgba_data = if frame_format == FrameFormat::YUYV {
-                    // YUYV format needs conversion
-                    convert_yuyv_to_rgba(frame_data, frame_width as usize, frame_height as usize)
-                } else {
-                    // For RGB and other formats, try RGB conversion
-                    // Check if already RGBA size
-                    if frame_data.len() == (frame_width * frame_height * 4) as usize {
-                        // Might already be RGBA
-                        frame_data.to_vec()
-                    } else {
-                        // Assume RGB and convert
-                        convert_rgb_to_rgba(frame_data, frame_width as usize, frame_height as usize)
+                // Detect actual format based on buffer size - the camera may return different format than reported
+                // Common camera formats: 640x480, 960x540, 1280x720, 1920x1080
+                let (rgba_data, actual_width, actual_height) = if frame_format == FrameFormat::MJPEG || 
+                                                                  (frame_data.len() < expected_yuyv_size && frame_data.len() > 10000) {
+                    // MJPEG format - needs to be decoded
+                    match decode_mjpeg_to_rgba(frame_data) {
+                        Some((rgba, w, h)) => {
+                            if frame_count <= 5 {
+                                log::info!("[WEBCAM] Decoded MJPEG frame: {}x{} from {} bytes", w, h, frame_data.len());
+                            }
+                            (rgba, w, h)
+                        }
+                        None => {
+                            log::error!("[WEBCAM] Failed to decode MJPEG frame ({} bytes), skipping", frame_data.len());
+                            continue;
+                        }
                     }
+                } else if frame_data.len() == expected_yuyv_size {
+                    // YUYV format (2 bytes per pixel) at reported resolution
+                    (convert_yuyv_to_rgba(frame_data, reported_width as usize, reported_height as usize), reported_width, reported_height)
+                } else if frame_data.len() == expected_rgba_size {
+                    // Already RGBA
+                    (frame_data.to_vec(), reported_width, reported_height)
+                } else if frame_data.len() == expected_rgb_size {
+                    // RGB format (3 bytes per pixel)
+                    (convert_rgb_to_rgba(frame_data, reported_width as usize, reported_height as usize), reported_width, reported_height)
+                } else {
+                    // Unknown format - try common resolutions
+                    // Try to detect based on common YUYV frame sizes
+                    let detected = match frame_data.len() {
+                        // 640x480 YUYV = 614400 bytes
+                        614400 => (640u32, 480u32, "YUYV 640x480"),
+                        // 960x540 YUYV = 1036800 bytes  
+                        1036800 => (960u32, 540u32, "YUYV 960x540"),
+                        // 1280x720 YUYV = 1843200 bytes
+                        1843200 => (1280u32, 720u32, "YUYV 1280x720"),
+                        // 1920x1080 YUYV = 4147200 bytes
+                        4147200 => (1920u32, 1080u32, "YUYV 1920x1080"),
+                        // Unknown size - try to infer
+                        _ => {
+                            // Try assuming YUYV and calculate height from width
+                            if frame_data.len() % (reported_width as usize * 2) == 0 {
+                                let h = frame_data.len() / (reported_width as usize * 2);
+                                (reported_width, h as u32, "inferred YUYV")
+                            } else if frame_data.len() % (reported_width as usize * 3) == 0 {
+                                let h = frame_data.len() / (reported_width as usize * 3);
+                                (reported_width, h as u32, "inferred RGB")
+                            } else {
+                                // Last resort: try common 960x425-like sizes
+                                // 816000 bytes = 960 x 425 x 2 (YUYV)
+                                if frame_data.len() == 816000 {
+                                    (960, 425, "detected 960x425 YUYV")
+                                } else {
+                                    (0, 0, "unknown")
+                                }
+                            }
+                        }
+                    };
+                    
+                    if detected.0 == 0 {
+                        log::error!("[WEBCAM] Cannot determine frame format: {} bytes, skipping", frame_data.len());
+                        continue;
+                    }
+                    
+                    if frame_count <= 5 {
+                        log::warn!("[WEBCAM] Detected {} (reported {}x{}), converting from {} bytes",
+                            detected.2, reported_width, reported_height, frame_data.len());
+                    }
+                    
+                    let (w, h) = (detected.0, detected.1);
+                    let rgba = convert_yuyv_to_rgba(frame_data, w as usize, h as usize);
+                    (rgba, w, h)
                 };
                 
                 let frame = WebcamFrame {
-                    width: frame_width,
-                    height: frame_height,
+                    width: actual_width,
+                    height: actual_height,
                     data: rgba_data,
                     timestamp: std::time::Instant::now(),
                 };
@@ -498,6 +560,24 @@ fn convert_rgb_to_rgba(rgb: &[u8], width: usize, height: usize) -> Vec<u8> {
     }
     
     rgba
+}
+
+/// Decode MJPEG data to RGBA
+/// Returns (rgba_data, width, height) if successful
+fn decode_mjpeg_to_rgba(mjpeg_data: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    // Use image crate to decode JPEG
+    let cursor = Cursor::new(mjpeg_data);
+    match image::load(cursor, image::ImageFormat::Jpeg) {
+        Ok(dynamic_image) => {
+            let rgba_image = dynamic_image.to_rgba8();
+            let (width, height) = rgba_image.dimensions();
+            Some((rgba_image.into_raw(), width, height))
+        }
+        Err(e) => {
+            log::debug!("[WEBCAM] MJPEG decode error: {:?}", e);
+            None
+        }
+    }
 }
 
 /// List available camera devices (safe wrapper)

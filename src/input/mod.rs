@@ -10,8 +10,41 @@ use anyhow::Result;
 use std::sync::{mpsc, Arc};
 use wgpu::Device;
 
+#[cfg(feature = "webcam")]
 pub mod webcam;
+#[cfg(feature = "webcam")]
 pub use webcam::{WebcamCapture, WebcamFrame};
+
+#[cfg(not(feature = "webcam"))]
+pub struct WebcamFrame {
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
+    pub timestamp: std::time::Instant,
+}
+
+#[cfg(not(feature = "webcam"))]
+pub struct WebcamCapture;
+
+#[cfg(not(feature = "webcam"))]
+impl WebcamCapture {
+    pub fn new(_device_index: usize, _width: u32, _height: u32, _fps: u32) -> anyhow::Result<Self> {
+        Err(anyhow::anyhow!("Webcam support not compiled. Enable the 'webcam' feature."))
+    }
+    
+    pub fn start(&mut self) -> anyhow::Result<std::sync::mpsc::Receiver<WebcamFrame>> {
+        unreachable!()
+    }
+    
+    pub fn stop(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(not(feature = "webcam"))]
+pub fn list_cameras() -> Vec<String> {
+    Vec::new()
+}
 
 mod texture_input;
 pub use texture_input::InputTextureManager;
@@ -71,13 +104,17 @@ pub struct InputSource {
 impl InputManager {
     /// Create a new input manager
     pub fn new() -> Self {
-        // Scan for webcam devices safely
+        // Scan for webcam devices safely (only if webcam feature enabled)
+        #[cfg(feature = "webcam")]
         let device_strings = std::panic::catch_unwind(|| {
             webcam::list_cameras()
         }).unwrap_or_else(|_| {
             log::error!("Webcam enumeration panicked");
             Vec::new()
         });
+        
+        #[cfg(not(feature = "webcam"))]
+        let device_strings: Vec<String> = Vec::new();
         
         log::info!("InputManager found {} webcam devices", device_strings.len());
         
@@ -131,6 +168,7 @@ impl InputManager {
     }
     
     /// Refresh available webcam devices
+    #[cfg(feature = "webcam")]
     pub fn refresh_webcam_devices(&mut self) -> Vec<String> {
         self.webcam_devices = webcam::list_cameras()
             .into_iter()
@@ -141,6 +179,12 @@ impl InputManager {
         self.devices_dirty = false;
         
         self.webcam_devices.iter().map(|d| d.name.clone()).collect()
+    }
+
+    /// Refresh available webcam devices (no-op when webcam feature disabled)
+    #[cfg(not(feature = "webcam"))]
+    pub fn refresh_webcam_devices(&mut self) -> Vec<String> {
+        Vec::new()
     }
     
     /// Get list of available webcam devices

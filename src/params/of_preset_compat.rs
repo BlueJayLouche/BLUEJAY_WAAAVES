@@ -7,7 +7,7 @@
 //! for each parameter group, while the Rust version uses structured types.
 
 use crate::params::{Block1Params, Block2Params, Block3Params};
-use glam::{Vec3, Vec4};
+use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

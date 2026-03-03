@@ -10,7 +10,7 @@
 
 use crate::engine::blocks::{BlockResources, StageVertex};
 use crate::params::Block2Params;
-use wgpu::util::DeviceExt;
+
 
 /// Vec3 type for uniforms - 16-byte aligned but only 12 bytes data
 #[repr(C, align(16))]

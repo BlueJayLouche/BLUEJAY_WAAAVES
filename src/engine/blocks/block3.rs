@@ -9,7 +9,7 @@
 use crate::engine::blocks::StageVertex;
 use crate::engine::texture::Texture;
 use crate::params::Block3Params;
-use glam::Vec4;
+
 
 /// Vec3 type matching WGSL's vec3<f32> - 16-byte aligned but only 12 bytes of data
 #[repr(C, align(16))]

@@ -5,7 +5,7 @@
 //! 2. Effects Processing - HSB, blur, filters (optional)
 //! 3. Mixing - Combine inputs and feedback
 
-use std::sync::Arc;
+
 
 /// Common vertex shader for all stages
 pub const COMMON_VERTEX_SHADER: &str = r#"

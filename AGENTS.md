@@ -445,6 +445,32 @@ Comprehensive logging was added to diagnose input/camera issues:
 
 Enable with: `RUST_LOG=info cargo run`
 
+## Building
+
+### Without Webcam Support (No libclang required)
+
+If you encounter build errors related to `v4l2-sys-mit` or `libclang`, you can build without webcam support:
+
+```bash
+cargo build --no-default-features
+```
+
+This disables the webcam input feature but keeps all other functionality (NDI, video files, shaders, etc.).
+
+### With Webcam Support
+
+Webcam support requires `libclang` for the `nokhwa` camera library. Install it using the provided script:
+
+```bash
+./scripts/install_dependencies.sh
+```
+
+Then build normally:
+
+```bash
+cargo build --release
+```
+
 ## Development Tips
 
 ### Adding New Parameters

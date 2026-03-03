@@ -4,37 +4,44 @@ default_window_size = [
 ]
 auto_save = true
 
-[popped_tabs.Macros]
-pos_x = 6.0
-pos_y = 1114.0
+[popped_tabs.Inputs]
+pos_x = 485.0
+pos_y = 209.0
+width = 368.0
+height = 585.0
+collapsed = false
+
+[popped_tabs.Block1]
+pos_x = 431.0
+pos_y = -9.0
+width = 428.0
+height = 592.0
+collapsed = false
+
+[popped_tabs.Block2]
+pos_x = 909.0
+pos_y = -3.0
+width = 443.0
+height = 601.0
+collapsed = false
+
+[popped_tabs.Settings]
+pos_x = 930.0
+pos_y = 209.0
 width = 500.0
 height = 600.0
 collapsed = false
 
 [popped_tabs.Block3]
-pos_x = 1836.0
-pos_y = 4.0
-width = 695.0
-height = 1111.0
+pos_x = 1350.0
+pos_y = -2.0
+width = 399.0
+height = 605.0
 collapsed = false
 
-[popped_tabs.Settings]
-pos_x = 1545.0
-pos_y = 1114.0
+[popped_tabs.Macros]
+pos_x = 6.0
+pos_y = 209.0
 width = 500.0
 height = 600.0
-collapsed = false
-
-[popped_tabs.Block1]
-pos_x = 487.0
-pos_y = 0.0
-width = 687.0
-height = 1108.0
-collapsed = false
-
-[popped_tabs.Block2]
-pos_x = 1155.0
-pos_y = 3.0
-width = 679.0
-height = 1110.0
 collapsed = false
