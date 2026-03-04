@@ -34,6 +34,7 @@ mod core;
 mod engine;
 mod gui;
 mod input;
+mod midi;
 mod params;
 mod recorder;
 mod utils;

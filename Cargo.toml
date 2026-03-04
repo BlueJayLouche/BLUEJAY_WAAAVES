@@ -52,6 +52,9 @@ anyhow = "1.0"
 # OSC (Open Sound Control) for MIDI/controller integration
 rosc = "0.11"
 
+# MIDI input handling
+midir = "0.10"
+
 # Time and scheduling
 instant = "0.1"
 

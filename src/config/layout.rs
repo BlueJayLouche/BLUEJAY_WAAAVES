@@ -2,10 +2,198 @@
 //!
 //! Manages floating window layout for popped-out tabs.
 //! Saved to `layout.toml` in the project root.
+//! 
+//! # Layout Manager
+//! 
+//! Multiple named layouts can be saved/recalled via `LayoutManager`:
+//! - Layouts stored in `layouts/` folder as individual `.toml` files
+//! - Current layout still auto-saves to `layout.toml` for persistence
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+/// Layout Manager for saving/recalling multiple named layouts
+#[derive(Debug)]
+pub struct LayoutManager {
+    /// Base path for layouts folder
+    base_path: PathBuf,
+    /// Current active layout (for auto-save)
+    current_layout: LayoutConfig,
+    /// Currently selected layout name (for UI)
+    selected_layout: String,
+    /// Counter to force window positions for multiple frames (set after loading a layout)
+    /// Counts down to 0, applies force while > 0
+    force_positions_frames: u32,
+}
+
+impl Default for LayoutManager {
+    fn default() -> Self {
+        Self {
+            base_path: PathBuf::from("layouts"),
+            current_layout: LayoutConfig::load(),
+            selected_layout: "Default".to_string(),
+            force_positions_frames: 0,
+        }
+    }
+}
+
+impl LayoutManager {
+    /// Create new layout manager
+    pub fn new() -> Self {
+        let mut manager = Self::default();
+        // Ensure layouts directory exists
+        let _ = std::fs::create_dir_all(&manager.base_path);
+        manager
+    }
+
+    /// Get current layout config
+    pub fn current(&self) -> &LayoutConfig {
+        &self.current_layout
+    }
+
+    /// Get mutable current layout
+    pub fn current_mut(&mut self) -> &mut LayoutConfig {
+        &mut self.current_layout
+    }
+
+    /// Save current layout with a name
+    pub fn save_named(&self, name: &str) -> anyhow::Result<()> {
+        let filename = format!("{}.toml", Self::sanitize_name(name));
+        let path = self.base_path.join(&filename);
+        
+        // Include metadata in the saved file
+        let named_layout = NamedLayout {
+            name: name.to_string(),
+            config: self.current_layout.clone(),
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        };
+        
+        let content = toml::to_string_pretty(&named_layout)?;
+        std::fs::write(&path, content)?;
+        log::info!("Saved layout '{}' to {:?}", name, path);
+        Ok(())
+    }
+
+    /// Load a named layout
+    pub fn load_named(&mut self, name: &str) -> anyhow::Result<()> {
+        let filename = format!("{}.toml", Self::sanitize_name(name));
+        let path = self.base_path.join(&filename);
+        
+        if !path.exists() {
+            return Err(anyhow::anyhow!("Layout '{}' not found", name));
+        }
+        
+        let content = std::fs::read_to_string(&path)?;
+        let named_layout: NamedLayout = toml::from_str(&content)?;
+        
+        // Replace entire layout config with loaded one
+        self.current_layout = named_layout.config;
+        self.selected_layout = name.to_string();
+        
+        // Force positions for multiple frames to ensure ImGui applies them
+        // This is needed because ImGui may need a few frames to properly position windows,
+        // especially if they were already open with different positions
+        self.force_positions_frames = 5;
+        
+        log::info!("Loaded layout '{}' from {:?} ({} tabs)", 
+            name, path, self.current_layout.popped_tabs.len());
+        Ok(())
+    }
+
+    /// Delete a named layout
+    pub fn delete_named(&self, name: &str) -> anyhow::Result<()> {
+        let filename = format!("{}.toml", Self::sanitize_name(name));
+        let path = self.base_path.join(&filename);
+        
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+            log::info!("Deleted layout '{}'", name);
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Layout '{}' not found", name))
+        }
+    }
+
+    /// Get list of saved layout names
+    pub fn list_layouts(&self) -> Vec<(String, u64)> {
+        let mut layouts = Vec::new();
+        
+        if let Ok(entries) = std::fs::read_dir(&self.base_path) {
+            for entry in entries.flatten() {
+                if let Some(ext) = entry.path().extension() {
+                    if ext == "toml" {
+                        if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                            if let Ok(named) = toml::from_str::<NamedLayout>(&content) {
+                                layouts.push((named.name, named.created_at));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Sort by creation time (newest first)
+        layouts.sort_by(|a, b| b.1.cmp(&a.1));
+        layouts
+    }
+
+    /// Get selected layout name
+    pub fn selected(&self) -> &str {
+        &self.selected_layout
+    }
+
+    /// Set selected layout name
+    pub fn set_selected(&mut self, name: String) {
+        self.selected_layout = name;
+    }
+
+    /// Check if positions should be forced (call this once per frame)
+    /// Returns true if positions should be forced, decrements counter each call
+    pub fn should_force_positions(&mut self) -> bool {
+        if self.force_positions_frames > 0 {
+            self.force_positions_frames -= 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Sanitize name for filesystem
+    fn sanitize_name(name: &str) -> String {
+        name.chars()
+            .map(|c| match c {
+                'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => c,
+                ' ' => '_',
+                _ => '_',
+            })
+            .collect()
+    }
+
+    /// Auto-save current layout to default location
+    pub fn auto_save(&self) -> anyhow::Result<()> {
+        if self.current_layout.auto_save {
+            self.current_layout.save()
+                .map_err(|e| anyhow::anyhow!("Failed to save layout: {}", e))?;
+        }
+        Ok(())
+    }
+}
+
+/// Named layout with metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NamedLayout {
+    /// Display name
+    name: String,
+    /// The layout configuration
+    #[serde(flatten)]
+    config: LayoutConfig,
+    /// Creation timestamp
+    created_at: u64,
+}
 
 /// Unique identifier for a tab
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
@@ -16,7 +204,9 @@ pub enum TabId {
     Block3,
     Macros,
     Inputs,
+    Presets,
     Settings,
+    Midi,
     /// Block 1 sub-tabs
     Block1Ch1Adjust,
     Block1Ch2MixKey,
@@ -44,7 +234,9 @@ impl TabId {
             TabId::Block3 => "Block 3",
             TabId::Macros => "Macros",
             TabId::Inputs => "Inputs",
+            TabId::Presets => "Presets",
             TabId::Settings => "Settings",
+            TabId::Midi => "MIDI",
             TabId::Block1Ch1Adjust => "CH1 Adjust",
             TabId::Block1Ch2MixKey => "CH2 Mix & Key",
             TabId::Block1Ch2Adjust => "CH2 Adjust",
@@ -92,9 +284,17 @@ impl TabId {
             TabId::Inputs => {
                 [0.3, 0.7, 0.9, 1.0] // Cyan/blue
             }
+            // Presets - Gold/Yellow (valuable, organized)
+            TabId::Presets => {
+                [0.9, 0.75, 0.2, 1.0] // Gold/yellow
+            }
             // Settings - Gray (neutral)
             TabId::Settings => {
                 [0.6, 0.6, 0.6, 1.0] // Gray
+            }
+            // MIDI - Teal/Cyan (electronic, musical)
+            TabId::Midi => {
+                [0.2, 0.8, 0.8, 1.0] // Teal
             }
         }
     }

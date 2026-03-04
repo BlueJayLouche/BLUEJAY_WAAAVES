@@ -14,7 +14,7 @@ pub mod layout;
 pub mod resolution;
 
 // Re-export layout types
-pub use layout::{LayoutConfig, TabId};
+pub use layout::{LayoutConfig, LayoutManager, TabId};
 // Re-export resolution types
 pub use resolution::{ResolutionConfig, ResolutionPreset, ResolutionSettings};
 
@@ -141,6 +141,8 @@ pub struct ControlConfig {
     pub osc_enabled: bool,
     /// MIDI input device
     pub midi_device: Option<String>,
+    /// Enable MIDI input
+    pub midi_enabled: bool,
     /// Presets directory
     pub presets_dir: PathBuf,
 }
@@ -206,6 +208,7 @@ impl Default for AppConfig {
                 osc_send_ip: "127.0.0.1".to_string(),
                 osc_enabled: false,
                 midi_device: None,
+                midi_enabled: true, // MIDI enabled by default, but can be disabled if DAW is running
                 presets_dir: PathBuf::from("presets"),
             },
             ui_scale: 1.0,

@@ -3,6 +3,7 @@
 //! Contains shared state and core types used throughout the application.
 
 use crate::config::AppConfig;
+use crate::midi::MidiState;
 use crate::params::{Block1Params, Block2Params, Block3Params, LfoBank, ParamModulationData};
 use std::collections::HashMap;
 
@@ -202,6 +203,8 @@ pub struct SharedState {
     pub output_fps: u32,
     /// Output window VSync enabled (for GUI display)
     pub output_vsync: bool,
+    /// MIDI state for parameter mapping and learn
+    pub midi: MidiState,
 }
 
 /// Audio analysis state
@@ -271,6 +274,14 @@ impl SharedState {
             preview_enabled: true,                   // Preview starts enabled
             output_fps: config.output_window.fps,    // Initial FPS from config
             output_vsync: config.output_window.vsync, // Initial VSync from config
+            midi: {
+                let mut midi = MidiState::new();
+                // Try to load existing MIDI mappings
+                if let Err(e) = midi.load_mappings("midi_mappings.toml") {
+                    log::warn!("Failed to load MIDI mappings: {}", e);
+                }
+                midi
+            },
         }
     }
 }

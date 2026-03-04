@@ -6,6 +6,7 @@
 use crate::audio::AudioInput;
 use crate::config::AppConfig;
 use crate::core::lfo_engine::{update_lfo_phases, apply_lfos_to_block1, apply_lfos_to_block2, apply_lfos_to_block3};
+use crate::midi::MidiInputHandler;
 use crate::params::preset::{apply_audio_modulations, ParamModulationData};
 use std::collections::HashMap;
 use crate::core::{OutputMode, SharedState, Vertex};
@@ -79,6 +80,9 @@ struct App {
     // Video input
     video_input: Option<InputManager>,
     
+    // MIDI input handler
+    midi_input: Option<MidiInputHandler>,
+    
     // Keyboard modifier state tracking
     shift_pressed: bool,
 }
@@ -131,6 +135,7 @@ impl App {
             audio_input,
             video_input,
             shift_pressed: false,
+            midi_input: None,
         }
     }
     
@@ -173,6 +178,100 @@ impl App {
         if let Ok(mut state) = self.shared_state.lock() {
             state.recording_command = crate::core::RecordingCommand::Toggle;
             log::info!("Recording toggle requested (Shift+R)");
+        }
+    }
+    
+    /// Apply a MIDI value to a parameter based on its ID
+    fn apply_midi_value_to_param(state: &mut SharedState, param_id: &str, value: f32) {
+        // Helper macro to set parameter values
+        macro_rules! set_param {
+            ($params:expr, $field:ident) => {
+                $params.$field = value
+            };
+        }
+        
+        // Parse the parameter ID and set the value
+        match param_id {
+            // Block 1 - Channel 1
+            "block1.ch1_x_displace" => set_param!(state.block1, ch1_x_displace),
+            "block1.ch1_y_displace" => set_param!(state.block1, ch1_y_displace),
+            "block1.ch1_z_displace" => set_param!(state.block1, ch1_z_displace),
+            "block1.ch1_rotate" => set_param!(state.block1, ch1_rotate),
+            "block1.ch1_blur_amount" => set_param!(state.block1, ch1_blur_amount),
+            "block1.ch1_sharpen_amount" => set_param!(state.block1, ch1_sharpen_amount),
+            "block1.ch1_kaleidoscope_amount" => set_param!(state.block1, ch1_kaleidoscope_amount),
+            
+            // Block 1 - Channel 2
+            "block1.ch2_mix_amount" => set_param!(state.block1, ch2_mix_amount),
+            "block1.ch2_x_displace" => set_param!(state.block1, ch2_x_displace),
+            "block1.ch2_y_displace" => set_param!(state.block1, ch2_y_displace),
+            "block1.ch2_z_displace" => set_param!(state.block1, ch2_z_displace),
+            "block1.ch2_rotate" => set_param!(state.block1, ch2_rotate),
+            "block1.ch2_blur_amount" => set_param!(state.block1, ch2_blur_amount),
+            "block1.ch2_sharpen_amount" => set_param!(state.block1, ch2_sharpen_amount),
+            "block1.ch2_key_threshold" => set_param!(state.block1, ch2_key_threshold),
+            "block1.ch2_key_soft" => set_param!(state.block1, ch2_key_soft),
+            
+            // Block 1 - FB1
+            "block1.fb1_mix_amount" => set_param!(state.block1, fb1_mix_amount),
+            "block1.fb1_x_displace" => set_param!(state.block1, fb1_x_displace),
+            "block1.fb1_y_displace" => set_param!(state.block1, fb1_y_displace),
+            "block1.fb1_z_displace" => set_param!(state.block1, fb1_z_displace),
+            "block1.fb1_rotate" => set_param!(state.block1, fb1_rotate),
+            "block1.fb1_blur_amount" => set_param!(state.block1, fb1_blur_amount),
+            "block1.fb1_sharpen_amount" => set_param!(state.block1, fb1_sharpen_amount),
+            "block1.fb1_delay_time" => state.block1.fb1_delay_time = value as i32,
+            
+            // Block 2 - Input
+            "block2.input_x_displace" => set_param!(state.block2, block2_input_x_displace),
+            "block2.input_y_displace" => set_param!(state.block2, block2_input_y_displace),
+            "block2.input_z_displace" => set_param!(state.block2, block2_input_z_displace),
+            "block2.input_rotate" => set_param!(state.block2, block2_input_rotate),
+            "block2.input_blur_amount" => set_param!(state.block2, block2_input_blur_amount),
+            "block2.input_sharpen_amount" => set_param!(state.block2, block2_input_sharpen_amount),
+            
+            // Block 2 - FB2
+            "block2.fb2_mix_amount" => set_param!(state.block2, fb2_mix_amount),
+            "block2.fb2_x_displace" => set_param!(state.block2, fb2_x_displace),
+            "block2.fb2_y_displace" => set_param!(state.block2, fb2_y_displace),
+            "block2.fb2_z_displace" => set_param!(state.block2, fb2_z_displace),
+            "block2.fb2_rotate" => set_param!(state.block2, fb2_rotate),
+            
+            // Block 3 - Block 1 Re-process
+            "block3.block1_x_displace" => set_param!(state.block3, block1_x_displace),
+            "block3.block1_y_displace" => set_param!(state.block3, block1_y_displace),
+            "block3.block1_z_displace" => set_param!(state.block3, block1_z_displace),
+            "block3.block1_rotate" => set_param!(state.block3, block1_rotate),
+            
+            // Block 3 - Block 2 Re-process
+            "block3.block2_x_displace" => set_param!(state.block3, block2_x_displace),
+            "block3.block2_y_displace" => set_param!(state.block3, block2_y_displace),
+            "block3.block2_z_displace" => set_param!(state.block3, block2_z_displace),
+            "block3.block2_rotate" => set_param!(state.block3, block2_rotate),
+            
+            // Block 3 - Matrix Mixer
+            "block3.matrix_mix_r_to_r" => set_param!(state.block3, matrix_mix_r_to_r),
+            "block3.matrix_mix_r_to_g" => set_param!(state.block3, matrix_mix_r_to_g),
+            "block3.matrix_mix_r_to_b" => set_param!(state.block3, matrix_mix_r_to_b),
+            "block3.matrix_mix_g_to_r" => set_param!(state.block3, matrix_mix_g_to_r),
+            "block3.matrix_mix_g_to_g" => set_param!(state.block3, matrix_mix_g_to_g),
+            "block3.matrix_mix_g_to_b" => set_param!(state.block3, matrix_mix_g_to_b),
+            "block3.matrix_mix_b_to_r" => set_param!(state.block3, matrix_mix_b_to_r),
+            "block3.matrix_mix_b_to_g" => set_param!(state.block3, matrix_mix_b_to_g),
+            "block3.matrix_mix_b_to_b" => set_param!(state.block3, matrix_mix_b_to_b),
+            
+            // Block 3 - Final Mix
+            "block3.final_mix_amount" => set_param!(state.block3, final_mix_amount),
+            "block3.final_key_threshold" => set_param!(state.block3, final_key_threshold),
+            "block3.final_key_soft" => set_param!(state.block3, final_key_soft),
+            
+            // Global
+            "global.bpm" => state.bpm = value.clamp(20.0, 300.0),
+            
+            // Unknown parameter
+            _ => {
+                log::warn!("MIDI: Unknown parameter ID: {}", param_id);
+            }
         }
     }
     
@@ -268,6 +367,41 @@ impl ApplicationHandler for App {
                         self.video_input = Some(input_manager);
                     }
                     self.output_engine = Some(engine);
+                    
+                    // Initialize MIDI input (only if enabled in config)
+                    if self.config.control.midi_enabled {
+                        // Wrap in catch_unwind to prevent panic from crashing the app
+                        match std::panic::catch_unwind(|| {
+                            MidiInputHandler::new()
+                        }) {
+                            Ok(Ok(mut midi)) => {
+                                // Also wrap connect_all as it can panic in CoreMIDI callbacks
+                                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    midi.connect_all()
+                                })) {
+                                    Ok(connected) => {
+                                        if connected > 0 {
+                                            log::info!("MIDI: Connected to {} device(s)", connected);
+                                        } else {
+                                            log::info!("MIDI: No devices found, will scan for hot-plugged devices");
+                                        }
+                                    }
+                                    Err(_) => {
+                                        log::warn!("MIDI: Panic during device connection - MIDI may be in use by another application (DAW)");
+                                    }
+                                }
+                                self.midi_input = Some(midi);
+                            }
+                            Ok(Err(e)) => {
+                                log::warn!("MIDI: Failed to initialize: {}", e);
+                            }
+                            Err(_) => {
+                                log::warn!("MIDI: Panic during initialization - MIDI may be in use by another application (DAW). Disable MIDI in config or close other MIDI applications.");
+                            }
+                        }
+                    } else {
+                        log::info!("MIDI: Disabled in config");
+                    }
                 }
                 Err(err) => {
                     eprintln!("Failed to create output engine: {}", err);
@@ -621,6 +755,28 @@ impl ApplicationHandler for App {
                 if let Some(frame_data) = video.take_input2_frame() {
                     let (width, height) = video.get_input2_resolution();
                     engine.input_texture_manager.update_input2(&frame_data, width, height);
+                }
+            }
+        }
+        
+        // Poll for MIDI events and update parameters
+        if let Some(ref mut midi) = self.midi_input {
+            let events = midi.poll_events();
+            if !events.is_empty() {
+                if let Ok(mut state) = self.shared_state.lock() {
+                    // Update connected device list
+                    state.midi.connected_devices = midi.connected_devices();
+                    
+                    // Process MIDI events
+                    if state.midi.enabled {
+                        for event in events {
+                            if let Some((param_id, value)) = state.midi.process_midi_event(event.clone()) {
+                                // Apply the MIDI value to the appropriate parameter
+                                Self::apply_midi_value_to_param(&mut state, &param_id, value);
+                                log::debug!("MIDI: Applied {} = {} to {}", param_id, value, event.device_id);
+                            }
+                        }
+                    }
                 }
             }
         }

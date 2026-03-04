@@ -6,9 +6,12 @@
 // Allow deprecated ComboBox API - imgui 0.12 uses the older API
 #![allow(deprecated)]
 
-use crate::config::{LayoutConfig, ResolutionPreset, TabId};
+use crate::config::{LayoutManager, ResolutionPreset, TabId};
 use crate::core::{InputChangeRequest, OutputMode, PreviewSource, SharedState};
 use crate::input::InputType;
+use crate::midi::{cc_name, MidiEvent, MidiMapping, MidiMessageType};
+use crate::midi::learn::{LearnableParam, LearnableParams};
+use crate::midi::mapping::ParamRange;
 use crate::params::preset::{PresetData, PresetManager};
 use crate::params::{Block1Params, Block2Params, Block3Params};
 use glam::{Vec3, Vec4};
@@ -123,7 +126,9 @@ pub enum MainTab {
     Block3,
     Macros,
     Inputs,
+    Presets,
     Settings,
+    Midi,
 }
 
 // =============================================================================
@@ -136,8 +141,10 @@ pub struct ControlGui {
     pub shared_state: Arc<Mutex<SharedState>>,
     /// Application configuration (for saving input settings)
     config: crate::config::AppConfig,
-    /// Layout configuration for popped-out tabs
-    layout_config: LayoutConfig,
+    /// Layout manager for saving/recalling window layouts
+    layout_manager: LayoutManager,
+    /// New layout name input
+    layout_name_input: String,
     
     /// Show ImGui demo window
     pub show_demo: bool,
@@ -155,10 +162,14 @@ pub struct ControlGui {
     // Preset management
     preset_manager: PresetManager,
     preset_name_input: String,
+    preset_description_input: String,
     selected_bank: String,
     selected_preset_index: i32,
     preset_status_message: String,
     preset_status_timer: f32,
+    new_bank_name_input: String,
+    preset_filter_text: String,
+    favorite_presets: Vec<String>, // Format: "bank_name/preset_name"
     
     // Parameter copies for editing (to reduce lock contention)
     pub block1_edit: Block1Params,
@@ -336,10 +347,14 @@ impl ControlGui {
             block3_tab: Block3Tab::FinalMix,
             preset_manager,
             preset_name_input: String::new(),
+            preset_description_input: String::new(),
             selected_bank,
             selected_preset_index: -1,
             preset_status_message: String::new(),
             preset_status_timer: 0.0,
+            new_bank_name_input: String::new(),
+            preset_filter_text: String::new(),
+            favorite_presets: Vec::new(),
             block1_edit,
             block2_edit,
             block3_edit,
@@ -397,8 +412,9 @@ impl ControlGui {
             frame_time_count: 0,
             last_frame_time: std::time::Instant::now(),
             
-            // Layout config for popped-out tabs
-            layout_config: LayoutConfig::load(),
+            // Layout manager for popped-out tabs
+            layout_manager: LayoutManager::new(),
+            layout_name_input: String::new(),
             
             // Preview window state
             show_preview_window: false,
@@ -468,6 +484,26 @@ impl ControlGui {
     pub fn show_status(&mut self, message: &str) {
         self.status_message = message.to_string();
         self.status_timer = 3.0; // Show for 3 seconds
+    }
+    
+    /// Format Unix timestamp to readable string (YYYY-MM-DD HH:MM)
+    fn format_timestamp(timestamp: u64) -> String {
+        // Simple timestamp formatting without chrono
+        let days_since_epoch = timestamp / 86400;
+        let seconds_in_day = timestamp % 86400;
+        let hours = seconds_in_day / 3600;
+        let minutes = (seconds_in_day % 3600) / 60;
+        
+        // Approximate date calculation (good enough for display)
+        let days_since_1970 = days_since_epoch as i64;
+        let year = 1970 + (days_since_1970 / 365) as i64;
+        let day_of_year = days_since_1970 % 365;
+        
+        // Simple month approximation
+        let month = (day_of_year / 30 + 1).min(12).max(1);
+        let day = (day_of_year % 30 + 1).min(28).max(1);
+        
+        format!("{:04}-{:02}-{:02} {:02}:{:02}", year, month, day, hours, minutes)
     }
     
     /// Refresh the list of available devices
@@ -692,119 +728,28 @@ impl ControlGui {
         ui.separator();
     }
     
-    /// Build preset management section - compact two-row layout
+    /// Build preset management section - compact quick access bar
     fn build_preset_section(&mut self, ui: &Ui) {
-        // Row 1: Bank selector, Preset name input, Save button
-        ui.text("Bank:");
-        ui.same_line();
-        
-        // Bank selector (compact)
-        let banks = self.preset_manager.get_bank_names();
+        // Show current bank and quick preset access
         let current_bank = self.preset_manager.get_current_bank();
-        let mut bank_idx = banks.iter().position(|b| b == current_bank).unwrap_or(0) as i32;
-        
-        let bank_preview = if banks.is_empty() { "Default".to_string() } else { banks[bank_idx as usize].clone() };
-        
-        ui.set_next_item_width(100.0);
-        ComboBox::new(ui, "##bank_select")
-            .preview_value(&bank_preview)
-            .build(|| {
-                for (idx, name) in banks.iter().enumerate() {
-                    if ui.selectable_config(name)
-                        .selected(idx == bank_idx as usize)
-                        .build() {
-                        bank_idx = idx as i32;
-                    }
-                }
-            });
-        
-        if bank_idx >= 0 && bank_idx < banks.len() as i32 {
-            let new_bank = banks[bank_idx as usize].clone();
-            if new_bank != self.selected_bank {
-                self.preset_manager.switch_bank(&new_bank);
-                self.selected_bank = new_bank;
-                self.selected_preset_index = -1;
-            }
-        }
+        ui.text_colored([0.5, 0.8, 1.0, 1.0], &format!("Bank: {}", current_bank));
         
         ui.same_line();
         ui.separator();
         ui.same_line();
         
-        // Preset name input (compact)
-        ui.text("Save:");
-        ui.same_line();
-        ui.set_next_item_width(120.0);
-        imgui::InputText::new(ui, "##preset_name", &mut self.preset_name_input)
-            .hint("Name...")
-            .build();
-        
-        ui.same_line();
-        
-        // Save button
-        if ui.button("Save") {
-            if !self.preset_name_input.is_empty() {
-                // Read modulations and audio settings from shared state
-                let (block1_mods, block2_mods, block3_mods, audio_settings, tempo) = 
-                    if let Ok(state) = self.shared_state.lock() {
-                        (
-                            state.block1_modulations.clone(),
-                            state.block2_modulations.clone(),
-                            state.block3_modulations.clone(),
-                            crate::params::preset::PresetAudioSettings {
-                                amplitude: state.audio.amplitude,
-                                smoothing: state.audio.smoothing,
-                                normalization: state.audio.normalization,
-                                pink_compensation: state.audio.pink_compensation,
-                            },
-                            crate::params::preset::PresetTempoData {
-                                bpm: state.bpm,
-                                enabled: true,
-                            },
-                        )
-                    } else {
-                        (HashMap::new(), HashMap::new(), HashMap::new(),
-                         crate::params::preset::PresetAudioSettings::default(),
-                         crate::params::preset::PresetTempoData::default())
-                    };
-                
-                let preset_data = PresetData {
-                    block1: self.block1_edit,
-                    block2: self.block2_edit,
-                    block3: self.block3_edit,
-                    block1_modulations: block1_mods,
-                    block2_modulations: block2_mods,
-                    block3_modulations: block3_mods,
-                    audio: audio_settings,
-                    tempo,
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    name: self.preset_name_input.clone(),
-                };
-                
-                match self.preset_manager.save_preset(&self.preset_name_input, &preset_data) {
-                    Ok(_) => self.show_status(&format!("Saved preset '{}'", self.preset_name_input)),
-                    Err(e) => self.show_status(&format!("Save failed: {}", e)),
-                }
-            }
-        }
-        
-        // Row 2: Load preset selector and Load button
-        ui.text("Load:");
-        ui.same_line();
-        
-        // Load preset selector
+        // Quick load dropdown
         let preset_names = self.preset_manager.get_preset_names();
-        
         let load_preview = if self.selected_preset_index >= 0 && 
                               (self.selected_preset_index as usize) < preset_names.len() {
             preset_names[self.selected_preset_index as usize].clone()
         } else {
-            "Select preset...".to_string()
+            "Quick Load...".to_string()
         };
         
         let mut selected_idx = self.selected_preset_index;
-        ui.set_next_item_width(200.0);
-        ComboBox::new(ui, "##load_preset")
+        ui.set_next_item_width(180.0);
+        ComboBox::new(ui, "##quick_load_preset")
             .preview_value(&load_preview)
             .build(|| {
                 for (idx, name) in preset_names.iter().enumerate() {
@@ -815,52 +760,37 @@ impl ControlGui {
                     }
                 }
             });
-        self.selected_preset_index = selected_idx;
         
-        ui.same_line();
-        
-        // Load button - always visible
-        if ui.button("Load") && self.selected_preset_index >= 0 {
-            let idx = self.selected_preset_index as usize;
-            if idx < preset_names.len() {
-                let name = &preset_names[idx];
-                match self.preset_manager.load_preset(name) {
-                    Ok(data) => {
-                        self.block1_edit = data.block1;
-                        self.block2_edit = data.block2;
-                        self.block3_edit = data.block3;
-                        
-                        // Restore modulations and audio settings to shared state
-                        if let Ok(mut state) = self.shared_state.lock() {
-                            state.block1_modulations = data.block1_modulations;
-                            state.block2_modulations = data.block2_modulations;
-                            state.block3_modulations = data.block3_modulations;
-                            state.audio.amplitude = data.audio.amplitude;
-                            state.audio.smoothing = data.audio.smoothing;
-                            state.audio.normalization = data.audio.normalization;
-                            state.audio.pink_compensation = data.audio.pink_compensation;
-                            state.bpm = data.tempo.bpm;
+        if selected_idx != self.selected_preset_index {
+            self.selected_preset_index = selected_idx;
+            // Auto-load on selection
+            if self.selected_preset_index >= 0 {
+                let idx = self.selected_preset_index as usize;
+                if idx < preset_names.len() {
+                    let name = &preset_names[idx];
+                    match self.preset_manager.load_preset(name) {
+                        Ok(data) => {
+                            self.block1_edit = data.block1;
+                            self.block2_edit = data.block2;
+                            self.block3_edit = data.block3;
+                            
+                            if let Ok(mut state) = self.shared_state.lock() {
+                                state.block1_modulations = data.block1_modulations;
+                                state.block2_modulations = data.block2_modulations;
+                                state.block3_modulations = data.block3_modulations;
+                                state.audio.amplitude = data.audio.amplitude;
+                                state.audio.smoothing = data.audio.smoothing;
+                                state.audio.normalization = data.audio.normalization;
+                                state.audio.pink_compensation = data.audio.pink_compensation;
+                                state.bpm = data.tempo.bpm;
+                            }
+                            
+                            self.sync_to_shared_state();
+                            self.show_status(&format!("Loaded: {}", name));
                         }
-                        
-                        self.sync_to_shared_state();
-                        self.show_status(&format!("Loaded preset '{}'", name));
+                        Err(e) => self.show_status(&format!("Load failed: {}", e)),
                     }
-                    Err(e) => self.show_status(&format!("Load failed: {}", e)),
                 }
-            }
-        }
-        
-        ui.same_line();
-        
-        // Delete button
-        if ui.button("Delete") && self.selected_preset_index >= 0 {
-            let idx = self.selected_preset_index as usize;
-            match self.preset_manager.delete_preset(idx) {
-                Ok(_) => {
-                    self.selected_preset_index = -1;
-                    self.show_status("Preset deleted");
-                }
-                Err(e) => self.show_status(&format!("Delete failed: {}", e)),
             }
         }
         
@@ -868,40 +798,41 @@ impl ControlGui {
         ui.separator();
         ui.same_line();
         
-        // Import OF preset button (batch import from OF saveStates folder)
-        if ui.button("Import OF Dir...") {
-            // Look for OF presets in the standard location
-            let of_presets_dir = std::path::PathBuf::from(
-                "/Users/alpha/Developer/of_v0.12.0_osx_release/apps/vj/BLUEJAY_WAAAVES/bin/data/saveStates"
-            );
-            
-            if of_presets_dir.exists() {
-                match self.preset_manager.batch_import_of_presets(&of_presets_dir) {
-                    Ok((success, failed)) => {
-                        self.show_status(&format!("Imported {} OF presets ({} failed)", success, failed));
-                        // Refresh preset list
-                        self.preset_manager.scan_banks();
-                    }
-                    Err(e) => {
-                        self.show_status(&format!("Import failed: {}", e));
-                    }
-                }
-            } else {
-                self.show_status("OF presets directory not found");
-            }
+        // Quick save with timestamp
+        if ui.button("💾 Quick Save") {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let name = format!("Preset_{}", now);
+            self.preset_name_input = name.clone();
+            // Trigger save immediately
+            let _ = self.save_current_preset(&name);
         }
+        if ui.is_item_hovered() {
+            ui.tooltip_text("Save current state with auto-generated name");
+        }
+        
+        ui.same_line();
+        ui.text("|");
+        ui.same_line();
+        
+        // Link to full presets tab
+        ui.text_colored([0.9, 0.5, 0.7, 1.0], "→ Full presets in Presets tab");
     }
     
     /// Build main tab bar
     fn build_main_tabs(&mut self, ui: &Ui) {
-        let tab_labels = ["Block 1", "Block 2", "Block 3", "Macros", "Inputs", "Settings"];
+        let tab_labels = ["Block 1", "Block 2", "Block 3", "Macros", "Inputs", "Presets", "Settings", "MIDI"];
         let tab_ids = [
             TabId::Block1,
             TabId::Block2,
             TabId::Block3,
             TabId::Macros,
             TabId::Inputs,
+            TabId::Presets,
             TabId::Settings,
+            TabId::Midi,
         ];
         let mut selected_tab_idx = self.selected_tab as usize;
         let mut context_menu_tab: Option<TabId> = None;
@@ -909,7 +840,7 @@ impl ControlGui {
         if let Some(_tab_bar) = ui.tab_bar("##main_tabs") {
             for (idx, (label, tab_id)) in tab_labels.iter().zip(tab_ids.iter()).enumerate() {
                 let is_selected = idx == selected_tab_idx;
-                let is_popped = self.layout_config.is_popped(tab_id);
+                let is_popped = self.layout_manager.current().is_popped(tab_id);
                 
                 // Build tab item label with optional pop-out indicator
                 let tab_label = if is_popped {
@@ -928,7 +859,9 @@ impl ControlGui {
                             2 => MainTab::Block3,
                             3 => MainTab::Macros,
                             4 => MainTab::Inputs,
-                            5 => MainTab::Settings,
+                            5 => MainTab::Presets,
+                            6 => MainTab::Settings,
+                            7 => MainTab::Midi,
                             _ => MainTab::Block1,
                         };
                     }
@@ -943,16 +876,16 @@ impl ControlGui {
                 ui.popup(&format!("##context_{:?}", tab_id), || {
                     if ui.menu_item("Pop Out") {
                         if !is_popped {
-                            self.layout_config.pop_tab(*tab_id);
-                            if let Err(e) = self.layout_config.save() {
+                            self.layout_manager.current_mut().pop_tab(*tab_id);
+                            if let Err(e) = self.layout_manager.auto_save() {
                                 log::warn!("Failed to save layout: {}", e);
                             }
                         }
                     }
                     if ui.menu_item_config("Dock").enabled(is_popped).build() {
                         if is_popped {
-                            self.layout_config.dock_tab(tab_id);
-                            if let Err(e) = self.layout_config.save() {
+                            self.layout_manager.current_mut().dock_tab(tab_id);
+                            if let Err(e) = self.layout_manager.auto_save() {
                                 log::warn!("Failed to save layout: {}", e);
                             }
                         }
@@ -968,7 +901,9 @@ impl ControlGui {
             MainTab::Block3 => self.build_block3_panel(ui),
             MainTab::Macros => self.build_macros_panel(ui),
             MainTab::Inputs => self.build_inputs_panel(ui),
+            MainTab::Presets => self.build_presets_panel(ui),
             MainTab::Settings => self.build_settings_panel(ui),
+            MainTab::Midi => self.build_midi_panel(ui),
         }
         
         // Render popped-out tab windows
@@ -1011,11 +946,17 @@ impl ControlGui {
     /// Render popped-out tab windows
     fn render_popped_tabs(&mut self, ui: &Ui) {
         // Collect tabs to render (to avoid borrow issues)
-        let popped_tabs: Vec<TabId> = self.layout_config.popped_tabs.keys().cloned().collect();
+        let popped_tabs: Vec<TabId> = self.layout_manager.current().popped_tabs.keys().cloned().collect();
         let mut layout_changed = false;
         
+        // Check if we should force positions (e.g., after loading a layout)
+        let force_positions = self.layout_manager.should_force_positions();
+        if force_positions {
+            log::debug!("Forcing window positions for layout load");
+        }
+        
         for tab_id in popped_tabs {
-            let window_state = self.layout_config.get_window_state(&tab_id);
+            let window_state = self.layout_manager.current().get_window_state(&tab_id);
             let title = tab_id.window_title();
             let bg_color = tab_id.bg_color();
             let border_color = tab_id.border_color();
@@ -1030,11 +971,19 @@ impl ControlGui {
             let _style_title_bg = ui.push_style_color(imgui::StyleColor::TitleBg, border_color);
             let _style_title_bg_active = ui.push_style_color(imgui::StyleColor::TitleBgActive, border_color);
             
+            // Choose condition: Always if forcing positions, otherwise FirstUseEver
+            let condition = if force_positions {
+                log::debug!("Forcing position for {:?}: pos=[{:.1}, {:.1}] size=[{:.1}, {:.1}]", 
+                    tab_id, window_state.pos_x, window_state.pos_y, window_state.width, window_state.height);
+                Condition::Always
+            } else {
+                Condition::FirstUseEver
+            };
+            
             // Build window with saved position/size
-            // Use FirstUseEver so ImGui remembers position after first frame
             ui.window(&title)
-                .size([window_state.width, window_state.height], Condition::FirstUseEver)
-                .position([window_state.pos_x, window_state.pos_y], Condition::FirstUseEver)
+                .size([window_state.width, window_state.height], condition)
+                .position([window_state.pos_x, window_state.pos_y], condition)
                 .opened(&mut opened)
                 .build(|| {
                     // Render tab content based on ID
@@ -1044,7 +993,9 @@ impl ControlGui {
                         TabId::Block3 => self.build_block3_panel(ui),
                         TabId::Macros => self.build_macros_panel(ui),
                         TabId::Inputs => self.build_inputs_panel(ui),
+                        TabId::Presets => self.build_presets_panel(ui),
                         TabId::Settings => self.build_settings_panel(ui),
+                        TabId::Midi => self.build_midi_panel(ui),
                         // Sub-tabs not supported for pop-out yet
                         _ => {
                             ui.text("This tab cannot be popped out.");
@@ -1069,7 +1020,7 @@ impl ControlGui {
                 
                 if pos_changed || size_changed {
                     log::debug!("Window {:?} changed: pos={:?}, size={:?}", tab_id, pos, size);
-                    self.layout_config.update_from_imgui(
+                    self.layout_manager.current_mut().update_from_imgui(
                         &tab_id,
                         pos,
                         size,
@@ -1081,14 +1032,14 @@ impl ControlGui {
             
             // If window was closed, dock the tab
             if !opened {
-                self.layout_config.dock_tab(&tab_id);
+                self.layout_manager.current_mut().dock_tab(&tab_id);
                 layout_changed = true;
             }
         }
         
         // Save layout if anything changed
         if layout_changed {
-            if let Err(e) = self.layout_config.save() {
+            if let Err(e) = self.layout_manager.auto_save() {
                 log::warn!("Failed to save layout: {}", e);
             } else {
                 log::debug!("Layout saved successfully");
@@ -3351,7 +3302,7 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
             ui.text("Indicator ⧉ shows which tabs are floating");
             
             if ui.button("Save Layout") {
-                if let Err(e) = self.layout_config.save() {
+                if let Err(e) = self.layout_manager.auto_save() {
                     self.show_status(&format!("Failed to save layout: {}", e));
                 } else {
                     self.show_status("Layout saved!");
@@ -3359,8 +3310,8 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
             }
             ui.same_line();
             if ui.button("Reset Layout") {
-                self.layout_config = LayoutConfig::default();
-                if let Err(e) = self.layout_config.save() {
+                *self.layout_manager.current_mut() = crate::config::LayoutConfig::default();
+                if let Err(e) = self.layout_manager.auto_save() {
                     self.show_status(&format!("Failed to reset layout: {}", e));
                 } else {
                     self.show_status("Layout reset!");
@@ -3368,13 +3319,379 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
             }
             
             // Show currently popped tabs
-            if !self.layout_config.popped_tabs.is_empty() {
+            if !self.layout_manager.current().popped_tabs.is_empty() {
                 ui.text("Currently floating:");
-                for tab_id in self.layout_config.popped_tabs.keys() {
+                for tab_id in self.layout_manager.current().popped_tabs.keys() {
                     ui.bullet_text(tab_id.display_name());
                 }
             }
         }
+    }
+    
+    /// Build comprehensive presets management panel
+    fn build_presets_panel(&mut self, ui: &Ui) {
+        use imgui::CollapsingHeader;
+        
+        // === SECTION 1: Quick Actions ===
+        if CollapsingHeader::new("Quick Actions").default_open(true).build(ui) {
+            ui.spacing();
+            
+            // Quick Save button
+            if ui.button("💾 Quick Save") {
+                // Use simple timestamp without chrono
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let name = format!("Preset_{}", now);
+                self.preset_name_input = name.clone();
+                // Trigger save immediately
+                let _ = self.save_current_preset(&name);
+            }
+            if ui.is_item_hovered() {
+                ui.tooltip_text("Save current state to current bank with timestamp");
+            }
+            
+            ui.same_line();
+            
+            // Refresh button
+            if ui.button("🔄 Refresh") {
+                self.preset_manager.scan_banks();
+                self.show_status("Banks refreshed");
+            }
+            
+            // Recently used presets (would need tracking - simplified for now)
+            ui.spacing();
+            ui.text_disabled("Recently saved presets appear in the bank below");
+        }
+        
+        // === SECTION 2: Bank/Folder Management ===
+        if CollapsingHeader::new("Banks (Folders)").default_open(true).build(ui) {
+            ui.spacing();
+            
+            // Current bank selector
+            let banks = self.preset_manager.get_bank_names();
+            let current_bank = self.preset_manager.get_current_bank().to_string();
+            
+            ui.text("Current Bank:");
+            let mut bank_idx = banks.iter().position(|b| b == &current_bank).unwrap_or(0);
+            let bank_preview = &banks[bank_idx];
+            
+            ComboBox::new(ui, "##bank_selector")
+                .preview_value(bank_preview)
+                .build(|| {
+                    for (idx, bank) in banks.iter().enumerate() {
+                        let is_selected = idx == bank_idx;
+                        if ui.selectable_config(bank).selected(is_selected).build() {
+                            bank_idx = idx;
+                        }
+                    }
+                });
+            
+            if banks.get(bank_idx) != Some(&current_bank) {
+                let new_bank = banks[bank_idx].clone();
+                self.preset_manager.switch_bank(&new_bank);
+                self.selected_bank = new_bank;
+                self.selected_preset_index = -1;
+                self.show_status(&format!("Switched to bank: {}", &banks[bank_idx]));
+            }
+            
+            ui.spacing();
+            
+            // Create new bank
+            ui.text("Create New Bank:");
+            imgui::InputText::new(ui, "##new_bank_name", &mut self.new_bank_name_input)
+                .hint("Enter folder name...")
+                .build();
+            ui.same_line();
+            if ui.button("Create Folder") {
+                if !self.new_bank_name_input.is_empty() {
+                    if self.preset_manager.create_bank(&self.new_bank_name_input) {
+                        self.preset_manager.switch_bank(&self.new_bank_name_input);
+                        self.selected_bank = self.new_bank_name_input.clone();
+                        self.show_status(&format!("Created and switched to bank: {}", self.new_bank_name_input));
+                        self.new_bank_name_input.clear();
+                    } else {
+                        self.show_status(&format!("Failed to create bank '{}' (may already exist)", self.new_bank_name_input));
+                    }
+                }
+            }
+            
+            ui.spacing();
+            ui.text_disabled(format!("Available banks: {}", banks.len()));
+            for bank in &banks {
+                ui.bullet_text(bank);
+            }
+        }
+        
+        // === SECTION 3: Preset Browser ===
+        if CollapsingHeader::new("Preset Browser").default_open(true).build(ui) {
+            ui.spacing();
+            
+            // Filter/search
+            ui.text("Filter:");
+            imgui::InputText::new(ui, "##preset_filter", &mut self.preset_filter_text)
+                .hint("Search presets...")
+                .build();
+            
+            ui.spacing();
+            
+            // Get presets with optional filtering - preserve original indices
+            let preset_names = self.preset_manager.get_preset_names();
+            let filtered_presets: Vec<(usize, &String)> = preset_names.iter()
+                .enumerate()
+                .filter(|(_, name)| {
+                    if self.preset_filter_text.is_empty() {
+                        true
+                    } else {
+                        name.to_lowercase().contains(&self.preset_filter_text.to_lowercase())
+                    }
+                })
+                .collect();
+            
+            if filtered_presets.is_empty() {
+                ui.text_disabled("No presets found");
+            } else {
+                ui.text(&format!("Presets in {} ({}):", self.preset_manager.get_current_bank(), filtered_presets.len()));
+                
+                // List presets with separators
+                for (display_idx, (original_idx, preset_name)) in filtered_presets.iter().enumerate() {
+                    ui.separator();
+                    
+                    // Load button
+                    let load_label = format!("Load##load_{}", display_idx);
+                    if ui.button(&load_label) {
+                        match self.preset_manager.load_preset(preset_name) {
+                            Ok(data) => {
+                                // Apply loaded preset
+                                if let Ok(mut state) = self.shared_state.lock() {
+                                    state.block1 = data.block1;
+                                    state.block2 = data.block2;
+                                    state.block3 = data.block3;
+                                }
+                                self.block1_edit = data.block1;
+                                self.block2_edit = data.block2;
+                                self.block3_edit = data.block3;
+                                self.show_status(&format!("Loaded preset: {}", preset_name));
+                            }
+                            Err(e) => {
+                                self.show_status(&format!("Failed to load: {}", e));
+                            }
+                        }
+                    }
+                    
+                    ui.same_line();
+                    
+                    // Delete button
+                    let delete_label = format!("Del##del_{}", display_idx);
+                    if ui.button(&delete_label) {
+                        if let Err(e) = self.preset_manager.delete_preset(*original_idx) {
+                            self.show_status(&format!("Failed to delete: {}", e));
+                        } else {
+                            self.show_status(&format!("Deleted preset: {}", preset_name));
+                        }
+                    }
+                    
+                    ui.same_line();
+                    
+                    // Preset name
+                    ui.text(preset_name);
+                }
+            }
+        }
+        
+        // === SECTION 4: Save New Preset ===
+        if CollapsingHeader::new("Save New Preset").default_open(true).build(ui) {
+            ui.spacing();
+            
+            ui.text("Preset Name:");
+            imgui::InputText::new(ui, "##preset_name_input", &mut self.preset_name_input)
+                .hint("Enter preset name...")
+                .build();
+            
+            ui.text("Description (optional):");
+            imgui::InputText::new(ui, "##preset_desc", &mut self.preset_description_input)
+                .hint("Enter description...")
+                .build();
+            
+            ui.spacing();
+            
+            if ui.button("💾 Save Preset") {
+                if !self.preset_name_input.is_empty() {
+                    match self.save_current_preset(&self.preset_name_input.clone()) {
+                        Ok(_) => {
+                            self.show_status(&format!("Saved preset: {}", self.preset_name_input));
+                            self.preset_name_input.clear();
+                            self.preset_description_input.clear();
+                        }
+                        Err(e) => {
+                            self.show_status(&format!("Failed to save: {}", e));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // === SECTION 5: Layout Management ===
+        if CollapsingHeader::new("Layout Management").default_open(true).build(ui) {
+            ui.spacing();
+            
+            // Save new layout
+            ui.text("Save Current Layout:");
+            imgui::InputText::new(ui, "##layout_name", &mut self.layout_name_input)
+                .hint("Enter layout name...")
+                .build();
+            ui.same_line();
+            if ui.button("💾 Save") && !self.layout_name_input.is_empty() {
+                match self.layout_manager.save_named(&self.layout_name_input) {
+                    Ok(_) => {
+                        self.show_status(&format!("Saved layout: {}", self.layout_name_input));
+                        self.layout_manager.set_selected(self.layout_name_input.clone());
+                    }
+                    Err(e) => self.show_status(&format!("Failed to save layout: {}", e)),
+                }
+            }
+            
+            ui.spacing();
+            ui.separator();
+            ui.spacing();
+            
+            // Load/Delete existing layouts
+            ui.text("Saved Layouts:");
+            let layouts = self.layout_manager.list_layouts();
+            
+            if layouts.is_empty() {
+                ui.text_disabled("No saved layouts yet");
+            } else {
+                for (name, created_at) in &layouts {
+                    ui.separator();
+                    
+                    // Load button
+                    let load_label = format!("Load##layout_{}", name);
+                    if ui.button(&load_label) {
+                        match self.layout_manager.load_named(name) {
+                            Ok(_) => {
+                                self.show_status(&format!("Loaded layout: {}", name));
+                            }
+                            Err(e) => self.show_status(&format!("Failed to load: {}", e)),
+                        }
+                    }
+                    
+                    ui.same_line();
+                    
+                    // Delete button
+                    let delete_label = format!("Del##layout_{}", name);
+                    if ui.button(&delete_label) {
+                        match self.layout_manager.delete_named(name) {
+                            Ok(_) => self.show_status(&format!("Deleted layout: {}", name)),
+                            Err(e) => self.show_status(&format!("Failed to delete: {}", e)),
+                        }
+                    }
+                    
+                    ui.same_line();
+                    
+                    // Layout name with indicator if currently selected
+                    let selected_marker = if self.layout_manager.selected() == name {
+                        "● "
+                    } else {
+                        "  "
+                    };
+                    ui.text(format!("{}{}", selected_marker, name));
+                    
+                    // Show creation date
+                    ui.same_line_with_pos(300.0);
+                    let datetime = Self::format_timestamp(*created_at);
+                    ui.text_disabled(format!("({})", datetime));
+                }
+            }
+            
+            ui.spacing();
+            ui.separator();
+            ui.spacing();
+            
+            // Quick actions
+            if ui.button("🔄 Reset to Default") {
+                *self.layout_manager.current_mut() = crate::config::LayoutConfig::default();
+                if let Err(e) = self.layout_manager.auto_save() {
+                    self.show_status(&format!("Failed to reset: {}", e));
+                } else {
+                    self.show_status("Layout reset to default!");
+                }
+            }
+            
+            ui.spacing();
+            
+            // Show currently popped tabs
+            if !self.layout_manager.current().popped_tabs.is_empty() {
+                ui.text("Currently floating tabs:");
+                for tab_id in self.layout_manager.current().popped_tabs.keys() {
+                    ui.bullet_text(tab_id.display_name());
+                }
+            } else {
+                ui.text_disabled("No floating tabs - right-click any tab to pop out");
+            }
+        }
+        
+        // === SECTION 6: Import/Export ===
+        if CollapsingHeader::new("Import / Export").default_open(false).build(ui) {
+            ui.spacing();
+            
+            if ui.button("📥 Import OF Presets") {
+                // Trigger OF preset import
+                if let Ok(mut state) = self.shared_state.lock() {
+                    // Use input2_change_request as a signal for OF import
+                    // This is a hack - in a real implementation we'd add a dedicated request type
+                    log::info!("OF preset import requested from Presets tab");
+                }
+                self.show_status("Use Inputs tab to import OF presets");
+            }
+            if ui.is_item_hovered() {
+                ui.tooltip_text("Go to Inputs tab → Import OF Dir button");
+            }
+            
+            ui.spacing();
+            
+            ui.text_disabled("Backup/Restore: Copy the 'presets' folder manually");
+            ui.text_disabled("Location: ./presets/");
+        }
+    }
+    
+    /// Helper to save current preset
+    fn save_current_preset(&mut self, name: &str) -> anyhow::Result<()> {
+        use crate::params::preset::{PresetAudioSettings, PresetData, PresetTempoData};
+        
+        let (block1, block2, block3) = {
+            let state = self.shared_state.lock().unwrap();
+            (state.block1, state.block2, state.block3)
+        };
+        
+        let audio_settings = PresetAudioSettings {
+            amplitude: 1.0,
+            smoothing: 0.7,
+            normalization: false,
+            pink_compensation: false,
+        };
+        
+        let tempo = PresetTempoData {
+            bpm: self.bpm,
+            enabled: self.bpm_enabled,
+        };
+        
+        let preset_data = PresetData {
+            block1,
+            block2,
+            block3,
+            block1_modulations: HashMap::new(),
+            block2_modulations: HashMap::new(),
+            block3_modulations: HashMap::new(),
+            audio: audio_settings,
+            tempo,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            name: name.to_string(),
+        };
+        
+        self.preset_manager.save_preset(name, &preset_data)?;
+        Ok(())
     }
     
     /// Build resolution configuration panel
@@ -4866,11 +5183,307 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
     pub fn get_osc_address_block3(param_id: &str) -> String {
         format!("/block3/{}", param_id.replace('_', "/").replace(".", "/"))
     }
-}
+    
+    /// Build MIDI panel with learn mode and mapping management
+    fn build_midi_panel(&mut self, ui: &Ui) {
+        // Check if MIDI is enabled in config
+        if !self.config.control.midi_enabled {
+            ui.text_colored([1.0, 0.5, 0.0, 1.0], "⚠️ MIDI DISABLED IN CONFIG");
+            ui.text_disabled("MIDI is disabled in config.toml to prevent conflicts with DAWs");
+            ui.text_disabled("To enable MIDI, set midi_enabled = true in [control] section");
+            ui.separator();
+        }
+        
+        // MIDI Learn Mode Toggle
+        let learn_active = if let Ok(state) = self.shared_state.lock() {
+            state.midi.learn.is_active()
+        } else {
+            false
+        };
+        
+        if learn_active {
+            ui.text_colored([0.0, 1.0, 0.0, 1.0], "🎹 MIDI LEARN MODE ACTIVE");
+            ui.same_line();
+            if ui.button("Cancel Learn") {
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.midi.cancel_learning();
+                }
+            }
+            ui.text_disabled("Click any parameter, then move a MIDI control to map it");
+        } else {
+            if ui.button("🎹 Enable MIDI Learn Mode") {
+                // Just enable learn mode - user will click a parameter next
+                self.show_status("MIDI Learn enabled - click a parameter to map");
+            }
+        }
+        
+        ui.separator();
+        
+        // MIDI Settings
+        if CollapsingHeader::new("MIDI Settings").default_open(true).build(ui) {
+            // Enable/disable MIDI
+            let mut midi_enabled = if let Ok(state) = self.shared_state.lock() {
+                state.midi.enabled
+            } else {
+                true
+            };
+            
+            if ui.checkbox("Enable MIDI Input", &mut midi_enabled) {
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.midi.enabled = midi_enabled;
+                }
+            }
+            
+            // Channel filter
+            let mut channel_filter = if let Ok(state) = self.shared_state.lock() {
+                state.midi.channel_filter
+            } else {
+                0
+            };
+            
+            let channel_preview = if channel_filter == 0 {
+                "Omni (all channels)".to_string()
+            } else {
+                format!("Channel {}", channel_filter)
+            };
+            
+            let mut channel_idx = channel_filter as usize;
+            ComboBox::new(ui, "Channel Filter")
+                .preview_value(&channel_preview)
+                .build(|| {
+                    if ui.selectable_config("Omni (all channels)").selected(channel_filter == 0).build() {
+                        channel_idx = 0;
+                    }
+                    for ch in 1..=16 {
+                        let label = format!("Channel {}", ch);
+                        if ui.selectable_config(&label).selected(channel_filter == ch).build() {
+                            channel_idx = ch as usize;
+                        }
+                    }
+                });
+            
+            if channel_idx as u8 != channel_filter {
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.midi.channel_filter = channel_idx as u8;
+                }
+            }
+            
+            // High-resolution CC
+            let mut high_res = if let Ok(state) = self.shared_state.lock() {
+                state.midi.high_resolution_cc
+            } else {
+                true
+            };
+            
+            if ui.checkbox("Enable 14-bit CC (High Resolution)", &mut high_res) {
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.midi.high_resolution_cc = high_res;
+                }
+            }
+            if ui.is_item_hovered() {
+                ui.tooltip_text("Enables 14-bit resolution for CC messages 0-31 (MSB) and 32-63 (LSB)");
+            }
+        }
+        
+        ui.separator();
+        
+        // Connected Devices
+        if CollapsingHeader::new("Connected Devices").default_open(true).build(ui) {
+            let devices = if let Ok(state) = self.shared_state.lock() {
+                state.midi.connected_devices.clone()
+            } else {
+                Vec::new()
+            };
+            
+            if devices.is_empty() {
+                ui.text_disabled("No MIDI devices connected");
+            } else {
+                ui.text(format!("Connected devices ({}):", devices.len()));
+                for device in &devices {
+                    ui.bullet_text(device);
+                }
+            }
+            
+            if ui.button("Refresh Devices") {
+                // Trigger device scan
+                self.show_status("Scanning for MIDI devices...");
+            }
+        }
+        
+        ui.separator();
+        
+        // Active Mappings
+        if CollapsingHeader::new("Active Mappings").default_open(true).build(ui) {
+            let mappings: Vec<(String, crate::midi::MidiMapping)> = if let Ok(state) = self.shared_state.lock() {
+                state.midi.mappings.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            } else {
+                Vec::new()
+            };
+            
+            if mappings.is_empty() {
+                ui.text_disabled("No MIDI mappings configured");
+                ui.text_disabled("Enable MIDI Learn and click a parameter to create mappings");
+            } else {
+                ui.text(format!("Active mappings ({}):", mappings.len()));
+                
+                // Create a scrollable area for mappings
+                ui.child_window("mappings_list")
+                    .size([0.0, 200.0])
+                    .build(|| {
+                        for (param_id, mapping) in &mappings {
+                            ui.separator();
+                            
+                            // Delete button
+                            if ui.small_button(&format!("X##del_{}", param_id)) {
+                                if let Ok(mut state) = self.shared_state.lock() {
+                                    state.midi.remove_mapping(param_id);
+                                }
+                            }
+                            
+                            ui.same_line();
+                            
+                            // Parameter name
+                            let display_name = crate::midi::mapping::param_display_name(param_id);
+                            ui.text_colored([0.0, 1.0, 0.5, 1.0], &display_name);
+                            
+                            ui.same_line_with_pos(250.0);
+                            
+                            // Mapping details
+                            ui.text(format!(
+                                "{} Ch{} {}",
+                                mapping.message_type.name(),
+                                if mapping.channel == 0 { "Omni".to_string() } else { mapping.channel.to_string() },
+                                match mapping.message_type {
+                                    MidiMessageType::ControlChange => format!("CC{} ({})", mapping.controller, cc_name(mapping.controller)),
+                                    MidiMessageType::NoteOn | MidiMessageType::NoteOff => format!("Note {}", mapping.controller),
+                                    _ => String::new(),
+                                }
+                            ));
+                            
+                            // Range
+                            ui.text_disabled(format!(
+                                "  Range: {:.2} - {:.2}",
+                                mapping.min_value, mapping.max_value
+                            ));
+                        }
+                    });
+                
+                ui.separator();
+                
+                if ui.button("Clear All Mappings") {
+                    if let Ok(mut state) = self.shared_state.lock() {
+                        state.midi.clear_mappings();
+                    }
+                    self.show_status("All MIDI mappings cleared");
+                }
+                
+                ui.same_line();
+                
+                if ui.button("Save Mappings") {
+                    let save_result = if let Ok(state) = self.shared_state.lock() {
+                        state.midi.save_mappings("midi_mappings.toml")
+                    } else {
+                        Err(anyhow::anyhow!("Failed to lock state"))
+                    };
+                    match save_result {
+                        Ok(_) => self.show_status("MIDI mappings saved"),
+                        Err(e) => self.show_status(&format!("Failed to save: {}", e)),
+                    }
+                }
+            }
+        }
+        
+        ui.separator();
+        
+        // Last MIDI Message
+        if CollapsingHeader::new("Last MIDI Message").default_open(false).build(ui) {
+            let last_msg = if let Ok(state) = self.shared_state.lock() {
+                state.midi.last_message.clone()
+            } else {
+                None
+            };
+            
+            if let Some(event) = last_msg {
+                ui.text(format!("Device: {}", event.device_id));
+                ui.text(format!("Message: {:?}", event.message));
+                ui.text(format!("Channel: {}", event.message.channel()));
+                ui.text(format!("Value: {}", event.message.value()));
+            } else {
+                ui.text_disabled("No MIDI message received yet");
+            }
+        }
+        
+        ui.separator();
+        
+        // Quick Map Section - Direct mapping without learn mode
+        if CollapsingHeader::new("Quick Map").default_open(false).build(ui) {
+            ui.text("Quickly map a parameter:");
+            ui.text_disabled("Select a parameter and MIDI control manually");
+            
+            // Parameter selector
+            let learnable = LearnableParams::all();
+            let param_names: Vec<String> = learnable.params().iter().map(|p| p.display_name.clone()).collect();
+            
+            static mut SELECTED_PARAM: usize = 0;
+            let selected = unsafe { SELECTED_PARAM };
+            
+            let preview = &param_names[selected.min(param_names.len() - 1)];
+            let mut new_selected = selected;
+            
+            ComboBox::new(ui, "Parameter")
+                .preview_value(preview)
+                .build(|| {
+                    for (idx, name) in param_names.iter().enumerate() {
+                        if ui.selectable_config(name).selected(idx == selected).build() {
+                            new_selected = idx;
+                        }
+                    }
+                });
+            
+            unsafe { SELECTED_PARAM = new_selected; }
+            
+            if let Some(param) = learnable.params().get(new_selected) {
+                ui.text_disabled(&param.param_id);
+                
+                // MIDI Control selector
+                let cc_numbers: Vec<u8> = (0..128).collect();
+                let mut selected_cc: usize = 16; // Default to CC16 (General Purpose 1)
+                
+                let cc_preview = format!("CC{} - {}", selected_cc, cc_name(selected_cc as u8));
+                ComboBox::new(ui, "MIDI CC")
+                    .preview_value(&cc_preview)
+                    .build(|| {
+                        for cc in 0..128u8 {
+                            let name = cc_name(cc);
+                            let label = format!("CC{:3} - {}", cc, name);
+                            if ui.selectable_config(&label).selected(cc as usize == selected_cc).build() {
+                                selected_cc = cc as usize;
+                            }
+                        }
+                    });
+                
+                if ui.button("Create Mapping") {
+                    let mapping = MidiMapping::new(
+                        param.param_id.clone(),
+                        MidiMessageType::ControlChange,
+                        0, // Omni channel
+                        selected_cc as u8,
+                    );
+                    
+                    if let Ok(mut state) = self.shared_state.lock() {
+                        state.midi.add_mapping(param.param_id.clone(), mapping);
+                    }
+                    self.show_status(&format!("Mapped {} to CC{}", param.display_name, selected_cc));
+                }
+            }
+        }
+    }
 
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
+
+}
 
 /// Get list of Block 1 parameter names for audio modulation
 pub fn get_block1_param_names() -> Vec<String> {
