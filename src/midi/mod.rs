@@ -62,6 +62,11 @@ pub struct MidiState {
     pub high_resolution_cc: bool,
     /// Latch mode for buttons (toggle vs momentary)
     pub latch_mode: bool,
+    /// Last played note per channel (for Channel Aftertouch routing)
+    /// Maps channel (1-16) to (note, timestamp) for "last note priority"
+    pub last_note_per_channel: HashMap<MidiChannel, (u8, std::time::Instant)>,
+    /// Enable last-note priority for Channel Aftertouch (default: true)
+    pub last_note_priority: bool,
 }
 
 impl MidiState {
@@ -77,6 +82,8 @@ impl MidiState {
             channel_filter: 0, // Omni
             high_resolution_cc: true,
             latch_mode: false,
+            last_note_per_channel: HashMap::new(),
+            last_note_priority: true,
         }
     }
 
@@ -176,15 +183,23 @@ impl MidiState {
     /// Returns the parameter ID and scaled value if a mapping was triggered
     pub fn process_midi_event(&mut self, event: MidiEvent) -> Option<(String, f32)> {
         self.last_message = Some(event.clone());
+        
+        // Track Note On messages for "last note priority" Channel Aftertouch routing
+        if let MidiMessage::NoteOn { channel, note, velocity } = &event.message {
+            if *velocity > 0 {
+                self.last_note_per_channel.insert(*channel, (*note, std::time::Instant::now()));
+                log::info!("[MIDI PROCESS] Tracked last note {} on channel {}", note, channel);
+            }
+        }
 
         // Check if we're in learn mode
         if self.learn.is_active() {
-            log::trace!("MIDI: Learn mode active, checking message");
+            log::info!("[MIDI PROCESS] Learn mode active, checking message");
             if let Some(param_id) = self.learn.handle_midi_message(&event) {
                 // Create mapping from the learned message
                 let mut mapping = MidiMapping::from_event(&event, self.learn.param_min, self.learn.param_max);
                 mapping.param_id = param_id.clone();  // Set the param_id!
-                log::debug!("MIDI: Learned mapping for '{}' from device '{}'", param_id, event.device_id);
+                log::info!("[MIDI PROCESS] Learned mapping for '{}' from device '{}'", param_id, event.device_id);
                 self.add_mapping(param_id.clone(), mapping);
                 return Some((param_id, self.learn.scale_value(event.message.value())));
             }
@@ -195,20 +210,55 @@ impl MidiState {
         if self.channel_filter > 0 {
             let msg_channel = event.message.channel();
             if msg_channel != 0 && msg_channel != self.channel_filter {
-                log::trace!("MIDI: Channel filter rejected message (ch {} != filter {})", msg_channel, self.channel_filter);
+                log::info!("[MIDI PROCESS] Channel filter rejected message (ch {} != filter {})", msg_channel, self.channel_filter);
                 return None;
             }
         }
 
-        // Look up mapping
-        log::trace!("MIDI: Looking up mapping for device '{}' with {} mappings", event.device_id, self.mappings.len());
+        // Handle Channel Aftertouch with "last note priority"
+        if let MidiMessage::ChannelAftertouch { channel, pressure } = &event.message {
+            log::info!("[MIDI PROCESS] Channel Aftertouch received ch={} pressure={}", channel, pressure);
+            log::info!("[MIDI PROCESS] last_note_priority={} last_notes={:?}", self.last_note_priority, self.last_note_per_channel);
+            
+            if self.last_note_priority {
+                if let Some((last_note, timestamp)) = self.last_note_per_channel.get(channel) {
+                    let age = timestamp.elapsed().as_millis();
+                    log::info!("[MIDI PROCESS] Found last note {} on ch{} (age={}ms)", last_note, channel, age);
+                    
+                    // Create a synthetic PolyAftertouch message using the last note
+                    let synthetic_msg = MidiMessage::PolyAftertouch {
+                        channel: *channel,
+                        note: *last_note,
+                        pressure: *pressure,
+                    };
+                    log::info!("[MIDI PROCESS] Created synthetic PolyAT ch={} note={} pressure={}", channel, last_note, pressure);
+                    
+                    // Try to find a mapping for this synthetic PolyAftertouch
+                    log::info!("[MIDI PROCESS] Looking for mapping with synthetic PolyAT...");
+                    if let Some(mapping) = self.find_mapping(&event.device_id, &synthetic_msg) {
+                        let value = mapping.scale_value(event.message.value());
+                        log::info!("[MIDI PROCESS] FOUND MAPPING for param '{}' -> value {:.3}", mapping.param_id, value);
+                        return Some((mapping.param_id.clone(), value));
+                    } else {
+                        log::info!("[MIDI PROCESS] No mapping found for synthetic PolyAT");
+                    }
+                } else {
+                    log::info!("[MIDI PROCESS] No last note tracked for channel {}", channel);
+                }
+            }
+        }
+
+        // Look up mapping for normal messages
+        log::info!("[MIDI PROCESS] Looking up mapping for device '{}' with {} mappings", event.device_id, self.mappings.len());
+        log::info!("[MIDI PROCESS] Message type: {:?}", event.message.message_type());
+        
         if let Some(mapping) = self.find_mapping(&event.device_id, &event.message) {
             let value = mapping.scale_value(event.message.value());
-            log::trace!("MIDI: Found mapping for param '{}' -> value {:.3}", mapping.param_id, value);
+            log::info!("[MIDI PROCESS] FOUND MAPPING for param '{}' -> value {:.3}", mapping.param_id, value);
             return Some((mapping.param_id.clone(), value));
         }
 
-        log::trace!("MIDI: No mapping found");
+        log::info!("[MIDI PROCESS] No mapping found");
         None
     }
 }

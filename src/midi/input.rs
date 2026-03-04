@@ -303,6 +303,20 @@ impl MidiInputHandler {
             move |timestamp, message, sender| {
                 // Parse the MIDI message
                 if let Some(msg) = MidiMessage::from_bytes(message) {
+                    // DEBUG: Log aftertouch messages
+                    match &msg {
+                        MidiMessage::ChannelAftertouch { channel, pressure } => {
+                            log::info!("[MIDI RX] Channel Aftertouch ch={} pressure={}", channel, pressure);
+                        }
+                        MidiMessage::PolyAftertouch { channel, note, pressure } => {
+                            log::info!("[MIDI RX] Poly Aftertouch ch={} note={} pressure={}", channel, note, pressure);
+                        }
+                        MidiMessage::NoteOn { channel, note, velocity } => {
+                            log::info!("[MIDI RX] Note On ch={} note={} vel={}", channel, note, velocity);
+                        }
+                        _ => {}
+                    }
+                    
                     // Handle 14-bit CC if needed
                     let event = MidiEvent {
                         device_id: name_clone.clone(),

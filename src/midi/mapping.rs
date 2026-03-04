@@ -98,6 +98,9 @@ pub struct MidiMapping {
     /// Curve type: "linear", "log", "exp"
     #[serde(default = "default_curve")]
     pub curve: String,
+    /// Use aftertouch only for this mapping (when true, only responds to Poly/Channel Aftertouch)
+    #[serde(default)]
+    pub use_aftertouch: bool,
 }
 
 fn default_min_value() -> f32 {
@@ -132,6 +135,7 @@ impl MidiMapping {
             invert: false,
             toggle: false,
             curve: "linear".to_string(),
+            use_aftertouch: false,
         }
     }
 
@@ -173,28 +177,55 @@ impl MidiMapping {
             invert: false,
             toggle: false,
             curve: "linear".to_string(),
+            use_aftertouch: false,
         }
     }
 
     /// Check if a MIDI message matches this mapping
     pub fn matches(&self, device_id: &str, message: &MidiMessage) -> bool {
+        log::info!("[MIDI MATCH] Checking mapping for '{}' (type={:?}, ch={}, ctrl={}, use_at={})", 
+            self.param_id, self.message_type, self.channel, self.controller, self.use_aftertouch);
+        
+        // Check if this mapping is aftertouch-only
+        let is_aftertouch_msg = matches!(message, 
+            MidiMessage::PolyAftertouch { .. } | MidiMessage::ChannelAftertouch { .. }
+        );
+        
+        log::info!("[MIDI MATCH] is_aftertouch_msg={}", is_aftertouch_msg);
+        
+        if self.use_aftertouch && !is_aftertouch_msg {
+            // This mapping is configured for aftertouch only, but message is not aftertouch
+            log::info!("[MIDI MATCH] REJECTED: Mapping is aftertouch-only, but msg is not aftertouch");
+            return false;
+        }
+        
         // Check device (empty string = match any)
         if !self.device.is_empty() && self.device != device_id {
-            log::trace!("MIDI: Device mismatch - self='{}', event='{}'", self.device, device_id);
+            log::info!("[MIDI MATCH] REJECTED: Device mismatch - self='{}', event='{}'", self.device, device_id);
             return false;
         }
 
         // Check message type
         let msg_type = message.message_type();
-        if msg_type != self.message_type {
-            log::trace!("MIDI: Message type mismatch - self={:?}, event={:?}", self.message_type, msg_type);
+        log::info!("[MIDI MATCH] Checking msg_type: self={:?}, event={:?}", self.message_type, msg_type);
+        
+        // If use_aftertouch is enabled, also match PolyAftertouch for NoteOn mappings
+        let types_match = if self.use_aftertouch && self.message_type == MidiMessageType::NoteOn {
+            msg_type == MidiMessageType::NoteOn || msg_type == MidiMessageType::PolyAftertouch
+        } else {
+            msg_type == self.message_type
+        };
+        
+        if !types_match {
+            log::info!("[MIDI MATCH] REJECTED: Message type mismatch - self={:?}, event={:?}", self.message_type, msg_type);
             return false;
         }
 
         // Check channel (0 = Omni)
         let channel = message.channel();
+        log::info!("[MIDI MATCH] Checking channel: self={}, event={}", self.channel, channel);
         if self.channel != 0 && channel != 0 && channel != self.channel {
-            log::trace!("MIDI: Channel mismatch - self={}, event={}", self.channel, channel);
+            log::info!("[MIDI MATCH] REJECTED: Channel mismatch - self={}, event={}", self.channel, channel);
             return false;
         }
 
@@ -208,12 +239,15 @@ impl MidiMapping {
                 MidiMessage::ProgramChange { program, .. } => *program,
                 _ => 0,
             };
+            
+            log::info!("[MIDI MATCH] Checking controller: self={}, event={}", self.controller, msg_controller);
             if msg_controller != self.controller {
-                log::trace!("MIDI: Controller mismatch - self={}, event={}", self.controller, msg_controller);
+                log::info!("[MIDI MATCH] REJECTED: Controller mismatch - self={}, event={}", self.controller, msg_controller);
                 return false;
             }
         }
 
+        log::info!("[MIDI MATCH] ACCEPTED: Mapping '{}' matches!", self.param_id);
         true
     }
 
@@ -302,6 +336,7 @@ impl Default for MidiMapping {
             invert: false,
             toggle: false,
             curve: "linear".to_string(),
+            use_aftertouch: false,
         }
     }
 }

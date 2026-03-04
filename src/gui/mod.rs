@@ -6932,6 +6932,22 @@ impl ControlGui {
             if ui.is_item_hovered() {
                 ui.tooltip_text("Enables 14-bit resolution for CC messages 0-31 (MSB) and 32-63 (LSB)");
             }
+            
+            // Last Note Priority for Channel Aftertouch
+            let mut last_note_priority = if let Ok(state) = self.shared_state.lock() {
+                state.midi.last_note_priority
+            } else {
+                true
+            };
+            
+            if ui.checkbox("Last Note Priority (Aftertouch)", &mut last_note_priority) {
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.midi.last_note_priority = last_note_priority;
+                }
+            }
+            if ui.is_item_hovered() {
+                ui.tooltip_text("Routes Channel Aftertouch to the most recently played note's mapping. Allows per-pad aftertouch control on controllers that only send Channel Aftertouch.");
+            }
         }
         
         ui.separator();
@@ -6998,18 +7014,20 @@ impl ControlGui {
                             ui.same_line_with_pos(250.0);
                             
                             // Mapping details
+                            let note_details = match mapping.message_type {
+                                MidiMessageType::ControlChange => format!("CC{} ({})", mapping.controller, cc_name(mapping.controller)),
+                                MidiMessageType::NoteOn | MidiMessageType::NoteOff => format!("Note {}", mapping.controller),
+                                MidiMessageType::PolyAftertouch => format!("PolyAT Note{}", mapping.controller),
+                                MidiMessageType::ChannelAftertouch => "ChanAT".to_string(),
+                                MidiMessageType::PitchBend => "PitchBend".to_string(),
+                                _ => String::new(),
+                            };
+                            
                             ui.text(format!(
                                 "{} Ch{} {}",
                                 mapping.message_type.name(),
                                 if mapping.channel == 0 { "Omni".to_string() } else { mapping.channel.to_string() },
-                                match mapping.message_type {
-                                    MidiMessageType::ControlChange => format!("CC{} ({})", mapping.controller, cc_name(mapping.controller)),
-                                    MidiMessageType::NoteOn | MidiMessageType::NoteOff => format!("Note {}", mapping.controller),
-                                    MidiMessageType::PolyAftertouch => format!("PolyAT Note{}", mapping.controller),
-                                    MidiMessageType::ChannelAftertouch => "ChanAT".to_string(),
-                                    MidiMessageType::PitchBend => "PitchBend".to_string(),
-                                    _ => String::new(),
-                                }
+                                note_details
                             ));
                             
                             // Range
@@ -7017,6 +7035,19 @@ impl ControlGui {
                                 "  Range: {:.2} - {:.2}",
                                 mapping.min_value, mapping.max_value
                             ));
+                            
+                            // Use Aftertouch toggle
+                            let mut use_at = mapping.use_aftertouch;
+                            if ui.checkbox(&format!("Use AT##useat_{}", param_id), &mut use_at) {
+                                if let Ok(mut state) = self.shared_state.lock() {
+                                    if let Some(m) = state.midi.mappings.get_mut(param_id) {
+                                        m.use_aftertouch = use_at;
+                                    }
+                                }
+                            }
+                            if ui.is_item_hovered() {
+                                ui.tooltip_text("Only respond to aftertouch for this mapping");
+                            }
                         }
                     });
                 
