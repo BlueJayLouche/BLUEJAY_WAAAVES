@@ -95,6 +95,8 @@ impl LearnState {
             MidiMessage::ControlChange { .. } => true,
             MidiMessage::NoteOn { velocity, .. } => *velocity > 0,
             MidiMessage::PitchBend { .. } => true,
+            MidiMessage::PolyAftertouch { .. } => true,
+            MidiMessage::ChannelAftertouch { .. } => true,
             _ => false,
         };
 

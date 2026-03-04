@@ -7005,6 +7005,9 @@ impl ControlGui {
                                 match mapping.message_type {
                                     MidiMessageType::ControlChange => format!("CC{} ({})", mapping.controller, cc_name(mapping.controller)),
                                     MidiMessageType::NoteOn | MidiMessageType::NoteOff => format!("Note {}", mapping.controller),
+                                    MidiMessageType::PolyAftertouch => format!("PolyAT Note{}", mapping.controller),
+                                    MidiMessageType::ChannelAftertouch => "ChanAT".to_string(),
+                                    MidiMessageType::PitchBend => "PitchBend".to_string(),
                                     _ => String::new(),
                                 }
                             ));
