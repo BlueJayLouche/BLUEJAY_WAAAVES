@@ -106,6 +106,13 @@ The rendering pipeline consists of three main blocks:
   - Adjustable rate and amplitude
 - Audio reactivity via FFT analysis
 - OSC control support
+- **MIDI Learn/Mapping**
+  - Map any parameter to MIDI CC, Note, or Pitch Bend
+  - MIDI Learn mode for easy assignment
+  - 14-bit CC support for high-resolution control
+  - Range scaling (MIDI 0-127 → parameter min-max)
+  - Persistent mappings saved to `midi_mappings.toml`
+  - Multi-device support with hot-plugging
 
 ### Inputs
 
@@ -136,6 +143,7 @@ Key dependencies:
 - `imgui 0.12` + `imgui-wgpu 0.25` - GUI framework
 - `glam` - Fast linear algebra
 - `cpal` - Audio I/O
+- `midir` - Cross-platform MIDI input
 - `serde` + `toml` - Configuration
 
 ### Build Commands
@@ -170,9 +178,27 @@ fps = 30
 internal_width = 1280
 internal_height = 720
 max_delay_frames = 120
+
+[control]
+midi_enabled = true  # Set to false if running alongside a DAW
 ```
 
 The file is automatically created with defaults on first run.
+
+### MIDI Configuration
+
+MIDI mappings are stored separately in `midi_mappings.toml`:
+
+```toml
+[[mappings]]
+param_id = "block1.fb1_mix_amount"
+device = "Akai APC40"
+message_type = "CC"
+channel = 1
+controller = 16
+min_value = 0.0
+max_value = 1.0
+```
 
 ## Usage
 
@@ -195,12 +221,44 @@ Parameters are organized in tabs:
 - **Macros**: LFO and modulation setup
 - **Inputs**: Video/audio input configuration
 - **Settings**: Output and recording options
+- **MIDI**: MIDI mapping and device management
 
 ### Macro Assignment
 
 1. Select a macro bank (0-15)
 2. Click on a parameter while holding the macro's modifier key
 3. Adjust the macro amount slider
+
+### MIDI Mapping
+
+#### Using MIDI Learn
+
+1. Go to the **MIDI** tab
+2. Click **"Enable MIDI Learn Mode"**
+3. Click any parameter in the GUI (it will highlight green)
+4. Move a knob/fader on your MIDI controller
+5. The mapping is automatically created!
+
+#### Manual Mapping
+
+1. In the MIDI tab, expand **"Quick Map"**
+2. Select a parameter from the dropdown
+3. Choose a MIDI CC number
+4. Click **"Create Mapping"**
+
+#### Managing Mappings
+
+- View all active mappings in the **"Active Mappings"** section
+- Click **"X"** next to a mapping to delete it
+- Click **"Clear All Mappings"** to remove all mappings
+- Click **"Save Mappings"** to persist to `midi_mappings.toml`
+
+#### Supported MIDI Messages
+
+- **Control Change (CC)**: Standard 0-127 values
+- **Note On/Off**: Velocity used as value (0-127)
+- **Pitch Bend**: 14-bit resolution (-8192 to 8191)
+- **Channel Aftertouch**: Pressure value (0-127)
 
 ## Performance Optimization
 
@@ -276,12 +334,13 @@ Original shaders and design concept by Andrei Jay.
 - [x] Basic wgpu rendering pipeline
 - [x] ImGui control window
 - [x] Dual-window architecture
+- [x] MIDI learn/mapping system
 - [ ] SPIR-V shader compilation for validation
 - [ ] NDI input/output
 - [ ] Video file player
-- [ ] Audio analysis and reactivity
+- [x] Audio analysis and reactivity
 - [ ] TouchOSC integration
-- [ ] Preset system
+- [x] Preset system
 - [ ] Syphon output (macOS)
 
 ## Troubleshooting
@@ -304,6 +363,24 @@ Original shaders and design concept by Andrei Jay.
 ### GUI not responding
 - Check winit event loop is running
 - Verify imgui context initialization
+
+### MIDI not working / Application crashes with DAW
+
+If you're running a DAW (Digital Audio Workstation) or other MIDI applications:
+
+1. **Disable MIDI in config**: Edit `config.toml` and set:
+   ```toml
+   [control]
+   midi_enabled = false
+   ```
+
+2. **Close other MIDI applications**: Some DAWs exclusively lock MIDI devices
+
+3. **Check MIDI device permissions**: On macOS, check System Preferences → Security & Privacy
+
+4. **Verify device connection**: The MIDI tab shows connected devices
+
+5. **Check logs**: Run with `RUST_LOG=info cargo run` to see MIDI initialization messages
 
 ## Support
 
