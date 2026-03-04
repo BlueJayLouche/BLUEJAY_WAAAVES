@@ -190,66 +190,239 @@ impl App {
             };
         }
         
+        // Helper to set Vec3 components
+        macro_rules! set_vec3 {
+            ($params:expr, $base:ident, $comp:ident, $x:ident, $y:ident, $z:ident) => {
+                $params.$base = glam::Vec3::new($params.$x, $params.$y, $params.$z)
+            };
+        }
+        
         // Parse the parameter ID and set the value
         match param_id {
-            // Block 1 - Channel 1
+            // ===========================================
+            // BLOCK 1 - CHANNEL 1
+            // ===========================================
+            // Geometry
             "block1.ch1_x_displace" => set_param!(state.block1, ch1_x_displace),
             "block1.ch1_y_displace" => set_param!(state.block1, ch1_y_displace),
             "block1.ch1_z_displace" => set_param!(state.block1, ch1_z_displace),
             "block1.ch1_rotate" => set_param!(state.block1, ch1_rotate),
-            "block1.ch1_blur_amount" => set_param!(state.block1, ch1_blur_amount),
-            "block1.ch1_sharpen_amount" => set_param!(state.block1, ch1_sharpen_amount),
             "block1.ch1_kaleidoscope_amount" => set_param!(state.block1, ch1_kaleidoscope_amount),
+            "block1.ch1_kaleidoscope_slice" => set_param!(state.block1, ch1_kaleidoscope_slice),
             
-            // Block 1 - Channel 2
+            // Color - HSB Attenuate (individual components)
+            "block1.ch1_hsb_attenuate_x" => { state.block1.ch1_hsb_attenuate_x = value; state.block1.ch1_hsb_attenuate.x = value; }
+            "block1.ch1_hsb_attenuate_y" => { state.block1.ch1_hsb_attenuate_y = value; state.block1.ch1_hsb_attenuate.y = value; }
+            "block1.ch1_hsb_attenuate_z" => { state.block1.ch1_hsb_attenuate_z = value; state.block1.ch1_hsb_attenuate.z = value; }
+            
+            // Posterize
+            "block1.ch1_posterize" => set_param!(state.block1, ch1_posterize),
+            
+            // Filters
+            "block1.ch1_blur_amount" => set_param!(state.block1, ch1_blur_amount),
+            "block1.ch1_blur_radius" => set_param!(state.block1, ch1_blur_radius),
+            "block1.ch1_sharpen_amount" => set_param!(state.block1, ch1_sharpen_amount),
+            "block1.ch1_sharpen_radius" => set_param!(state.block1, ch1_sharpen_radius),
+            "block1.ch1_filters_boost" => set_param!(state.block1, ch1_filters_boost),
+            
+            // ===========================================
+            // BLOCK 1 - CHANNEL 2
+            // ===========================================
+            // Mix
             "block1.ch2_mix_amount" => set_param!(state.block1, ch2_mix_amount),
+            
+            // Key
+            "block1.ch2_key_value_red" => set_param!(state.block1, ch2_key_value_red),
+            "block1.ch2_key_value_green" => set_param!(state.block1, ch2_key_value_green),
+            "block1.ch2_key_value_blue" => set_param!(state.block1, ch2_key_value_blue),
+            "block1.ch2_key_threshold" => set_param!(state.block1, ch2_key_threshold),
+            "block1.ch2_key_soft" => set_param!(state.block1, ch2_key_soft),
+            
+            // Geometry
             "block1.ch2_x_displace" => set_param!(state.block1, ch2_x_displace),
             "block1.ch2_y_displace" => set_param!(state.block1, ch2_y_displace),
             "block1.ch2_z_displace" => set_param!(state.block1, ch2_z_displace),
             "block1.ch2_rotate" => set_param!(state.block1, ch2_rotate),
-            "block1.ch2_blur_amount" => set_param!(state.block1, ch2_blur_amount),
-            "block1.ch2_sharpen_amount" => set_param!(state.block1, ch2_sharpen_amount),
-            "block1.ch2_key_threshold" => set_param!(state.block1, ch2_key_threshold),
-            "block1.ch2_key_soft" => set_param!(state.block1, ch2_key_soft),
+            "block1.ch2_kaleidoscope_amount" => set_param!(state.block1, ch2_kaleidoscope_amount),
+            "block1.ch2_kaleidoscope_slice" => set_param!(state.block1, ch2_kaleidoscope_slice),
             
-            // Block 1 - FB1
+            // Color - HSB Attenuate
+            "block1.ch2_hsb_attenuate_x" => { state.block1.ch2_hsb_attenuate_x = value; state.block1.ch2_hsb_attenuate.x = value; }
+            "block1.ch2_hsb_attenuate_y" => { state.block1.ch2_hsb_attenuate_y = value; state.block1.ch2_hsb_attenuate.y = value; }
+            "block1.ch2_hsb_attenuate_z" => { state.block1.ch2_hsb_attenuate_z = value; state.block1.ch2_hsb_attenuate.z = value; }
+            
+            // Posterize
+            "block1.ch2_posterize" => set_param!(state.block1, ch2_posterize),
+            
+            // Filters
+            "block1.ch2_blur_amount" => set_param!(state.block1, ch2_blur_amount),
+            "block1.ch2_blur_radius" => set_param!(state.block1, ch2_blur_radius),
+            "block1.ch2_sharpen_amount" => set_param!(state.block1, ch2_sharpen_amount),
+            "block1.ch2_sharpen_radius" => set_param!(state.block1, ch2_sharpen_radius),
+            "block1.ch2_filters_boost" => set_param!(state.block1, ch2_filters_boost),
+            
+            // ===========================================
+            // BLOCK 1 - FB1
+            // ===========================================
+            // Mix
             "block1.fb1_mix_amount" => set_param!(state.block1, fb1_mix_amount),
+            
+            // Key
+            "block1.fb1_key_value_red" => set_param!(state.block1, fb1_key_value_red),
+            "block1.fb1_key_value_green" => set_param!(state.block1, fb1_key_value_green),
+            "block1.fb1_key_value_blue" => set_param!(state.block1, fb1_key_value_blue),
+            "block1.fb1_key_threshold" => set_param!(state.block1, fb1_key_threshold),
+            "block1.fb1_key_soft" => set_param!(state.block1, fb1_key_soft),
+            
+            // Geometry
             "block1.fb1_x_displace" => set_param!(state.block1, fb1_x_displace),
             "block1.fb1_y_displace" => set_param!(state.block1, fb1_y_displace),
             "block1.fb1_z_displace" => set_param!(state.block1, fb1_z_displace),
             "block1.fb1_rotate" => set_param!(state.block1, fb1_rotate),
+            "block1.fb1_shear_matrix_x" => { state.block1.fb1_shear_matrix_x = value; state.block1.fb1_shear_matrix.x = value; }
+            "block1.fb1_shear_matrix_y" => { state.block1.fb1_shear_matrix_y = value; state.block1.fb1_shear_matrix.y = value; }
+            "block1.fb1_shear_matrix_z" => { state.block1.fb1_shear_matrix_z = value; state.block1.fb1_shear_matrix.z = value; }
+            "block1.fb1_shear_matrix_w" => { state.block1.fb1_shear_matrix_w = value; state.block1.fb1_shear_matrix.w = value; }
+            "block1.fb1_kaleidoscope_amount" => set_param!(state.block1, fb1_kaleidoscope_amount),
+            "block1.fb1_kaleidoscope_slice" => set_param!(state.block1, fb1_kaleidoscope_slice),
+            
+            // Color - HSB Offset
+            "block1.fb1_hsb_offset_x" => { state.block1.fb1_hsb_offset_x = value; state.block1.fb1_hsb_offset.x = value; }
+            "block1.fb1_hsb_offset_y" => { state.block1.fb1_hsb_offset_y = value; state.block1.fb1_hsb_offset.y = value; }
+            "block1.fb1_hsb_offset_z" => { state.block1.fb1_hsb_offset_z = value; state.block1.fb1_hsb_offset.z = value; }
+            
+            // Color - HSB Attenuate
+            "block1.fb1_hsb_attenuate_x" => { state.block1.fb1_hsb_attenuate_x = value; state.block1.fb1_hsb_attenuate.x = value; }
+            "block1.fb1_hsb_attenuate_y" => { state.block1.fb1_hsb_attenuate_y = value; state.block1.fb1_hsb_attenuate.y = value; }
+            "block1.fb1_hsb_attenuate_z" => { state.block1.fb1_hsb_attenuate_z = value; state.block1.fb1_hsb_attenuate.z = value; }
+            
+            // Color - HSB PowMap
+            "block1.fb1_hsb_powmap_x" => { state.block1.fb1_hsb_powmap_x = value; state.block1.fb1_hsb_powmap.x = value; }
+            "block1.fb1_hsb_powmap_y" => { state.block1.fb1_hsb_powmap_y = value; state.block1.fb1_hsb_powmap.y = value; }
+            "block1.fb1_hsb_powmap_z" => { state.block1.fb1_hsb_powmap_z = value; state.block1.fb1_hsb_powmap.z = value; }
+            
+            // Color - Other
+            "block1.fb1_hue_shaper" => set_param!(state.block1, fb1_hue_shaper),
+            
+            // Filters
             "block1.fb1_blur_amount" => set_param!(state.block1, fb1_blur_amount),
+            "block1.fb1_blur_radius" => set_param!(state.block1, fb1_blur_radius),
             "block1.fb1_sharpen_amount" => set_param!(state.block1, fb1_sharpen_amount),
+            "block1.fb1_sharpen_radius" => set_param!(state.block1, fb1_sharpen_radius),
+            "block1.fb1_temporal_filter1_amount" => set_param!(state.block1, fb1_temporal_filter1_amount),
+            "block1.fb1_temporal_filter1_resonance" => set_param!(state.block1, fb1_temporal_filter1_resonance),
+            "block1.fb1_temporal_filter2_amount" => set_param!(state.block1, fb1_temporal_filter2_amount),
+            "block1.fb1_temporal_filter2_resonance" => set_param!(state.block1, fb1_temporal_filter2_resonance),
+            "block1.fb1_filters_boost" => set_param!(state.block1, fb1_filters_boost),
+            
+            // Delay
             "block1.fb1_delay_time" => state.block1.fb1_delay_time = value as i32,
             
-            // Block 2 - Input
+            // ===========================================
+            // BLOCK 2 - INPUT
+            // ===========================================
             "block2.input_x_displace" => set_param!(state.block2, block2_input_x_displace),
             "block2.input_y_displace" => set_param!(state.block2, block2_input_y_displace),
             "block2.input_z_displace" => set_param!(state.block2, block2_input_z_displace),
             "block2.input_rotate" => set_param!(state.block2, block2_input_rotate),
-            "block2.input_blur_amount" => set_param!(state.block2, block2_input_blur_amount),
-            "block2.input_sharpen_amount" => set_param!(state.block2, block2_input_sharpen_amount),
+            "block2.input_kaleidoscope_amount" => set_param!(state.block2, block2_input_kaleidoscope_amount),
+            "block2.input_kaleidoscope_slice" => set_param!(state.block2, block2_input_kaleidoscope_slice),
             
-            // Block 2 - FB2
+            // HSB
+            "block2.input_hsb_attenuate_x" => { state.block2.block2_input_hsb_attenuate_x = value; state.block2.block2_input_hsb_attenuate.x = value; }
+            "block2.input_hsb_attenuate_y" => { state.block2.block2_input_hsb_attenuate_y = value; state.block2.block2_input_hsb_attenuate.y = value; }
+            "block2.input_hsb_attenuate_z" => { state.block2.block2_input_hsb_attenuate_z = value; state.block2.block2_input_hsb_attenuate.z = value; }
+            
+            // Filters
+            "block2.input_blur_amount" => set_param!(state.block2, block2_input_blur_amount),
+            "block2.input_blur_radius" => set_param!(state.block2, block2_input_blur_radius),
+            "block2.input_sharpen_amount" => set_param!(state.block2, block2_input_sharpen_amount),
+            "block2.input_sharpen_radius" => set_param!(state.block2, block2_input_sharpen_radius),
+            "block2.input_filters_boost" => set_param!(state.block2, block2_input_filters_boost),
+            
+            // ===========================================
+            // BLOCK 2 - FB2
+            // ===========================================
             "block2.fb2_mix_amount" => set_param!(state.block2, fb2_mix_amount),
+            "block2.fb2_key_threshold" => set_param!(state.block2, fb2_key_threshold),
+            "block2.fb2_key_soft" => set_param!(state.block2, fb2_key_soft),
+            "block2.fb2_key_value_red" => set_param!(state.block2, fb2_key_value_red),
+            "block2.fb2_key_value_green" => set_param!(state.block2, fb2_key_value_green),
+            "block2.fb2_key_value_blue" => set_param!(state.block2, fb2_key_value_blue),
+            
             "block2.fb2_x_displace" => set_param!(state.block2, fb2_x_displace),
             "block2.fb2_y_displace" => set_param!(state.block2, fb2_y_displace),
             "block2.fb2_z_displace" => set_param!(state.block2, fb2_z_displace),
             "block2.fb2_rotate" => set_param!(state.block2, fb2_rotate),
+            "block2.fb2_shear_matrix_x" => { state.block2.fb2_shear_matrix_x = value; state.block2.fb2_shear_matrix.x = value; }
+            "block2.fb2_shear_matrix_y" => { state.block2.fb2_shear_matrix_y = value; state.block2.fb2_shear_matrix.y = value; }
+            "block2.fb2_shear_matrix_z" => { state.block2.fb2_shear_matrix_z = value; state.block2.fb2_shear_matrix.z = value; }
+            "block2.fb2_shear_matrix_w" => { state.block2.fb2_shear_matrix_w = value; state.block2.fb2_shear_matrix.w = value; }
+            "block2.fb2_kaleidoscope_amount" => set_param!(state.block2, fb2_kaleidoscope_amount),
+            "block2.fb2_kaleidoscope_slice" => set_param!(state.block2, fb2_kaleidoscope_slice),
             
-            // Block 3 - Block 1 Re-process
+            // HSB
+            "block2.fb2_hsb_offset_x" => { state.block2.fb2_hsb_offset_x = value; state.block2.fb2_hsb_offset.x = value; }
+            "block2.fb2_hsb_offset_y" => { state.block2.fb2_hsb_offset_y = value; state.block2.fb2_hsb_offset.y = value; }
+            "block2.fb2_hsb_offset_z" => { state.block2.fb2_hsb_offset_z = value; state.block2.fb2_hsb_offset.z = value; }
+            "block2.fb2_hsb_attenuate_x" => { state.block2.fb2_hsb_attenuate_x = value; state.block2.fb2_hsb_attenuate.x = value; }
+            "block2.fb2_hsb_attenuate_y" => { state.block2.fb2_hsb_attenuate_y = value; state.block2.fb2_hsb_attenuate.y = value; }
+            "block2.fb2_hsb_attenuate_z" => { state.block2.fb2_hsb_attenuate_z = value; state.block2.fb2_hsb_attenuate.z = value; }
+            "block2.fb2_hsb_powmap_x" => { state.block2.fb2_hsb_powmap_x = value; state.block2.fb2_hsb_powmap.x = value; }
+            "block2.fb2_hsb_powmap_y" => { state.block2.fb2_hsb_powmap_y = value; state.block2.fb2_hsb_powmap.y = value; }
+            "block2.fb2_hsb_powmap_z" => { state.block2.fb2_hsb_powmap_z = value; state.block2.fb2_hsb_powmap.z = value; }
+            
+            // Filters
+            "block2.fb2_blur_amount" => set_param!(state.block2, fb2_blur_amount),
+            "block2.fb2_blur_radius" => set_param!(state.block2, fb2_blur_radius),
+            "block2.fb2_sharpen_amount" => set_param!(state.block2, fb2_sharpen_amount),
+            "block2.fb2_sharpen_radius" => set_param!(state.block2, fb2_sharpen_radius),
+            "block2.fb2_temporal_filter1_amount" => set_param!(state.block2, fb2_temporal_filter1_amount),
+            "block2.fb2_temporal_filter1_resonance" => set_param!(state.block2, fb2_temporal_filter1_resonance),
+            "block2.fb2_temporal_filter2_amount" => set_param!(state.block2, fb2_temporal_filter2_amount),
+            "block2.fb2_temporal_filter2_resonance" => set_param!(state.block2, fb2_temporal_filter2_resonance),
+            "block2.fb2_filters_boost" => set_param!(state.block2, fb2_filters_boost),
+            "block2.fb2_delay_time" => state.block2.fb2_delay_time = value as i32,
+            
+            // ===========================================
+            // BLOCK 3 - BLOCK 1 RE-PROCESS
+            // ===========================================
             "block3.block1_x_displace" => set_param!(state.block3, block1_x_displace),
             "block3.block1_y_displace" => set_param!(state.block3, block1_y_displace),
             "block3.block1_z_displace" => set_param!(state.block3, block1_z_displace),
             "block3.block1_rotate" => set_param!(state.block3, block1_rotate),
+            "block3.block1_shear_matrix_x" => { state.block3.block1_shear_matrix_x = value; state.block3.block1_shear_matrix.x = value; }
+            "block3.block1_shear_matrix_y" => { state.block3.block1_shear_matrix_y = value; state.block3.block1_shear_matrix.y = value; }
+            "block3.block1_shear_matrix_z" => { state.block3.block1_shear_matrix_z = value; state.block3.block1_shear_matrix.z = value; }
+            "block3.block1_shear_matrix_w" => { state.block3.block1_shear_matrix_w = value; state.block3.block1_shear_matrix.w = value; }
+            "block3.block1_kaleidoscope_amount" => set_param!(state.block3, block1_kaleidoscope_amount),
+            "block3.block1_kaleidoscope_slice" => set_param!(state.block3, block1_kaleidoscope_slice),
+            "block3.block1_blur_amount" => set_param!(state.block3, block1_blur_amount),
+            "block3.block1_blur_radius" => set_param!(state.block3, block1_blur_radius),
+            "block3.block1_sharpen_amount" => set_param!(state.block3, block1_sharpen_amount),
+            "block3.block1_sharpen_radius" => set_param!(state.block3, block1_sharpen_radius),
             
-            // Block 3 - Block 2 Re-process
+            // ===========================================
+            // BLOCK 3 - BLOCK 2 RE-PROCESS
+            // ===========================================
             "block3.block2_x_displace" => set_param!(state.block3, block2_x_displace),
             "block3.block2_y_displace" => set_param!(state.block3, block2_y_displace),
             "block3.block2_z_displace" => set_param!(state.block3, block2_z_displace),
             "block3.block2_rotate" => set_param!(state.block3, block2_rotate),
+            "block3.block2_shear_matrix_x" => { state.block3.block2_shear_matrix_x = value; state.block3.block2_shear_matrix.x = value; }
+            "block3.block2_shear_matrix_y" => { state.block3.block2_shear_matrix_y = value; state.block3.block2_shear_matrix.y = value; }
+            "block3.block2_shear_matrix_z" => { state.block3.block2_shear_matrix_z = value; state.block3.block2_shear_matrix.z = value; }
+            "block3.block2_shear_matrix_w" => { state.block3.block2_shear_matrix_w = value; state.block3.block2_shear_matrix.w = value; }
+            "block3.block2_kaleidoscope_amount" => set_param!(state.block3, block2_kaleidoscope_amount),
+            "block3.block2_kaleidoscope_slice" => set_param!(state.block3, block2_kaleidoscope_slice),
+            "block3.block2_blur_amount" => set_param!(state.block3, block2_blur_amount),
+            "block3.block2_blur_radius" => set_param!(state.block3, block2_blur_radius),
+            "block3.block2_sharpen_amount" => set_param!(state.block3, block2_sharpen_amount),
+            "block3.block2_sharpen_radius" => set_param!(state.block3, block2_sharpen_radius),
             
-            // Block 3 - Matrix Mixer
+            // ===========================================
+            // BLOCK 3 - MATRIX MIXER
+            // ===========================================
             "block3.matrix_mix_r_to_r" => set_param!(state.block3, matrix_mix_r_to_r),
             "block3.matrix_mix_r_to_g" => set_param!(state.block3, matrix_mix_r_to_g),
             "block3.matrix_mix_r_to_b" => set_param!(state.block3, matrix_mix_r_to_b),
@@ -260,12 +433,28 @@ impl App {
             "block3.matrix_mix_b_to_g" => set_param!(state.block3, matrix_mix_b_to_g),
             "block3.matrix_mix_b_to_b" => set_param!(state.block3, matrix_mix_b_to_b),
             
-            // Block 3 - Final Mix
+            // ===========================================
+            // BLOCK 3 - BLOCK 1 RE-PROCESS
+            // ===========================================
+            "block3.block1_dither" => set_param!(state.block3, block1_dither),
+            
+            // ===========================================
+            // BLOCK 3 - BLOCK 2 RE-PROCESS
+            // ===========================================
+            "block3.block2_dither" => set_param!(state.block3, block2_dither),
+            
+            // ===========================================
+            // BLOCK 3 - FINAL MIX
+            // ===========================================
             "block3.final_mix_amount" => set_param!(state.block3, final_mix_amount),
+            "block3.final_key_order" => state.block3.final_key_order = value as i32,
             "block3.final_key_threshold" => set_param!(state.block3, final_key_threshold),
             "block3.final_key_soft" => set_param!(state.block3, final_key_soft),
+            "block3.final_dither" => set_param!(state.block3, final_dither),
             
-            // Global
+            // ===========================================
+            // GLOBAL
+            // ===========================================
             "global.bpm" => state.bpm = value.clamp(20.0, 300.0),
             
             // Unknown parameter
@@ -763,6 +952,7 @@ impl ApplicationHandler for App {
         if let Some(ref mut midi) = self.midi_input {
             let events = midi.poll_events();
             if !events.is_empty() {
+                log::trace!("MIDI: Polled {} events", events.len());
                 if let Ok(mut state) = self.shared_state.lock() {
                     // Update connected device list
                     state.midi.connected_devices = midi.connected_devices();
@@ -770,12 +960,18 @@ impl ApplicationHandler for App {
                     // Process MIDI events
                     if state.midi.enabled {
                         for event in events {
+                            log::trace!("MIDI: Processing event from {}: {:?}", event.device_id, event.message);
                             if let Some((param_id, value)) = state.midi.process_midi_event(event.clone()) {
                                 // Apply the MIDI value to the appropriate parameter
+                                log::debug!("MIDI: Mapping found - param_id={}, value={:.3}", param_id, value);
                                 Self::apply_midi_value_to_param(&mut state, &param_id, value);
-                                log::debug!("MIDI: Applied {} = {} to {}", param_id, value, event.device_id);
+                                log::debug!("MIDI: Applied {} = {:.3} to parameter", param_id, value);
+                            } else {
+                                log::trace!("MIDI: No mapping found for event from {}", event.device_id);
                             }
                         }
+                    } else {
+                        log::trace!("MIDI: Events received but MIDI is disabled");
                     }
                 }
             }

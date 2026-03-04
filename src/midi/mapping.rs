@@ -180,18 +180,21 @@ impl MidiMapping {
     pub fn matches(&self, device_id: &str, message: &MidiMessage) -> bool {
         // Check device (empty string = match any)
         if !self.device.is_empty() && self.device != device_id {
+            log::trace!("MIDI: Device mismatch - self='{}', event='{}'", self.device, device_id);
             return false;
         }
 
         // Check message type
         let msg_type = message.message_type();
         if msg_type != self.message_type {
+            log::trace!("MIDI: Message type mismatch - self={:?}, event={:?}", self.message_type, msg_type);
             return false;
         }
 
         // Check channel (0 = Omni)
         let channel = message.channel();
         if self.channel != 0 && channel != 0 && channel != self.channel {
+            log::trace!("MIDI: Channel mismatch - self={}, event={}", self.channel, channel);
             return false;
         }
 
@@ -206,6 +209,7 @@ impl MidiMapping {
                 _ => 0,
             };
             if msg_controller != self.controller {
+                log::trace!("MIDI: Controller mismatch - self={}, event={}", self.controller, msg_controller);
                 return false;
             }
         }

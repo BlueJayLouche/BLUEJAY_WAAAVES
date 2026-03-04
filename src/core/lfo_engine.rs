@@ -398,6 +398,11 @@ pub fn apply_lfos_to_block3(
             "final_key_threshold" => params.final_key_threshold += modulated,
             "final_key_soft" => params.final_key_soft += modulated,
             
+            // === Dither LFOs ===
+            "block1_dither" => params.block1_dither += modulated,
+            "block2_dither" => params.block2_dither += modulated,
+            "final_dither" => params.final_dither += modulated,
+            
             _ => {}
         }
     }

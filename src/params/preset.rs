@@ -4,7 +4,8 @@
 //! and audio/BPM modulation assignments. Ported from the original OF app's
 //! PresetManager.
 
-use crate::params::{Block1Params, Block2Params, Block3Params};
+use crate::midi::MidiMapping;
+use crate::params::{Block1Params, Block2Params, Block3Params, LfoBank};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -93,9 +94,39 @@ pub struct PresetData {
     #[serde(default)]
     pub tempo: PresetTempoData,
     
+    // LFO banks (16 banks, backward compatible - uses default if missing)
+    #[serde(default = "default_lfo_banks")]
+    pub lfo_banks: Vec<LfoBank>,
+    
+    // MIDI mappings (backward compatible - uses empty Vec if missing)
+    #[serde(default)]
+    pub midi_mappings: Vec<MidiMapping>,
+    
     // Metadata
     pub version: String,
     pub name: String,
+}
+
+/// Default LFO banks (16 banks with default values)
+pub fn default_lfo_banks() -> Vec<LfoBank> {
+    vec![
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+        LfoBank { rate: 0.15, amplitude: 1.0, waveform: 0, tempo_sync: false, division: 2, phase: 0.0 },
+    ]
 }
 
 impl Default for PresetData {
@@ -109,6 +140,8 @@ impl Default for PresetData {
             block3_modulations: HashMap::new(),
             audio: PresetAudioSettings::default(),
             tempo: PresetTempoData::default(),
+            lfo_banks: default_lfo_banks(),
+            midi_mappings: Vec::new(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             name: "Untitled".to_string(),
         }
@@ -443,6 +476,8 @@ impl PresetManager {
             block3_modulations: HashMap::new(),
             audio: PresetAudioSettings::default(),
             tempo: PresetTempoData::default(),
+            lfo_banks: default_lfo_banks(),
+            midi_mappings: Vec::new(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             name: preset_name.clone(),
         };

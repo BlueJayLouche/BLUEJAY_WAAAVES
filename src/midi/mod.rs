@@ -91,8 +91,18 @@ impl MidiState {
         let config: MidiMappingConfig = toml::from_str(&contents)?;
         
         self.mappings.clear();
+        let mut skipped = 0;
         for mapping in config.mappings {
+            // Skip mappings with empty param_id (bug from older versions)
+            if mapping.param_id.is_empty() {
+                skipped += 1;
+                continue;
+            }
             self.mappings.insert(mapping.param_id.clone(), mapping);
+        }
+        
+        if skipped > 0 {
+            log::warn!("Skipped {} invalid mappings with empty param_id", skipped);
         }
         
         log::info!("Loaded {} MIDI mappings from {}", self.mappings.len(), path);
@@ -114,7 +124,16 @@ impl MidiState {
 
     /// Find mapping for a given MIDI message
     pub fn find_mapping(&self, device_id: &str, message: &MidiMessage) -> Option<&MidiMapping> {
-        self.mappings.values().find(|m| m.matches(device_id, message))
+        log::trace!("MIDI: find_mapping called with device='{}', msg_type={:?}", device_id, message.message_type());
+        for (param_id, mapping) in &self.mappings {
+            log::trace!("MIDI: Checking mapping for '{}' (device='{}', type={:?}, ch={}, controller={})", 
+                param_id, mapping.device, mapping.message_type, mapping.channel, mapping.controller);
+            if mapping.matches(device_id, message) {
+                log::trace!("MIDI: Mapping matches!");
+                return Some(mapping);
+            }
+        }
+        None
     }
 
     /// Add or update a mapping
@@ -160,9 +179,12 @@ impl MidiState {
 
         // Check if we're in learn mode
         if self.learn.is_active() {
+            log::trace!("MIDI: Learn mode active, checking message");
             if let Some(param_id) = self.learn.handle_midi_message(&event) {
                 // Create mapping from the learned message
-                let mapping = MidiMapping::from_event(&event, self.learn.param_min, self.learn.param_max);
+                let mut mapping = MidiMapping::from_event(&event, self.learn.param_min, self.learn.param_max);
+                mapping.param_id = param_id.clone();  // Set the param_id!
+                log::debug!("MIDI: Learned mapping for '{}' from device '{}'", param_id, event.device_id);
                 self.add_mapping(param_id.clone(), mapping);
                 return Some((param_id, self.learn.scale_value(event.message.value())));
             }
@@ -173,16 +195,20 @@ impl MidiState {
         if self.channel_filter > 0 {
             let msg_channel = event.message.channel();
             if msg_channel != 0 && msg_channel != self.channel_filter {
+                log::trace!("MIDI: Channel filter rejected message (ch {} != filter {})", msg_channel, self.channel_filter);
                 return None;
             }
         }
 
         // Look up mapping
+        log::trace!("MIDI: Looking up mapping for device '{}' with {} mappings", event.device_id, self.mappings.len());
         if let Some(mapping) = self.find_mapping(&event.device_id, &event.message) {
             let value = mapping.scale_value(event.message.value());
+            log::trace!("MIDI: Found mapping for param '{}' -> value {:.3}", mapping.param_id, value);
             return Some((mapping.param_id.clone(), value));
         }
 
+        log::trace!("MIDI: No mapping found");
         None
     }
 }

@@ -251,6 +251,10 @@ pub struct ControlGui {
     selected_key_target: i32,       // Selected key target for "Apply to Key"
     preview_fps: f32,              // FPS counter for preview
     preview_last_frame_time: std::time::Instant, // For FPS calculation
+    
+    // MIDI learn mode
+    midi_learn_mode: bool,         // Is MIDI learn mode active?
+    midi_learn_target: Option<String>, // Current parameter being learned (if any)
 }
 
 /// LFO parameters for a group of controls
@@ -427,6 +431,10 @@ impl ControlGui {
             selected_key_target: 0, // Default to first key target
             preview_fps: 0.0,
             preview_last_frame_time: std::time::Instant::now(),
+            
+            // MIDI learn mode
+            midi_learn_mode: false,
+            midi_learn_target: None,
         })
     }
     
@@ -690,6 +698,9 @@ impl ControlGui {
         self.build_top_bar(ui);
         self.build_main_tabs(ui);
         
+        // Check if MIDI learning completed (do this every frame, not just in MIDI tab)
+        self.check_midi_learn_completion();
+        
         // Note: Demo window removed for cleaner UI
         
         // Sync back to shared state at end of frame
@@ -775,6 +786,13 @@ impl ControlGui {
                             self.block3_edit = data.block3;
                             
                             if let Ok(mut state) = self.shared_state.lock() {
+                                // Restore LFO banks
+                                for (idx, lfo_bank) in data.lfo_banks.iter().enumerate() {
+                                    if idx < state.lfo_banks.len() {
+                                        state.lfo_banks[idx] = *lfo_bank;
+                                    }
+                                }
+                                
                                 state.block1_modulations = data.block1_modulations;
                                 state.block2_modulations = data.block2_modulations;
                                 state.block3_modulations = data.block3_modulations;
@@ -783,6 +801,12 @@ impl ControlGui {
                                 state.audio.normalization = data.audio.normalization;
                                 state.audio.pink_compensation = data.audio.pink_compensation;
                                 state.bpm = data.tempo.bpm;
+                                
+                                // Restore MIDI mappings
+                                state.midi.mappings.clear();
+                                for mapping in &data.midi_mappings {
+                                    state.midi.mappings.insert(mapping.param_id.clone(), mapping.clone());
+                                }
                             }
                             
                             self.sync_to_shared_state();
@@ -1085,9 +1109,13 @@ impl ControlGui {
     
     /// Build Block 1 Channel 1 Adjust panel
     fn build_block1_ch1_adjust(&mut self, ui: &Ui) {
-        // Extract config values before borrowing self mutably
+        // Extract config values and MIDI learn state before borrowing self mutably
         let show_osc = self.config.show_osc_addresses;
-        let shared_state = Arc::clone(&self.shared_state);
+        let learn_mode = self.midi_learn_mode;
+        let learn_target = self.midi_learn_target.clone();
+        
+        // Collect clicks for deferred processing
+        let mut midi_learn_clicks: Vec<(String, f32, f32)> = Vec::new();
         
         let p = &mut self.block1_edit;
         
@@ -1121,26 +1149,78 @@ impl ControlGui {
             }
         };
         
+        // Helper to check if a parameter is being learned
+        let is_learning = |param_id: &str| -> bool {
+            learn_mode && learn_target.as_deref() == Some(param_id)
+        };
+        
         // Geometry section
         if CollapsingHeader::new("Geometry").default_open(true).build(ui) {
+            // X Displace with MIDI learn
+            let _text_color = if is_learning("block1.ch1_x_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("X Displace##ch1").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.ch1_x_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch1/x_displace", Some(p.ch1_x_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_x_displace".to_string(), -2.0, 2.0));
+            }
             
+            // Y Displace with MIDI learn
+            let _text_color = if is_learning("block1.ch1_y_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Y Displace##ch1").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.ch1_y_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch1/y_displace", Some(p.ch1_y_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_y_displace".to_string(), -2.0, 2.0));
+            }
             
+            // Z Displace with MIDI learn
+            let _text_color = if is_learning("block1.ch1_z_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Z Displace##ch1").speed(0.01).range(0.0, 10.0).build(ui, &mut p.ch1_z_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch1/z_displace", Some(p.ch1_z_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_z_displace".to_string(), 0.0, 10.0));
+            }
             
+            // Rotate with MIDI learn
+            let _text_color = if is_learning("block1.ch1_rotate") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Rotate##ch1").speed(0.1).range(-360.0, 360.0).build(ui, &mut p.ch1_rotate);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch1/rotate", Some(p.ch1_rotate));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_rotate".to_string(), -360.0, 360.0));
+            }
             
-            // Kaleidoscope
+            // Kaleidoscope Amount
+            let _text_color = if is_learning("block1.ch1_kaleidoscope_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Amount##ch1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.ch1_kaleidoscope_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch1/kaleidoscope_amount", Some(p.ch1_kaleidoscope_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_kaleidoscope_amount".to_string(), 0.0, 1.0));
+            }
             
+            // Kaleidoscope Slice
+            let _text_color = if is_learning("block1.ch1_kaleidoscope_slice") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Slice##ch1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.ch1_kaleidoscope_slice);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch1/kaleidoscope_slice", Some(p.ch1_kaleidoscope_slice));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_kaleidoscope_slice".to_string(), 0.0, 1.0));
+            }
             
             // Geo overflow
             let mut overflow_idx = p.ch1_geo_overflow as usize;
@@ -1159,13 +1239,44 @@ impl ControlGui {
         
         // Color section
         if CollapsingHeader::new("Color").default_open(true).build(ui) {
-            let mut hsb = [p.ch1_hsb_attenuate.x, p.ch1_hsb_attenuate.y, p.ch1_hsb_attenuate.z];
-            Drag::new("HSB Attenuate##ch1").speed(0.01).range(0.0, 2.0).build_array(ui, &mut hsb);
-            p.ch1_hsb_attenuate = Vec3::new(hsb[0], hsb[1], hsb[2]);
-            // Sync individual components for LFO modulation
-            p.ch1_hsb_attenuate_x = hsb[0];
-            p.ch1_hsb_attenuate_y = hsb[1];
-            p.ch1_hsb_attenuate_z = hsb[2];
+            // HSB Attenuate X
+            let _text_color = if is_learning("block1.ch1_hsb_attenuate_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            let mut hsb_x = p.ch1_hsb_attenuate_x;
+            Drag::new("HSB Attenuate H##ch1").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_x);
+            drop(_text_color);
+            p.ch1_hsb_attenuate_x = hsb_x;
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_hsb_attenuate_x".to_string(), 0.0, 2.0));
+            }
+            
+            // HSB Attenuate Y
+            let _text_color = if is_learning("block1.ch1_hsb_attenuate_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            let mut hsb_y = p.ch1_hsb_attenuate_y;
+            Drag::new("HSB Attenuate S##ch1").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_y);
+            drop(_text_color);
+            p.ch1_hsb_attenuate_y = hsb_y;
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_hsb_attenuate_y".to_string(), 0.0, 2.0));
+            }
+            
+            // HSB Attenuate Z
+            let _text_color = if is_learning("block1.ch1_hsb_attenuate_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            let mut hsb_z = p.ch1_hsb_attenuate_z;
+            Drag::new("HSB Attenuate B##ch1").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_z);
+            drop(_text_color);
+            p.ch1_hsb_attenuate_z = hsb_z;
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_hsb_attenuate_z".to_string(), 0.0, 2.0));
+            }
+            
+            // Update the Vec3 from components
+            p.ch1_hsb_attenuate = Vec3::new(p.ch1_hsb_attenuate_x, p.ch1_hsb_attenuate_y, p.ch1_hsb_attenuate_z);
             
             ui.checkbox("Hue Invert##ch1", &mut p.ch1_hue_invert);
             ui.checkbox("Saturation Invert##ch1", &mut p.ch1_saturation_invert);
@@ -1175,19 +1286,73 @@ impl ControlGui {
             ui.checkbox("Solarize##ch1", &mut p.ch1_solarize);
             ui.checkbox("Posterize##ch1", &mut p.ch1_posterize_switch);
             if p.ch1_posterize_switch {
+                let _text_color = if is_learning("block1.ch1_posterize") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Posterize Levels##ch1").speed(0.1).range(2.0, 32.0).build(ui, &mut p.ch1_posterize);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.ch1_posterize".to_string(), 2.0, 32.0));
+                }
             }
         }
         
         // Filters section
         if CollapsingHeader::new("Filters").default_open(true).build(ui) {
+            // Blur Amount
+            let _text_color = if is_learning("block1.ch1_blur_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Amount##ch1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.ch1_blur_amount);
+            drop(_text_color);
+            osc_tooltip(ui, "/block1/ch1/blur_amount", Some(p.ch1_blur_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_blur_amount".to_string(), 0.0, 1.0));
+            }
+            
+            // Blur Radius
+            let _text_color = if is_learning("block1.ch1_blur_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Radius##ch1").speed(0.01).range(0.0, 5.0).build(ui, &mut p.ch1_blur_radius);
+            drop(_text_color);
+            osc_tooltip(ui, "/block1/ch1/blur_radius", Some(p.ch1_blur_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_blur_radius".to_string(), 0.0, 5.0));
+            }
             
+            // Sharpen Amount
+            let _text_color = if is_learning("block1.ch1_sharpen_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Sharpen Amount##ch1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.ch1_sharpen_amount);
-            Drag::new("Sharpen Radius##ch1").speed(0.01).range(0.0, 5.0).build(ui, &mut p.ch1_sharpen_radius);
+            drop(_text_color);
+            osc_tooltip(ui, "/block1/ch1/sharpen_amount", Some(p.ch1_sharpen_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_sharpen_amount".to_string(), 0.0, 1.0));
+            }
             
+            // Sharpen Radius
+            let _text_color = if is_learning("block1.ch1_sharpen_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Sharpen Radius##ch1").speed(0.01).range(0.0, 5.0).build(ui, &mut p.ch1_sharpen_radius);
+            drop(_text_color);
+            osc_tooltip(ui, "/block1/ch1/sharpen_radius", Some(p.ch1_sharpen_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_sharpen_radius".to_string(), 0.0, 5.0));
+            }
+            
+            // Filters Boost
+            let _text_color = if is_learning("block1.ch1_filters_boost") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Filters Boost##ch1").speed(0.01).range(0.0, 2.0).build(ui, &mut p.ch1_filters_boost);
+            drop(_text_color);
+            osc_tooltip(ui, "/block1/ch1/filters_boost", Some(p.ch1_filters_boost));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch1_filters_boost".to_string(), 0.0, 2.0));
+            }
         }
         
         // Switches section
@@ -1198,12 +1363,22 @@ impl ControlGui {
             ui.checkbox("V Flip##ch1", &mut p.ch1_v_flip);
             ui.checkbox("HD Aspect##ch1", &mut p.ch1_hd_aspect_on);
         }
+        
+        // Process MIDI learn clicks (deferred to avoid borrow issues)
+        for (param_id, min, max) in midi_learn_clicks {
+            self.handle_midi_learn_click(&param_id, min, max);
+        }
     }
     
     /// Build Block 1 Channel 2 Mix & Key panel
     fn build_block1_ch2_mix_key(&mut self, ui: &Ui) {
-        // Extract config values before borrowing self mutably
+        // Extract config values and MIDI learn state before borrowing self mutably
         let show_osc = self.config.show_osc_addresses;
+        let learn_mode = self.midi_learn_mode;
+        let learn_target = self.midi_learn_target.clone();
+        
+        // Collect clicks for deferred processing
+        let mut midi_learn_clicks: Vec<(String, f32, f32)> = Vec::new();
         
         let p = &mut self.block1_edit;
         
@@ -1218,11 +1393,23 @@ impl ControlGui {
             }
         };
         
+        // Helper to check if a parameter is being learned
+        let is_learning = |param_id: &str| -> bool {
+            learn_mode && learn_target.as_deref() == Some(param_id)
+        };
+        
         // Mix section
         if CollapsingHeader::new("Mix").default_open(true).build(ui) {
             // Mix amount with fine control (slower speed for precision near 0 and 1)
-Drag::new("Mix Amount##ch2mix").speed(0.002).range(0.0, 1.0).build(ui, &mut p.ch2_mix_amount);
-osc_tooltip(ui, "/block1/ch2/mix_amount", Some(p.ch2_mix_amount));
+            let _text_color = if is_learning("block1.ch2_mix_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Mix Amount##ch2mix").speed(0.002).range(0.0, 1.0).build(ui, &mut p.ch2_mix_amount);
+            drop(_text_color);
+            osc_tooltip(ui, "/block1/ch2/mix_amount", Some(p.ch2_mix_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_mix_amount".to_string(), 0.0, 1.0));
+            }
             
             let mut mix_type = p.ch2_mix_type as usize;
             let preview = MIX_TYPES[mix_type].to_string();
@@ -1274,15 +1461,47 @@ osc_tooltip(ui, "/block1/ch2/mix_amount", Some(p.ch2_mix_amount));
             if p.ch2_key_mode == 0 {
                 // Lumakey mode - single slider controls all channels
                 ui.text("Key Value:");
+                let _text_color = if is_learning("block1.ch2_key_value_red") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Key Value##ch2").speed(0.01).range(-1.0, 1.0).build(ui, &mut key_color[0]);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.ch2_key_value_red".to_string(), -1.0, 1.0));
+                    midi_learn_clicks.push(("block1.ch2_key_value_green".to_string(), -1.0, 1.0));
+                    midi_learn_clicks.push(("block1.ch2_key_value_blue".to_string(), -1.0, 1.0));
+                }
                 key_color[1] = key_color[0];
                 key_color[2] = key_color[0];
             } else {
                 // Chromakey mode - RGB sliders
                 ui.text("Key Color (RGB -1 to 1):");
+                let _text_color = if is_learning("block1.ch2_key_value_red") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Red##ch2key").speed(0.01).range(-1.0, 1.0).build(ui, &mut key_color[0]);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.ch2_key_value_red".to_string(), -1.0, 1.0));
+                }
+                
+                let _text_color = if is_learning("block1.ch2_key_value_green") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Green##ch2key").speed(0.01).range(-1.0, 1.0).build(ui, &mut key_color[1]);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.ch2_key_value_green".to_string(), -1.0, 1.0));
+                }
+                
+                let _text_color = if is_learning("block1.ch2_key_value_blue") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Blue##ch2key").speed(0.01).range(-1.0, 1.0).build(ui, &mut key_color[2]);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.ch2_key_value_blue".to_string(), -1.0, 1.0));
+                }
             }
             
             // Color preview (mapped to 0-1 for display)
@@ -1319,17 +1538,42 @@ osc_tooltip(ui, "/block1/ch2/mix_amount", Some(p.ch2_mix_amount));
             
             // Key threshold and soft (OF uses -1.0 to 1.0)
             ui.text("Key Parameters:");
+            let _text_color = if is_learning("block1.ch2_key_threshold") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Threshold##ch2").speed(0.01).range(-1.0, 1.0).build(ui, &mut p.ch2_key_threshold);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/key_threshold", Some(p.ch2_key_threshold));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_key_threshold".to_string(), -1.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block1.ch2_key_soft") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Soft##ch2").speed(0.01).range(-1.0, 1.0).build(ui, &mut p.ch2_key_soft);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/key_soft", Some(p.ch2_key_soft));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_key_soft".to_string(), -1.0, 1.0));
+            }
+        }
+        
+        // Process MIDI learn clicks (deferred to avoid borrow issues)
+        for (param_id, min, max) in midi_learn_clicks {
+            self.handle_midi_learn_click(&param_id, min, max);
         }
     }
     
     /// Build Block 1 Channel 2 Adjust panel
     fn build_block1_ch2_adjust(&mut self, ui: &Ui) {
-        // Extract config values before borrowing self mutably
+        // Extract config values and MIDI learn state before borrowing self mutably
         let show_osc = self.config.show_osc_addresses;
+        let learn_mode = self.midi_learn_mode;
+        let learn_target = self.midi_learn_target.clone();
+        
+        // Collect clicks for deferred processing
+        let mut midi_learn_clicks: Vec<(String, f32, f32)> = Vec::new();
         
         let p = &mut self.block1_edit;
         
@@ -1342,6 +1586,11 @@ osc_tooltip(ui, "/block1/ch2/mix_amount", Some(p.ch2_mix_amount));
                 }
                 ui.tooltip_text(tooltip);
             }
+        };
+        
+        // Helper to check if a parameter is being learned
+        let is_learning = |param_id: &str| -> bool {
+            learn_mode && learn_target.as_deref() == Some(param_id)
         };
         
         // Input selection (moved here to match CH1 layout)
@@ -1365,23 +1614,65 @@ osc_tooltip(ui, "/block1/ch2/mix_amount", Some(p.ch2_mix_amount));
         
         // Geometry section
         if CollapsingHeader::new("Geometry").default_open(true).build(ui) {
+            let _text_color = if is_learning("block1.ch2_x_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("X Displace##ch2adj").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.ch2_x_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/x_displace", Some(p.ch2_x_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_x_displace".to_string(), -2.0, 2.0));
+            }
             
+            let _text_color = if is_learning("block1.ch2_y_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Y Displace##ch2adj").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.ch2_y_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/y_displace", Some(p.ch2_y_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_y_displace".to_string(), -2.0, 2.0));
+            }
             
+            let _text_color = if is_learning("block1.ch2_z_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Z Displace##ch2adj").speed(0.01).range(0.0, 10.0).build(ui, &mut p.ch2_z_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/z_displace", Some(p.ch2_z_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_z_displace".to_string(), 0.0, 10.0));
+            }
             
+            let _text_color = if is_learning("block1.ch2_rotate") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Rotate##ch2adj").speed(0.1).range(-360.0, 360.0).build(ui, &mut p.ch2_rotate);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/rotate", Some(p.ch2_rotate));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_rotate".to_string(), -360.0, 360.0));
+            }
             
+            let _text_color = if is_learning("block1.ch2_kaleidoscope_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Amount##ch2adj").speed(0.01).range(0.0, 1.0).build(ui, &mut p.ch2_kaleidoscope_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/kaleidoscope_amount", Some(p.ch2_kaleidoscope_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_kaleidoscope_amount".to_string(), 0.0, 1.0));
+            }
             
+            let _text_color = if is_learning("block1.ch2_kaleidoscope_slice") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Slice##ch2adj").speed(0.01).range(0.0, 1.0).build(ui, &mut p.ch2_kaleidoscope_slice);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/kaleidoscope_slice", Some(p.ch2_kaleidoscope_slice));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_kaleidoscope_slice".to_string(), 0.0, 1.0));
+            }
             
             let mut overflow_idx = p.ch2_geo_overflow as usize;
             let preview = GEO_OVERFLOW_MODES[overflow_idx].to_string();
@@ -1400,13 +1691,22 @@ osc_tooltip(ui, "/block1/ch2/mix_amount", Some(p.ch2_mix_amount));
         // Color section
         if CollapsingHeader::new("Color").default_open(true).build(ui) {
             let mut hsb = [p.ch2_hsb_attenuate.x, p.ch2_hsb_attenuate.y, p.ch2_hsb_attenuate.z];
+            let _text_color = if is_learning("block1.ch2_hsb_attenuate_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("HSB Attenuate##ch2adj").speed(0.01).range(0.0, 2.0).build_array(ui, &mut hsb);
+            drop(_text_color);
             p.ch2_hsb_attenuate = Vec3::new(hsb[0], hsb[1], hsb[2]);
             // Sync individual components for LFO modulation
             p.ch2_hsb_attenuate_x = hsb[0];
             p.ch2_hsb_attenuate_y = hsb[1];
             p.ch2_hsb_attenuate_z = hsb[2];
             osc_tooltip(ui, "/block1/ch2/hsb_attenuate", Some(hsb[0]));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_hsb_attenuate_x".to_string(), 0.0, 2.0));
+                midi_learn_clicks.push(("block1.ch2_hsb_attenuate_y".to_string(), 0.0, 2.0));
+                midi_learn_clicks.push(("block1.ch2_hsb_attenuate_z".to_string(), 0.0, 2.0));
+            }
             
             ui.checkbox("Hue Invert##ch2adj", &mut p.ch2_hue_invert);
             ui.checkbox("Saturation Invert##ch2adj", &mut p.ch2_saturation_invert);
@@ -1416,34 +1716,86 @@ osc_tooltip(ui, "/block1/ch2/mix_amount", Some(p.ch2_mix_amount));
             ui.checkbox("Solarize##ch2adj", &mut p.ch2_solarize);
             ui.checkbox("Posterize##ch2adj", &mut p.ch2_posterize_switch);
             if p.ch2_posterize_switch {
+                let _text_color = if is_learning("block1.ch2_posterize") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Posterize Levels##ch2adj").speed(0.1).range(2.0, 32.0).build(ui, &mut p.ch2_posterize);
+                drop(_text_color);
                 osc_tooltip(ui, "/block1/ch2/posterize", Some(p.ch2_posterize));
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.ch2_posterize".to_string(), 2.0, 32.0));
+                }
             }
         }
         
         // Filters section
         if CollapsingHeader::new("Filters").default_open(true).build(ui) {
+            let _text_color = if is_learning("block1.ch2_blur_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Amount##ch2adj").speed(0.01).range(0.0, 1.0).build(ui, &mut p.ch2_blur_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/blur_amount", Some(p.ch2_blur_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_blur_amount".to_string(), 0.0, 1.0));
+            }
             
+            let _text_color = if is_learning("block1.ch2_blur_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Radius##ch2adj").speed(0.01).range(0.0, 5.0).build(ui, &mut p.ch2_blur_radius);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/blur_radius", Some(p.ch2_blur_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_blur_radius".to_string(), 0.0, 5.0));
+            }
             
+            let _text_color = if is_learning("block1.ch2_sharpen_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Sharpen Amount##ch2adj").speed(0.01).range(0.0, 1.0).build(ui, &mut p.ch2_sharpen_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/sharpen_amount", Some(p.ch2_sharpen_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_sharpen_amount".to_string(), 0.0, 1.0));
+            }
             
+            let _text_color = if is_learning("block1.ch2_sharpen_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Sharpen Radius##ch2adj").speed(0.01).range(0.0, 5.0).build(ui, &mut p.ch2_sharpen_radius);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/sharpen_radius", Some(p.ch2_sharpen_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_sharpen_radius".to_string(), 0.0, 5.0));
+            }
             
+            let _text_color = if is_learning("block1.ch2_filters_boost") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Filters Boost##ch2adj").speed(0.01).range(0.0, 2.0).build(ui, &mut p.ch2_filters_boost);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/ch2/filters_boost", Some(p.ch2_filters_boost));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.ch2_filters_boost".to_string(), 0.0, 2.0));
+            }
+        }
+        
+        // Process MIDI learn clicks (deferred to avoid borrow issues)
+        for (param_id, min, max) in midi_learn_clicks {
+            self.handle_midi_learn_click(&param_id, min, max);
         }
     }
     
     /// Build Block 1 FB1 Parameters panel
     fn build_block1_fb1_params(&mut self, ui: &Ui) {
-        // Extract config values before borrowing self mutably
+        // Extract config values and MIDI learn state before borrowing self mutably
         let show_osc = self.config.show_osc_addresses;
+        let learn_mode = self.midi_learn_mode;
+        let learn_target = self.midi_learn_target.clone();
+        
+        // Collect clicks for deferred processing
+        let mut midi_learn_clicks: Vec<(String, f32, f32)> = Vec::new();
         
         let p = &mut self.block1_edit;
         
@@ -1458,10 +1810,23 @@ osc_tooltip(ui, "/block1/ch2/mix_amount", Some(p.ch2_mix_amount));
             }
         };
         
+        // Helper to check if a parameter is being learned
+        let is_learning = |param_id: &str| -> bool {
+            learn_mode && learn_target.as_deref() == Some(param_id)
+        };
+        
         // Mix section
         if CollapsingHeader::new("Feedback Mix").default_open(true).build(ui) {
             // Mix amount with fine control
-Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_mix_amount);
+            let _text_color = if is_learning("block1.fb1_mix_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_mix_amount);
+            drop(_text_color);
+            osc_tooltip(ui, "/block1/fb1/mix_amount", Some(p.fb1_mix_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_mix_amount".to_string(), 0.0, 1.0));
+            }
             
             let mut mix_type = p.fb1_mix_type as usize;
             let preview = MIX_TYPES[mix_type].to_string();
@@ -1513,15 +1878,45 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
             if p.fb1_key_mode == 0 {
                 // Lumakey mode - single slider controls all channels
                 ui.text("Key Value:");
+                let _text_color = if is_learning("block1.fb1_key_value") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Key Value##fb1").speed(0.01).range(-1.0, 1.0).build(ui, &mut key_color[0]);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.fb1_key_value".to_string(), -1.0, 1.0));
+                }
                 key_color[1] = key_color[0];
                 key_color[2] = key_color[0];
             } else {
                 // Chromakey mode - RGB sliders
                 ui.text("Key Color (RGB -1 to 1):");
+                let _text_color = if is_learning("block1.fb1_key_value_red") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Red##fb1key").speed(0.01).range(-1.0, 1.0).build(ui, &mut key_color[0]);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.fb1_key_value_red".to_string(), -1.0, 1.0));
+                }
+                
+                let _text_color = if is_learning("block1.fb1_key_value_green") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Green##fb1key").speed(0.01).range(-1.0, 1.0).build(ui, &mut key_color[1]);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.fb1_key_value_green".to_string(), -1.0, 1.0));
+                }
+                
+                let _text_color = if is_learning("block1.fb1_key_value_blue") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Blue##fb1key").speed(0.01).range(-1.0, 1.0).build(ui, &mut key_color[2]);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.fb1_key_value_blue".to_string(), -1.0, 1.0));
+                }
             }
             
             // Color preview (mapped to 0-1 for display)
@@ -1558,68 +1953,257 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
             
             // Key threshold and soft (OF uses -1.0 to 1.0)
             ui.text("Key Parameters:");
+            let _text_color = if is_learning("block1.fb1_key_threshold") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Threshold##fb1").speed(0.01).range(-1.0, 1.0).build(ui, &mut p.fb1_key_threshold);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/key_threshold", Some(p.fb1_key_threshold));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_key_threshold".to_string(), -1.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block1.fb1_key_soft") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Soft##fb1").speed(0.01).range(-1.0, 1.0).build(ui, &mut p.fb1_key_soft);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/key_soft", Some(p.fb1_key_soft));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_key_soft".to_string(), -1.0, 1.0));
+            }
         }
         
         // FB1 Geometry section
         if CollapsingHeader::new("Feedback Geometry").default_open(true).build(ui) {
+            let _text_color = if is_learning("block1.fb1_x_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("X Displace##fb1").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.fb1_x_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/x_displace", Some(p.fb1_x_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_x_displace".to_string(), -2.0, 2.0));
+            }
+            
+            let _text_color = if is_learning("block1.fb1_y_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Y Displace##fb1").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.fb1_y_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/y_displace", Some(p.fb1_y_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_y_displace".to_string(), -2.0, 2.0));
+            }
+            
+            let _text_color = if is_learning("block1.fb1_z_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Z Displace##fb1").speed(0.01).range(0.0, 10.0).build(ui, &mut p.fb1_z_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/z_displace", Some(p.fb1_z_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_z_displace".to_string(), 0.0, 10.0));
+            }
+            
+            let _text_color = if is_learning("block1.fb1_rotate") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Rotate##fb1").speed(0.1).range(-360.0, 360.0).build(ui, &mut p.fb1_rotate);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/rotate", Some(p.fb1_rotate));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_rotate".to_string(), -360.0, 360.0));
+            }
             
-            // Shear matrix
-            let mut shear = [p.fb1_shear_matrix.x, p.fb1_shear_matrix.y, 
-                            p.fb1_shear_matrix.z, p.fb1_shear_matrix.w];
-            Drag::new("Shear Matrix##fb1").speed(0.01).range(-2.0, 2.0).build_array(ui, &mut shear);
-            osc_tooltip(ui, "/block1/fb1/shear_matrix", Some(shear[0]));
-            p.fb1_shear_matrix = Vec4::new(shear[0], shear[1], shear[2], shear[3]);
-            // Sync individual components for LFO modulation
-            p.fb1_shear_matrix_x = shear[0];
-            p.fb1_shear_matrix_y = shear[1];
-            p.fb1_shear_matrix_z = shear[2];
-            p.fb1_shear_matrix_w = shear[3];
+            // Shear matrix - individual sliders
+            ui.text("Shear Matrix:");
+            let mut shear_x = p.fb1_shear_matrix_x;
+            let _text_color = if is_learning("block1.fb1_shear_matrix_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("X##fb1shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_shear_matrix_x".to_string(), -2.0, 2.0));
+            }
+            p.fb1_shear_matrix_x = shear_x;
             
+            let mut shear_y = p.fb1_shear_matrix_y;
+            let _text_color = if is_learning("block1.fb1_shear_matrix_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Y##fb1shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_shear_matrix_y".to_string(), -2.0, 2.0));
+            }
+            p.fb1_shear_matrix_y = shear_y;
+            
+            let mut shear_z = p.fb1_shear_matrix_z;
+            let _text_color = if is_learning("block1.fb1_shear_matrix_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Z##fb1shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_shear_matrix_z".to_string(), -2.0, 2.0));
+            }
+            p.fb1_shear_matrix_z = shear_z;
+            
+            let mut shear_w = p.fb1_shear_matrix_w;
+            let _text_color = if is_learning("block1.fb1_shear_matrix_w") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("W##fb1shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_w);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_shear_matrix_w".to_string(), -2.0, 2.0));
+            }
+            p.fb1_shear_matrix_w = shear_w;
+            
+            p.fb1_shear_matrix = Vec4::new(shear_x, shear_y, shear_z, shear_w);
+            
+            let _text_color = if is_learning("block1.fb1_kaleidoscope_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Amount##fb1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb1_kaleidoscope_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/kaleidoscope_amount", Some(p.fb1_kaleidoscope_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_kaleidoscope_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block1.fb1_kaleidoscope_slice") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Slice##fb1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb1_kaleidoscope_slice);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/kaleidoscope_slice", Some(p.fb1_kaleidoscope_slice));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_kaleidoscope_slice".to_string(), 0.0, 1.0));
+            }
         }
         
         // FB1 Color section
         if CollapsingHeader::new("Feedback Color").default_open(true).build(ui) {
-            let mut hsb_offset = [p.fb1_hsb_offset.x, p.fb1_hsb_offset.y, p.fb1_hsb_offset.z];
-            Drag::new("HSB Offset##fb1").speed(0.01).range(-1.0, 1.0).build_array(ui, &mut hsb_offset);
-            osc_tooltip(ui, "/block1/fb1/hsb_offset", Some(hsb_offset[0]));
-            p.fb1_hsb_offset = Vec3::new(hsb_offset[0], hsb_offset[1], hsb_offset[2]);
-            // Sync individual components for LFO modulation
-            p.fb1_hsb_offset_x = hsb_offset[0];
-            p.fb1_hsb_offset_y = hsb_offset[1];
-            p.fb1_hsb_offset_z = hsb_offset[2];
+            // HSB Offset - individual sliders
+            ui.text("HSB Offset:");
+            let mut hsb_offset_x = p.fb1_hsb_offset_x;
+            let _text_color = if is_learning("block1.fb1_hsb_offset_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("H##fb1hsboff").speed(0.01).range(-1.0, 1.0).build(ui, &mut hsb_offset_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_hsb_offset_x".to_string(), -1.0, 1.0));
+            }
+            p.fb1_hsb_offset_x = hsb_offset_x;
             
-            let mut hsb_att = [p.fb1_hsb_attenuate.x, p.fb1_hsb_attenuate.y, p.fb1_hsb_attenuate.z];
-            Drag::new("HSB Attenuate##fb1").speed(0.01).range(0.0, 2.0).build_array(ui, &mut hsb_att);
-            osc_tooltip(ui, "/block1/fb1/hsb_attenuate", Some(hsb_att[0]));
-            p.fb1_hsb_attenuate = Vec3::new(hsb_att[0], hsb_att[1], hsb_att[2]);
-            // Sync individual components for LFO modulation
-            p.fb1_hsb_attenuate_x = hsb_att[0];
-            p.fb1_hsb_attenuate_y = hsb_att[1];
-            p.fb1_hsb_attenuate_z = hsb_att[2];
+            let mut hsb_offset_y = p.fb1_hsb_offset_y;
+            let _text_color = if is_learning("block1.fb1_hsb_offset_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("S##fb1hsboff").speed(0.01).range(-1.0, 1.0).build(ui, &mut hsb_offset_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_hsb_offset_y".to_string(), -1.0, 1.0));
+            }
+            p.fb1_hsb_offset_y = hsb_offset_y;
             
-            let mut hsb_pow = [p.fb1_hsb_powmap.x, p.fb1_hsb_powmap.y, p.fb1_hsb_powmap.z];
-            Drag::new("HSB PowMap##fb1").speed(0.01).range(0.0, 5.0).build_array(ui, &mut hsb_pow);
-            osc_tooltip(ui, "/block1/fb1/hsb_powmap", Some(hsb_pow[0]));
-            p.fb1_hsb_powmap = Vec3::new(hsb_pow[0], hsb_pow[1], hsb_pow[2]);
+            let mut hsb_offset_z = p.fb1_hsb_offset_z;
+            let _text_color = if is_learning("block1.fb1_hsb_offset_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("B##fb1hsboff").speed(0.01).range(-1.0, 1.0).build(ui, &mut hsb_offset_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_hsb_offset_z".to_string(), -1.0, 1.0));
+            }
+            p.fb1_hsb_offset_z = hsb_offset_z;
             
+            p.fb1_hsb_offset = Vec3::new(hsb_offset_x, hsb_offset_y, hsb_offset_z);
+            
+            // HSB Attenuate - individual sliders
+            ui.text("HSB Attenuate:");
+            let mut hsb_att_x = p.fb1_hsb_attenuate_x;
+            let _text_color = if is_learning("block1.fb1_hsb_attenuate_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("H##fb1hsbatt").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_att_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_hsb_attenuate_x".to_string(), 0.0, 2.0));
+            }
+            p.fb1_hsb_attenuate_x = hsb_att_x;
+            
+            let mut hsb_att_y = p.fb1_hsb_attenuate_y;
+            let _text_color = if is_learning("block1.fb1_hsb_attenuate_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("S##fb1hsbatt").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_att_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_hsb_attenuate_y".to_string(), 0.0, 2.0));
+            }
+            p.fb1_hsb_attenuate_y = hsb_att_y;
+            
+            let mut hsb_att_z = p.fb1_hsb_attenuate_z;
+            let _text_color = if is_learning("block1.fb1_hsb_attenuate_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("B##fb1hsbatt").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_att_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_hsb_attenuate_z".to_string(), 0.0, 2.0));
+            }
+            p.fb1_hsb_attenuate_z = hsb_att_z;
+            
+            p.fb1_hsb_attenuate = Vec3::new(hsb_att_x, hsb_att_y, hsb_att_z);
+            
+            // HSB PowMap - individual sliders
+            ui.text("HSB PowMap:");
+            let mut hsb_pow_x = p.fb1_hsb_powmap.x;
+            let _text_color = if is_learning("block1.fb1_hsb_powmap_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("H##fb1hsbpow").speed(0.01).range(0.0, 5.0).build(ui, &mut hsb_pow_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_hsb_powmap_x".to_string(), 0.0, 5.0));
+            }
+            
+            let mut hsb_pow_y = p.fb1_hsb_powmap.y;
+            let _text_color = if is_learning("block1.fb1_hsb_powmap_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("S##fb1hsbpow").speed(0.01).range(0.0, 5.0).build(ui, &mut hsb_pow_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_hsb_powmap_y".to_string(), 0.0, 5.0));
+            }
+            
+            let mut hsb_pow_z = p.fb1_hsb_powmap.z;
+            let _text_color = if is_learning("block1.fb1_hsb_powmap_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("B##fb1hsbpow").speed(0.01).range(0.0, 5.0).build(ui, &mut hsb_pow_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_hsb_powmap_z".to_string(), 0.0, 5.0));
+            }
+            
+            p.fb1_hsb_powmap = Vec3::new(hsb_pow_x, hsb_pow_y, hsb_pow_z);
+            
+            let _text_color = if is_learning("block1.fb1_hue_shaper") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Hue Shaper##fb1").speed(0.01).range(0.0, 2.0).build(ui, &mut p.fb1_hue_shaper);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/hue_shaper", Some(p.fb1_hue_shaper));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_hue_shaper".to_string(), 0.0, 2.0));
+            }
             
             ui.checkbox("Hue Invert##fb1", &mut p.fb1_hue_invert);
             ui.checkbox("Saturation Invert##fb1", &mut p.fb1_saturation_invert);
@@ -1628,28 +2212,95 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
         
         // FB1 Filters section
         if CollapsingHeader::new("Feedback Filters").default_open(true).build(ui) {
+            let _text_color = if is_learning("block1.fb1_blur_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Amount##fb1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb1_blur_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/blur_amount", Some(p.fb1_blur_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_blur_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block1.fb1_blur_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Radius##fb1").speed(0.01).range(0.0, 5.0).build(ui, &mut p.fb1_blur_radius);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/blur_radius", Some(p.fb1_blur_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_blur_radius".to_string(), 0.0, 5.0));
+            }
             
+            let _text_color = if is_learning("block1.fb1_sharpen_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Sharpen Amount##fb1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb1_sharpen_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/sharpen_amount", Some(p.fb1_sharpen_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_sharpen_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block1.fb1_sharpen_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Sharpen Radius##fb1").speed(0.01).range(0.0, 5.0).build(ui, &mut p.fb1_sharpen_radius);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/sharpen_radius", Some(p.fb1_sharpen_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_sharpen_radius".to_string(), 0.0, 5.0));
+            }
             
+            let _text_color = if is_learning("block1.fb1_temporal_filter1_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Temp Filter 1 Amount##fb1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb1_temporal_filter1_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/temp_filter1_amount", Some(p.fb1_temporal_filter1_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_temporal_filter1_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block1.fb1_temporal_filter1_resonance") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Temp Filter 1 Res##fb1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb1_temporal_filter1_resonance);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/temp_filter1_res", Some(p.fb1_temporal_filter1_resonance));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_temporal_filter1_resonance".to_string(), 0.0, 1.0));
+            }
             
+            let _text_color = if is_learning("block1.fb1_temporal_filter2_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Temp Filter 2 Amount##fb1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb1_temporal_filter2_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/temp_filter2_amount", Some(p.fb1_temporal_filter2_amount));
-            Drag::new("Temp Filter 2 Res##fb1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb1_temporal_filter2_resonance);
-            osc_tooltip(ui, "/block1/fb1/temp_filter2_res", Some(p.fb1_temporal_filter2_resonance));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_temporal_filter2_amount".to_string(), 0.0, 1.0));
+            }
             
+            let _text_color = if is_learning("block1.fb1_temporal_filter2_resonance") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Temp Filter 2 Res##fb1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb1_temporal_filter2_resonance);
+            drop(_text_color);
+            osc_tooltip(ui, "/block1/fb1/temp_filter2_res", Some(p.fb1_temporal_filter2_resonance));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_temporal_filter2_resonance".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block1.fb1_filters_boost") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Filters Boost##fb1").speed(0.01).range(0.0, 2.0).build(ui, &mut p.fb1_filters_boost);
+            drop(_text_color);
             osc_tooltip(ui, "/block1/fb1/filters_boost", Some(p.fb1_filters_boost));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block1.fb1_filters_boost".to_string(), 0.0, 2.0));
+            }
             
             ui.separator();
             // Delay section with tempo sync
@@ -1688,8 +2339,15 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
                     calculated_frames, calculated_frames as f32 / 60.0, self.bpm as i32));
             } else {
                 // Show frame slider when sync is disabled
+                let _text_color = if is_learning("block1.fb1_delay_time") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Delay Time (frames)##fb1").speed(1.0).range(0, 120).build(ui, &mut p.fb1_delay_time);
+                drop(_text_color);
                 osc_tooltip(ui, "/block1/fb1/delay_time", Some(p.fb1_delay_time as f32));
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block1.fb1_delay_time".to_string(), 0.0, 120.0));
+                }
                 if p.fb1_delay_time > 0 {
                     ui.text_disabled(format!("≈ {:.2} seconds at 60fps", p.fb1_delay_time as f32 / 60.0));
                 } else {
@@ -1697,8 +2355,13 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
                 }
             }
         }
+        
+        // Process MIDI learn clicks (deferred to avoid borrow issues)
+        for (param_id, min, max) in midi_learn_clicks {
+            self.handle_midi_learn_click(&param_id, min, max);
+        }
     }
-    
+
     /// Build Block 2 panel with sub-tabs
     fn build_block2_panel(&mut self, ui: &Ui) {
         let subtab_labels = ["Input Adjust", "FB2", "LFO"];
@@ -1731,8 +2394,13 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
     
     /// Build Block 2 Input Adjust panel
     fn build_block2_input_adjust(&mut self, ui: &Ui) {
-        // Extract config values before borrowing self mutably
+        // Extract config values and MIDI learn state before borrowing self mutably
         let show_osc = self.config.show_osc_addresses;
+        let learn_mode = self.midi_learn_mode;
+        let learn_target = self.midi_learn_target.clone();
+        
+        // Collect clicks for deferred processing
+        let mut midi_learn_clicks: Vec<(String, f32, f32)> = Vec::new();
         
         let p = &mut self.block2_edit;
         
@@ -1745,6 +2413,11 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
                 }
                 ui.tooltip_text(tooltip);
             }
+        };
+        
+        // Helper to check if a parameter is being learned
+        let is_learning = |param_id: &str| -> bool {
+            learn_mode && learn_target.as_deref() == Some(param_id)
         };
         
         // Input selection
@@ -1768,19 +2441,65 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
         
         // Geometry section
         if CollapsingHeader::new("Geometry").default_open(true).build(ui) {
+            let _text_color = if is_learning("block2.block2_input_x_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("X Displace##b2in").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.block2_input_x_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/input/x_displace", Some(p.block2_input_x_displace));
-            Drag::new("Y Displace##b2in").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.block2_input_y_displace);
-            osc_tooltip(ui, "/block2/input/y_displace", Some(p.block2_input_y_displace));
-            Drag::new("Z Displace##b2in").speed(0.01).range(0.0, 10.0).build(ui, &mut p.block2_input_z_displace);
-            osc_tooltip(ui, "/block2/input/z_displace", Some(p.block2_input_z_displace));
-            Drag::new("Rotate##b2in").speed(0.1).range(-360.0, 360.0).build(ui, &mut p.block2_input_rotate);
-            osc_tooltip(ui, "/block2/input/rotate", Some(p.block2_input_rotate));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_x_displace".to_string(), -2.0, 2.0));
+            }
             
+            let _text_color = if is_learning("block2.block2_input_y_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Y Displace##b2in").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.block2_input_y_displace);
+            drop(_text_color);
+            osc_tooltip(ui, "/block2/input/y_displace", Some(p.block2_input_y_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_y_displace".to_string(), -2.0, 2.0));
+            }
+            
+            let _text_color = if is_learning("block2.block2_input_z_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Z Displace##b2in").speed(0.01).range(0.0, 10.0).build(ui, &mut p.block2_input_z_displace);
+            drop(_text_color);
+            osc_tooltip(ui, "/block2/input/z_displace", Some(p.block2_input_z_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_z_displace".to_string(), 0.0, 10.0));
+            }
+            
+            let _text_color = if is_learning("block2.block2_input_rotate") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Rotate##b2in").speed(0.1).range(-360.0, 360.0).build(ui, &mut p.block2_input_rotate);
+            drop(_text_color);
+            osc_tooltip(ui, "/block2/input/rotate", Some(p.block2_input_rotate));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_rotate".to_string(), -360.0, 360.0));
+            }
+            
+            let _text_color = if is_learning("block2.block2_input_kaleidoscope_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Amount##b2in").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block2_input_kaleidoscope_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/input/kaleidoscope_amount", Some(p.block2_input_kaleidoscope_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_kaleidoscope_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block2.block2_input_kaleidoscope_slice") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Slice##b2in").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block2_input_kaleidoscope_slice);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/input/kaleidoscope_slice", Some(p.block2_input_kaleidoscope_slice));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_kaleidoscope_slice".to_string(), 0.0, 1.0));
+            }
             
             let mut overflow_idx = p.block2_input_geo_overflow as usize;
             let preview = GEO_OVERFLOW_MODES[overflow_idx].to_string();
@@ -1798,16 +2517,42 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
         
         // Color section
         if CollapsingHeader::new("Color").default_open(true).build(ui) {
-            let mut hsb = [p.block2_input_hsb_attenuate.x, 
-                          p.block2_input_hsb_attenuate.y, 
-                          p.block2_input_hsb_attenuate.z];
-            Drag::new("HSB Attenuate##b2in").speed(0.01).range(0.0, 2.0).build_array(ui, &mut hsb);
-            osc_tooltip(ui, "/block2/input/hsb_attenuate", Some(hsb[0]));
-            p.block2_input_hsb_attenuate = Vec3::new(hsb[0], hsb[1], hsb[2]);
-            // Sync individual components for LFO modulation
-            p.block2_input_hsb_attenuate_x = hsb[0];
-            p.block2_input_hsb_attenuate_y = hsb[1];
-            p.block2_input_hsb_attenuate_z = hsb[2];
+            // HSB Attenuate - individual sliders
+            ui.text("HSB Attenuate:");
+            let mut hsb_x = p.block2_input_hsb_attenuate_x;
+            let _text_color = if is_learning("block2.block2_input_hsb_attenuate_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("H##b2inhsb").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_hsb_attenuate_x".to_string(), 0.0, 2.0));
+            }
+            p.block2_input_hsb_attenuate_x = hsb_x;
+            
+            let mut hsb_y = p.block2_input_hsb_attenuate_y;
+            let _text_color = if is_learning("block2.block2_input_hsb_attenuate_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("S##b2inhsb").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_hsb_attenuate_y".to_string(), 0.0, 2.0));
+            }
+            p.block2_input_hsb_attenuate_y = hsb_y;
+            
+            let mut hsb_z = p.block2_input_hsb_attenuate_z;
+            let _text_color = if is_learning("block2.block2_input_hsb_attenuate_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("B##b2inhsb").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_hsb_attenuate_z".to_string(), 0.0, 2.0));
+            }
+            p.block2_input_hsb_attenuate_z = hsb_z;
+            
+            p.block2_input_hsb_attenuate = Vec3::new(hsb_x, hsb_y, hsb_z);
             
             ui.checkbox("Hue Invert##b2in", &mut p.block2_input_hue_invert);
             ui.checkbox("Saturation Invert##b2in", &mut p.block2_input_saturation_invert);
@@ -1817,32 +2562,85 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
             ui.checkbox("Solarize##b2in", &mut p.block2_input_solarize);
             ui.checkbox("Posterize##b2in", &mut p.block2_input_posterize_switch);
             if p.block2_input_posterize_switch {
+                let _text_color = if is_learning("block2.block2_input_posterize") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Posterize Levels##b2in").speed(0.1).range(2.0, 32.0).build(ui, &mut p.block2_input_posterize);
+                drop(_text_color);
                 osc_tooltip(ui, "/block2/input/posterize", Some(p.block2_input_posterize));
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block2.block2_input_posterize".to_string(), 2.0, 32.0));
+                }
             }
         }
         
         // Filters section
         if CollapsingHeader::new("Filters").default_open(true).build(ui) {
+            let _text_color = if is_learning("block2.block2_input_blur_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Amount##b2in").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block2_input_blur_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/input/blur_amount", Some(p.block2_input_blur_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_blur_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block2.block2_input_blur_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Radius##b2in").speed(0.01).range(0.0, 5.0).build(ui, &mut p.block2_input_blur_radius);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/input/blur_radius", Some(p.block2_input_blur_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_blur_radius".to_string(), 0.0, 5.0));
+            }
             
+            let _text_color = if is_learning("block2.block2_input_sharpen_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Sharpen Amount##b2in").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block2_input_sharpen_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/input/sharpen_amount", Some(p.block2_input_sharpen_amount));
-            Drag::new("Sharpen Radius##b2in").speed(0.01).range(0.0, 5.0).build(ui, &mut p.block2_input_sharpen_radius);
-            osc_tooltip(ui, "/block2/input/sharpen_radius", Some(p.block2_input_sharpen_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_sharpen_amount".to_string(), 0.0, 1.0));
+            }
             
+            let _text_color = if is_learning("block2.block2_input_sharpen_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Sharpen Radius##b2in").speed(0.01).range(0.0, 5.0).build(ui, &mut p.block2_input_sharpen_radius);
+            drop(_text_color);
+            osc_tooltip(ui, "/block2/input/sharpen_radius", Some(p.block2_input_sharpen_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_sharpen_radius".to_string(), 0.0, 5.0));
+            }
+            
+            let _text_color = if is_learning("block2.block2_input_filters_boost") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Filters Boost##b2in").speed(0.01).range(0.0, 2.0).build(ui, &mut p.block2_input_filters_boost);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/input/filters_boost", Some(p.block2_input_filters_boost));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.block2_input_filters_boost".to_string(), 0.0, 2.0));
+            }
+        }
+        
+        // Process MIDI learn clicks (deferred to avoid borrow issues)
+        for (param_id, min, max) in midi_learn_clicks {
+            self.handle_midi_learn_click(&param_id, min, max);
         }
     }
-    
-    /// Build Block 2 FB2 Parameters panel
+
     fn build_block2_fb2_params(&mut self, ui: &Ui) {
-        // Extract config values before borrowing self mutably
+        // Extract config values and MIDI learn state before borrowing self mutably
         let show_osc = self.config.show_osc_addresses;
+        let learn_mode = self.midi_learn_mode;
+        let learn_target = self.midi_learn_target.clone();
+        
+        // Collect clicks for deferred processing
+        let mut midi_learn_clicks: Vec<(String, f32, f32)> = Vec::new();
         
         let p = &mut self.block2_edit;
         
@@ -1857,11 +2655,23 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
             }
         };
         
+        // Helper to check if a parameter is being learned
+        let is_learning = |param_id: &str| -> bool {
+            learn_mode && learn_target.as_deref() == Some(param_id)
+        };
+        
         // Mix section
         if CollapsingHeader::new("Feedback Mix").default_open(true).build(ui) {
             // Mix amount with fine control
+            let _text_color = if is_learning("block2.fb2_mix_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Mix Amount##fb2").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb2_mix_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/mix_amount", Some(p.fb2_mix_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_mix_amount".to_string(), 0.0, 1.0));
+            }
             
             let mut mix_type = p.fb2_mix_type as usize;
             let preview = MIX_TYPES[mix_type].to_string();
@@ -1912,7 +2722,14 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
             if p.fb2_key_mode == 0 {
                 // Lumakey mode - single slider controls all channels
                 ui.text("Key Value:");
+                let _text_color = if is_learning("block2.fb2_key_value") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Key Value##fb2").speed(0.01).range(-1.0, 1.0).build(ui, &mut key_color[0]);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block2.fb2_key_value".to_string(), -1.0, 1.0));
+                }
                 key_color[1] = key_color[0];
                 key_color[2] = key_color[0];
             } else {
@@ -1951,36 +2768,134 @@ Drag::new("Mix Amount##fb1").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb1_m
             p.fb2_key_order = order_idx.clamp(0, key_orders.len() - 1) as i32;
             
             // Key threshold with fine control
-Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb2_key_threshold);
+            let _text_color = if is_learning("block2.fb2_key_threshold") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb2_key_threshold);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_key_threshold".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block2.fb2_key_soft") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Key Soft##fb2").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fb2_key_soft);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_key_soft".to_string(), 0.0, 1.0));
+            }
         }
         
         // Geometry section
         if CollapsingHeader::new("Feedback Geometry").default_open(true).build(ui) {
+            let _text_color = if is_learning("block2.fb2_x_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("X Displace##fb2").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.fb2_x_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/x_displace", Some(p.fb2_x_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_x_displace".to_string(), -2.0, 2.0));
+            }
+            
+            let _text_color = if is_learning("block2.fb2_y_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Y Displace##fb2").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.fb2_y_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/y_displace", Some(p.fb2_y_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_y_displace".to_string(), -2.0, 2.0));
+            }
+            
+            let _text_color = if is_learning("block2.fb2_z_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Z Displace##fb2").speed(0.01).range(0.0, 10.0).build(ui, &mut p.fb2_z_displace);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/z_displace", Some(p.fb2_z_displace));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_z_displace".to_string(), 0.0, 10.0));
+            }
+            
+            let _text_color = if is_learning("block2.fb2_rotate") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Rotate##fb2").speed(0.1).range(-360.0, 360.0).build(ui, &mut p.fb2_rotate);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/rotate", Some(p.fb2_rotate));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_rotate".to_string(), -360.0, 360.0));
+            }
             
-            let mut shear = [p.fb2_shear_matrix.x, p.fb2_shear_matrix.y, 
-                            p.fb2_shear_matrix.z, p.fb2_shear_matrix.w];
-            Drag::new("Shear Matrix##fb2").speed(0.01).range(-2.0, 2.0).build_array(ui, &mut shear);
-            osc_tooltip(ui, "/block2/fb2/shear_matrix", Some(shear[0]));
-            p.fb2_shear_matrix = Vec4::new(shear[0], shear[1], shear[2], shear[3]);
-            // Sync individual components for LFO modulation
-            p.fb2_shear_matrix_x = shear[0];
-            p.fb2_shear_matrix_y = shear[1];
-            p.fb2_shear_matrix_z = shear[2];
-            p.fb2_shear_matrix_w = shear[3];
+            // Shear matrix - individual sliders
+            ui.text("Shear Matrix:");
+            let mut shear_x = p.fb2_shear_matrix_x;
+            let _text_color = if is_learning("block2.fb2_shear_matrix_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("X##fb2shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_shear_matrix_x".to_string(), -2.0, 2.0));
+            }
+            p.fb2_shear_matrix_x = shear_x;
             
+            let mut shear_y = p.fb2_shear_matrix_y;
+            let _text_color = if is_learning("block2.fb2_shear_matrix_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Y##fb2shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_shear_matrix_y".to_string(), -2.0, 2.0));
+            }
+            p.fb2_shear_matrix_y = shear_y;
+            
+            let mut shear_z = p.fb2_shear_matrix_z;
+            let _text_color = if is_learning("block2.fb2_shear_matrix_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Z##fb2shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_shear_matrix_z".to_string(), -2.0, 2.0));
+            }
+            p.fb2_shear_matrix_z = shear_z;
+            
+            let mut shear_w = p.fb2_shear_matrix_w;
+            let _text_color = if is_learning("block2.fb2_shear_matrix_w") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("W##fb2shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_w);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_shear_matrix_w".to_string(), -2.0, 2.0));
+            }
+            p.fb2_shear_matrix_w = shear_w;
+            
+            p.fb2_shear_matrix = Vec4::new(shear_x, shear_y, shear_z, shear_w);
+            
+            let _text_color = if is_learning("block2.fb2_kaleidoscope_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Amount##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_kaleidoscope_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/kaleidoscope_amount", Some(p.fb2_kaleidoscope_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_kaleidoscope_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block2.fb2_kaleidoscope_slice") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Slice##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_kaleidoscope_slice);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/kaleidoscope_slice", Some(p.fb2_kaleidoscope_slice));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_kaleidoscope_slice".to_string(), 0.0, 1.0));
+            }
             
             ui.checkbox("H Mirror##fb2", &mut p.fb2_h_mirror);
             ui.checkbox("V Mirror##fb2", &mut p.fb2_v_mirror);
@@ -1990,31 +2905,123 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
         
         // Color section
         if CollapsingHeader::new("Feedback Color").default_open(true).build(ui) {
-            let mut hsb_offset = [p.fb2_hsb_offset.x, p.fb2_hsb_offset.y, p.fb2_hsb_offset.z];
-            Drag::new("HSB Offset##fb2").speed(0.01).range(-1.0, 1.0).build_array(ui, &mut hsb_offset);
-            osc_tooltip(ui, "/block2/fb2/hsb_offset", Some(hsb_offset[0]));
-            p.fb2_hsb_offset = Vec3::new(hsb_offset[0], hsb_offset[1], hsb_offset[2]);
-            // Sync individual components for LFO modulation
-            p.fb2_hsb_offset_x = hsb_offset[0];
-            p.fb2_hsb_offset_y = hsb_offset[1];
-            p.fb2_hsb_offset_z = hsb_offset[2];
+            // HSB Offset - individual sliders
+            ui.text("HSB Offset:");
+            let mut hsb_offset_x = p.fb2_hsb_offset_x;
+            let _text_color = if is_learning("block2.fb2_hsb_offset_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("H##fb2hsboff").speed(0.01).range(-1.0, 1.0).build(ui, &mut hsb_offset_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_hsb_offset_x".to_string(), -1.0, 1.0));
+            }
+            p.fb2_hsb_offset_x = hsb_offset_x;
             
-            let mut hsb_att = [p.fb2_hsb_attenuate.x, p.fb2_hsb_attenuate.y, p.fb2_hsb_attenuate.z];
-            Drag::new("HSB Attenuate##fb2").speed(0.01).range(0.0, 2.0).build_array(ui, &mut hsb_att);
-            osc_tooltip(ui, "/block2/fb2/hsb_attenuate", Some(hsb_att[0]));
-            p.fb2_hsb_attenuate = Vec3::new(hsb_att[0], hsb_att[1], hsb_att[2]);
-            // Sync individual components for LFO modulation
-            p.fb2_hsb_attenuate_x = hsb_att[0];
-            p.fb2_hsb_attenuate_y = hsb_att[1];
-            p.fb2_hsb_attenuate_z = hsb_att[2];
+            let mut hsb_offset_y = p.fb2_hsb_offset_y;
+            let _text_color = if is_learning("block2.fb2_hsb_offset_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("S##fb2hsboff").speed(0.01).range(-1.0, 1.0).build(ui, &mut hsb_offset_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_hsb_offset_y".to_string(), -1.0, 1.0));
+            }
+            p.fb2_hsb_offset_y = hsb_offset_y;
             
-            let mut hsb_pow = [p.fb2_hsb_powmap.x, p.fb2_hsb_powmap.y, p.fb2_hsb_powmap.z];
-            Drag::new("HSB PowMap##fb2").speed(0.01).range(0.0, 5.0).build_array(ui, &mut hsb_pow);
-            osc_tooltip(ui, "/block2/fb2/hsb_powmap", Some(hsb_pow[0]));
-            p.fb2_hsb_powmap = Vec3::new(hsb_pow[0], hsb_pow[1], hsb_pow[2]);
+            let mut hsb_offset_z = p.fb2_hsb_offset_z;
+            let _text_color = if is_learning("block2.fb2_hsb_offset_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("B##fb2hsboff").speed(0.01).range(-1.0, 1.0).build(ui, &mut hsb_offset_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_hsb_offset_z".to_string(), -1.0, 1.0));
+            }
+            p.fb2_hsb_offset_z = hsb_offset_z;
             
+            p.fb2_hsb_offset = Vec3::new(hsb_offset_x, hsb_offset_y, hsb_offset_z);
+            
+            // HSB Attenuate - individual sliders
+            ui.text("HSB Attenuate:");
+            let mut hsb_att_x = p.fb2_hsb_attenuate_x;
+            let _text_color = if is_learning("block2.fb2_hsb_attenuate_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("H##fb2hsbatt").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_att_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_hsb_attenuate_x".to_string(), 0.0, 2.0));
+            }
+            p.fb2_hsb_attenuate_x = hsb_att_x;
+            
+            let mut hsb_att_y = p.fb2_hsb_attenuate_y;
+            let _text_color = if is_learning("block2.fb2_hsb_attenuate_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("S##fb2hsbatt").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_att_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_hsb_attenuate_y".to_string(), 0.0, 2.0));
+            }
+            p.fb2_hsb_attenuate_y = hsb_att_y;
+            
+            let mut hsb_att_z = p.fb2_hsb_attenuate_z;
+            let _text_color = if is_learning("block2.fb2_hsb_attenuate_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("B##fb2hsbatt").speed(0.01).range(0.0, 2.0).build(ui, &mut hsb_att_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_hsb_attenuate_z".to_string(), 0.0, 2.0));
+            }
+            p.fb2_hsb_attenuate_z = hsb_att_z;
+            
+            p.fb2_hsb_attenuate = Vec3::new(hsb_att_x, hsb_att_y, hsb_att_z);
+            
+            // HSB PowMap - individual sliders
+            ui.text("HSB PowMap:");
+            let mut hsb_pow_x = p.fb2_hsb_powmap.x;
+            let _text_color = if is_learning("block2.fb2_hsb_powmap_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("H##fb2hsbpow").speed(0.01).range(0.0, 5.0).build(ui, &mut hsb_pow_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_hsb_powmap_x".to_string(), 0.0, 5.0));
+            }
+            
+            let mut hsb_pow_y = p.fb2_hsb_powmap.y;
+            let _text_color = if is_learning("block2.fb2_hsb_powmap_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("S##fb2hsbpow").speed(0.01).range(0.0, 5.0).build(ui, &mut hsb_pow_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_hsb_powmap_y".to_string(), 0.0, 5.0));
+            }
+            
+            let mut hsb_pow_z = p.fb2_hsb_powmap.z;
+            let _text_color = if is_learning("block2.fb2_hsb_powmap_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("B##fb2hsbpow").speed(0.01).range(0.0, 5.0).build(ui, &mut hsb_pow_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_hsb_powmap_z".to_string(), 0.0, 5.0));
+            }
+            
+            p.fb2_hsb_powmap = Vec3::new(hsb_pow_x, hsb_pow_y, hsb_pow_z);
+            
+            let _text_color = if is_learning("block2.fb2_hue_shaper") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Hue Shaper##fb2").speed(0.01).range(0.0, 2.0).build(ui, &mut p.fb2_hue_shaper);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/hue_shaper", Some(p.fb2_hue_shaper));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_hue_shaper".to_string(), 0.0, 2.0));
+            }
             
             ui.checkbox("Hue Invert##fb2", &mut p.fb2_hue_invert);
             ui.checkbox("Saturation Invert##fb2", &mut p.fb2_saturation_invert);
@@ -2024,31 +3031,98 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
         
         // Filters section
         if CollapsingHeader::new("Feedback Filters").default_open(true).build(ui) {
+            let _text_color = if is_learning("block2.fb2_blur_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Amount##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_blur_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/blur_amount", Some(p.fb2_blur_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_blur_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block2.fb2_blur_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Radius##fb2").speed(0.01).range(0.0, 5.0).build(ui, &mut p.fb2_blur_radius);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/blur_radius", Some(p.fb2_blur_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_blur_radius".to_string(), 0.0, 5.0));
+            }
             
+            let _text_color = if is_learning("block2.fb2_sharpen_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Sharpen Amount##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_sharpen_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/sharpen_amount", Some(p.fb2_sharpen_amount));
-            Drag::new("Sharpen Radius##fb2").speed(0.01).range(0.0, 5.0).build(ui, &mut p.fb2_sharpen_radius);
-            osc_tooltip(ui, "/block2/fb2/sharpen_radius", Some(p.fb2_sharpen_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_sharpen_amount".to_string(), 0.0, 1.0));
+            }
             
+            let _text_color = if is_learning("block2.fb2_sharpen_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Sharpen Radius##fb2").speed(0.01).range(0.0, 5.0).build(ui, &mut p.fb2_sharpen_radius);
+            drop(_text_color);
+            osc_tooltip(ui, "/block2/fb2/sharpen_radius", Some(p.fb2_sharpen_radius));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_sharpen_radius".to_string(), 0.0, 5.0));
+            }
+            
+            let _text_color = if is_learning("block2.fb2_filters_boost") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Filters Boost##fb2").speed(0.01).range(0.0, 2.0).build(ui, &mut p.fb2_filters_boost);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/filters_boost", Some(p.fb2_filters_boost));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_filters_boost".to_string(), 0.0, 2.0));
+            }
             
             ui.separator();
             
             // Temporal Filters
+            let _text_color = if is_learning("block2.fb2_temporal_filter1_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Temp Filter 1 Amount##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_temporal_filter1_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/temp_filter1_amount", Some(p.fb2_temporal_filter1_amount));
-            Drag::new("Temp Filter 1 Res##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_temporal_filter1_resonance);
-            osc_tooltip(ui, "/block2/fb2/temp_filter1_res", Some(p.fb2_temporal_filter1_resonance));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_temporal_filter1_amount".to_string(), 0.0, 1.0));
+            }
             
+            let _text_color = if is_learning("block2.fb2_temporal_filter1_resonance") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Temp Filter 1 Res##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_temporal_filter1_resonance);
+            drop(_text_color);
+            osc_tooltip(ui, "/block2/fb2/temp_filter1_res", Some(p.fb2_temporal_filter1_resonance));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_temporal_filter1_resonance".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block2.fb2_temporal_filter2_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Temp Filter 2 Amount##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_temporal_filter2_amount);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/temp_filter2_amount", Some(p.fb2_temporal_filter2_amount));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_temporal_filter2_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block2.fb2_temporal_filter2_resonance") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Temp Filter 2 Res##fb2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.fb2_temporal_filter2_resonance);
+            drop(_text_color);
             osc_tooltip(ui, "/block2/fb2/temp_filter2_res", Some(p.fb2_temporal_filter2_resonance));
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block2.fb2_temporal_filter2_resonance".to_string(), 0.0, 1.0));
+            }
             
             ui.separator();
             // Delay section with tempo sync
@@ -2087,7 +3161,14 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
                     calculated_frames, calculated_frames as f32 / 60.0, self.bpm as i32));
             } else {
                 // Show frame slider when sync is disabled
+                let _text_color = if is_learning("block2.fb2_delay_time") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Delay Time (frames)##fb2").speed(1.0).range(0, 120).build(ui, &mut p.fb2_delay_time);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block2.fb2_delay_time".to_string(), 0.0, 120.0));
+                }
                 if p.fb2_delay_time > 0 {
                     ui.text_disabled(format!("≈ {:.2} seconds at 60fps", p.fb2_delay_time as f32 / 60.0));
                 } else {
@@ -2095,8 +3176,13 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
                 }
             }
         }
+        
+        // Process MIDI learn clicks (deferred to avoid borrow issues)
+        for (param_id, min, max) in midi_learn_clicks {
+            self.handle_midi_learn_click(&param_id, min, max);
+        }
     }
-    
+
     /// Build Block 3 panel with sub-tabs
     fn build_block3_panel(&mut self, ui: &Ui) {
         let subtab_labels = ["Block 1 Re-process", "Block 2 Re-process", "Matrix Mixer", "Final Mix", "LFO"];
@@ -2133,27 +3219,123 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
     
     /// Build Block 3 Block 1 Re-process panel
     fn build_block3_b1_reprocess(&mut self, ui: &Ui) {
+        // Extract MIDI learn state before borrowing self mutably
+        let learn_mode = self.midi_learn_mode;
+        let learn_target = self.midi_learn_target.clone();
+        
+        // Collect clicks for deferred processing
+        let mut midi_learn_clicks: Vec<(String, f32, f32)> = Vec::new();
+        
         let p = &mut self.block3_edit;
+        
+        // Helper to check if a parameter is being learned
+        let is_learning = |param_id: &str| -> bool {
+            learn_mode && learn_target.as_deref() == Some(param_id)
+        };
         
         // Geometry section
         if CollapsingHeader::new("Geometry").default_open(true).build(ui) {
+            let _text_color = if is_learning("block3.block1_x_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("X Displace##b3b1").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.block1_x_displace);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_x_displace".to_string(), -2.0, 2.0));
+            }
+            
+            let _text_color = if is_learning("block3.block1_y_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Y Displace##b3b1").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.block1_y_displace);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_y_displace".to_string(), -2.0, 2.0));
+            }
+            
+            let _text_color = if is_learning("block3.block1_z_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Z Displace##b3b1").speed(0.01).range(0.0, 10.0).build(ui, &mut p.block1_z_displace);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_z_displace".to_string(), 0.0, 10.0));
+            }
+            
+            let _text_color = if is_learning("block3.block1_rotate") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Rotate##b3b1").speed(0.1).range(-360.0, 360.0).build(ui, &mut p.block1_rotate);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_rotate".to_string(), -360.0, 360.0));
+            }
             
-            let mut shear = [p.block1_shear_matrix.x, p.block1_shear_matrix.y, 
-                            p.block1_shear_matrix.z, p.block1_shear_matrix.w];
-            Drag::new("Shear Matrix##b3b1").speed(0.01).range(-2.0, 2.0).build_array(ui, &mut shear);
-            p.block1_shear_matrix = Vec4::new(shear[0], shear[1], shear[2], shear[3]);
-            // Sync individual components for LFO modulation
-            p.block1_shear_matrix_x = shear[0];
-            p.block1_shear_matrix_y = shear[1];
-            p.block1_shear_matrix_z = shear[2];
-            p.block1_shear_matrix_w = shear[3];
+            // Shear matrix - individual sliders
+            ui.text("Shear Matrix:");
+            let mut shear_x = p.block1_shear_matrix_x;
+            let _text_color = if is_learning("block3.block1_shear_matrix_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("X##b3b1shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_shear_matrix_x".to_string(), -2.0, 2.0));
+            }
+            p.block1_shear_matrix_x = shear_x;
             
+            let mut shear_y = p.block1_shear_matrix_y;
+            let _text_color = if is_learning("block3.block1_shear_matrix_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Y##b3b1shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_shear_matrix_y".to_string(), -2.0, 2.0));
+            }
+            p.block1_shear_matrix_y = shear_y;
+            
+            let mut shear_z = p.block1_shear_matrix_z;
+            let _text_color = if is_learning("block3.block1_shear_matrix_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Z##b3b1shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_shear_matrix_z".to_string(), -2.0, 2.0));
+            }
+            p.block1_shear_matrix_z = shear_z;
+            
+            let mut shear_w = p.block1_shear_matrix_w;
+            let _text_color = if is_learning("block3.block1_shear_matrix_w") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("W##b3b1shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_w);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_shear_matrix_w".to_string(), -2.0, 2.0));
+            }
+            p.block1_shear_matrix_w = shear_w;
+            
+            p.block1_shear_matrix = Vec4::new(shear_x, shear_y, shear_z, shear_w);
+            
+            let _text_color = if is_learning("block3.block1_kaleidoscope_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Amount##b3b1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block1_kaleidoscope_amount);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_kaleidoscope_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block3.block1_kaleidoscope_slice") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Slice##b3b1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block1_kaleidoscope_slice);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_kaleidoscope_slice".to_string(), 0.0, 1.0));
+            }
             
             let mut overflow_idx = p.block1_geo_overflow as usize;
             let preview = GEO_OVERFLOW_MODES[overflow_idx].to_string();
@@ -2251,17 +3433,61 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
         
         // Filters section
         if CollapsingHeader::new("Filters").default_open(true).build(ui) {
+            let _text_color = if is_learning("block3.block1_blur_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Amount##b3b1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block1_blur_amount);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_blur_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block3.block1_blur_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Radius##b3b1").speed(0.01).range(0.0, 5.0).build(ui, &mut p.block1_blur_radius);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_blur_radius".to_string(), 0.0, 5.0));
+            }
             
+            let _text_color = if is_learning("block3.block1_sharpen_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Sharpen Amount##b3b1").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block1_sharpen_amount);
-            Drag::new("Sharpen Radius##b3b1").speed(0.01).range(0.0, 5.0).build(ui, &mut p.block1_sharpen_radius);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_sharpen_amount".to_string(), 0.0, 1.0));
+            }
             
+            let _text_color = if is_learning("block3.block1_sharpen_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Sharpen Radius##b3b1").speed(0.01).range(0.0, 5.0).build(ui, &mut p.block1_sharpen_radius);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_sharpen_radius".to_string(), 0.0, 5.0));
+            }
+            
+            let _text_color = if is_learning("block3.block1_filters_boost") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Filters Boost##b3b1").speed(0.01).range(0.0, 2.0).build(ui, &mut p.block1_filters_boost);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block1_filters_boost".to_string(), 0.0, 2.0));
+            }
             
             ui.checkbox("Dither##b3b1", &mut p.block1_dither_switch);
             if p.block1_dither_switch {
+                let _text_color = if is_learning("block3.block1_dither") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Dither Amount##b3b1").speed(0.1).range(1.0, 64.0).build(ui, &mut p.block1_dither);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block3.block1_dither".to_string(), 1.0, 64.0));
+                }
                 let dither_types = [
                     "Bayer 4x4",
                     "Bayer 8x8", 
@@ -2292,31 +3518,132 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
                 p.block1_dither_type = dither_idx.clamp(0, dither_types.len() - 1) as i32;
             }
         }
+        
+        // Process MIDI learn clicks (deferred to avoid borrow issues)
+        for (param_id, min, max) in midi_learn_clicks {
+            self.handle_midi_learn_click(&param_id, min, max);
+        }
     }
-    
+
     /// Build Block 3 Block 2 Re-process panel
     fn build_block3_b2_reprocess(&mut self, ui: &Ui) {
+        // Extract MIDI learn state before borrowing self mutably
+        let learn_mode = self.midi_learn_mode;
+        let learn_target = self.midi_learn_target.clone();
+        
+        // Collect clicks for deferred processing
+        let mut midi_learn_clicks: Vec<(String, f32, f32)> = Vec::new();
+        
         let p = &mut self.block3_edit;
+        
+        // Helper to check if a parameter is being learned
+        let is_learning = |param_id: &str| -> bool {
+            learn_mode && learn_target.as_deref() == Some(param_id)
+        };
         
         // Geometry section
         if CollapsingHeader::new("Geometry").default_open(true).build(ui) {
+            let _text_color = if is_learning("block3.block2_x_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("X Displace##b3b2").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.block2_x_displace);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_x_displace".to_string(), -2.0, 2.0));
+            }
+            
+            let _text_color = if is_learning("block3.block2_y_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Y Displace##b3b2").speed(0.01).range(-2.0, 2.0).build(ui, &mut p.block2_y_displace);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_y_displace".to_string(), -2.0, 2.0));
+            }
+            
+            let _text_color = if is_learning("block3.block2_z_displace") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Z Displace##b3b2").speed(0.01).range(0.0, 10.0).build(ui, &mut p.block2_z_displace);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_z_displace".to_string(), 0.0, 10.0));
+            }
+            
+            let _text_color = if is_learning("block3.block2_rotate") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Rotate##b3b2").speed(0.1).range(-360.0, 360.0).build(ui, &mut p.block2_rotate);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_rotate".to_string(), -360.0, 360.0));
+            }
             
-            let mut shear = [p.block2_shear_matrix.x, p.block2_shear_matrix.y, 
-                            p.block2_shear_matrix.z, p.block2_shear_matrix.w];
-            Drag::new("Shear Matrix##b3b2").speed(0.01).range(-2.0, 2.0).build_array(ui, &mut shear);
-            p.block2_shear_matrix = Vec4::new(shear[0], shear[1], shear[2], shear[3]);
-            // Sync individual components for LFO modulation
-            p.block2_shear_matrix_x = shear[0];
-            p.block2_shear_matrix_y = shear[1];
-            p.block2_shear_matrix_z = shear[2];
-            p.block2_shear_matrix_w = shear[3];
+            // Shear matrix - individual sliders
+            ui.text("Shear Matrix:");
+            let mut shear_x = p.block2_shear_matrix_x;
+            let _text_color = if is_learning("block3.block2_shear_matrix_x") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("X##b3b2shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_x);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_shear_matrix_x".to_string(), -2.0, 2.0));
+            }
+            p.block2_shear_matrix_x = shear_x;
             
+            let mut shear_y = p.block2_shear_matrix_y;
+            let _text_color = if is_learning("block3.block2_shear_matrix_y") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Y##b3b2shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_y);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_shear_matrix_y".to_string(), -2.0, 2.0));
+            }
+            p.block2_shear_matrix_y = shear_y;
+            
+            let mut shear_z = p.block2_shear_matrix_z;
+            let _text_color = if is_learning("block3.block2_shear_matrix_z") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Z##b3b2shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_z);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_shear_matrix_z".to_string(), -2.0, 2.0));
+            }
+            p.block2_shear_matrix_z = shear_z;
+            
+            let mut shear_w = p.block2_shear_matrix_w;
+            let _text_color = if is_learning("block3.block2_shear_matrix_w") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("W##b3b2shear").speed(0.01).range(-2.0, 2.0).build(ui, &mut shear_w);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_shear_matrix_w".to_string(), -2.0, 2.0));
+            }
+            p.block2_shear_matrix_w = shear_w;
+            
+            p.block2_shear_matrix = Vec4::new(shear_x, shear_y, shear_z, shear_w);
+            
+            let _text_color = if is_learning("block3.block2_kaleidoscope_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Amount##b3b2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block2_kaleidoscope_amount);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_kaleidoscope_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block3.block2_kaleidoscope_slice") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Kaleidoscope Slice##b3b2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block2_kaleidoscope_slice);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_kaleidoscope_slice".to_string(), 0.0, 1.0));
+            }
             
             let mut overflow_idx = p.block2_geo_overflow as usize;
             let preview = GEO_OVERFLOW_MODES[overflow_idx].to_string();
@@ -2412,17 +3739,61 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
         
         // Filters section
         if CollapsingHeader::new("Filters").default_open(true).build(ui) {
+            let _text_color = if is_learning("block3.block2_blur_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Amount##b3b2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block2_blur_amount);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_blur_amount".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block3.block2_blur_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Blur Radius##b3b2").speed(0.01).range(0.0, 5.0).build(ui, &mut p.block2_blur_radius);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_blur_radius".to_string(), 0.0, 5.0));
+            }
             
+            let _text_color = if is_learning("block3.block2_sharpen_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Sharpen Amount##b3b2").speed(0.01).range(0.0, 1.0).build(ui, &mut p.block2_sharpen_amount);
-            Drag::new("Sharpen Radius##b3b2").speed(0.01).range(0.0, 5.0).build(ui, &mut p.block2_sharpen_radius);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_sharpen_amount".to_string(), 0.0, 1.0));
+            }
             
+            let _text_color = if is_learning("block3.block2_sharpen_radius") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Sharpen Radius##b3b2").speed(0.01).range(0.0, 5.0).build(ui, &mut p.block2_sharpen_radius);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_sharpen_radius".to_string(), 0.0, 5.0));
+            }
+            
+            let _text_color = if is_learning("block3.block2_filters_boost") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Filters Boost##b3b2").speed(0.01).range(0.0, 2.0).build(ui, &mut p.block2_filters_boost);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.block2_filters_boost".to_string(), 0.0, 2.0));
+            }
             
             ui.checkbox("Dither##b3b2", &mut p.block2_dither_switch);
             if p.block2_dither_switch {
+                let _text_color = if is_learning("block3.block2_dither") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Dither Amount##b3b2").speed(0.1).range(1.0, 64.0).build(ui, &mut p.block2_dither);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block3.block2_dither".to_string(), 1.0, 64.0));
+                }
                 let dither_types = [
                     "Bayer 4x4",
                     "Bayer 8x8", 
@@ -2453,11 +3824,28 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
                 p.block2_dither_type = dither_idx.clamp(0, dither_types.len() - 1) as i32;
             }
         }
+        
+        // Process MIDI learn clicks (deferred to avoid borrow issues)
+        for (param_id, min, max) in midi_learn_clicks {
+            self.handle_midi_learn_click(&param_id, min, max);
+        }
     }
-    
+
     /// Build Block 3 Matrix Mixer panel
     fn build_block3_matrix_mixer(&mut self, ui: &Ui) {
+        // Extract MIDI learn state before borrowing self mutably
+        let learn_mode = self.midi_learn_mode;
+        let learn_target = self.midi_learn_target.clone();
+        
+        // Collect clicks for deferred processing
+        let mut midi_learn_clicks: Vec<(String, f32, f32)> = Vec::new();
+        
         let p = &mut self.block3_edit;
+        
+        // Helper to check if a parameter is being learned
+        let is_learning = |param_id: &str| -> bool {
+            learn_mode && learn_target.as_deref() == Some(param_id)
+        };
         
         // Mix Order (which block is foreground/background)
         if CollapsingHeader::new("Mix Order").default_open(true).build(ui) {
@@ -2504,32 +3892,150 @@ Drag::new("Key Threshold##fb2").speed(0.001).range(0.0, 1.0).build(ui, &mut p.fb
         ui.text("RGB Channel Mixing:");
         
         if CollapsingHeader::new("Background RGB into Foreground Red").default_open(true).build(ui) {
-            let mut red_mix = [p.bg_rgb_into_fg_red.x, p.bg_rgb_into_fg_red.y, p.bg_rgb_into_fg_red.z];
-            Drag::new("Mix##red").speed(0.002).range(-2.0, 2.0).build_array(ui, &mut red_mix);
-            p.bg_rgb_into_fg_red = Vec3::new(red_mix[0], red_mix[1], red_mix[2]);
+            // Individual sliders for matrix mix
+            let mut red_r = p.matrix_mix_r_to_r;
+            let _text_color = if is_learning("block3.matrix_mix_r_to_r") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("R→R##matrix").speed(0.002).range(-2.0, 2.0).build(ui, &mut red_r);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.matrix_mix_r_to_r".to_string(), -2.0, 2.0));
+            }
+            p.matrix_mix_r_to_r = red_r;
+            
+            let mut green_r = p.matrix_mix_g_to_r;
+            let _text_color = if is_learning("block3.matrix_mix_g_to_r") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("G→R##matrix").speed(0.002).range(-2.0, 2.0).build(ui, &mut green_r);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.matrix_mix_g_to_r".to_string(), -2.0, 2.0));
+            }
+            p.matrix_mix_g_to_r = green_r;
+            
+            let mut blue_r = p.matrix_mix_b_to_r;
+            let _text_color = if is_learning("block3.matrix_mix_b_to_r") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("B→R##matrix").speed(0.002).range(-2.0, 2.0).build(ui, &mut blue_r);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.matrix_mix_b_to_r".to_string(), -2.0, 2.0));
+            }
+            p.matrix_mix_b_to_r = blue_r;
+            
+            p.bg_rgb_into_fg_red = Vec3::new(red_r, green_r, blue_r);
         }
         
         if CollapsingHeader::new("Background RGB into Foreground Green").default_open(true).build(ui) {
-            let mut green_mix = [p.bg_rgb_into_fg_green.x, p.bg_rgb_into_fg_green.y, p.bg_rgb_into_fg_green.z];
-            Drag::new("Mix##green").speed(0.002).range(-2.0, 2.0).build_array(ui, &mut green_mix);
-            p.bg_rgb_into_fg_green = Vec3::new(green_mix[0], green_mix[1], green_mix[2]);
+            let mut red_g = p.matrix_mix_r_to_g;
+            let _text_color = if is_learning("block3.matrix_mix_r_to_g") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("R→G##matrix").speed(0.002).range(-2.0, 2.0).build(ui, &mut red_g);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.matrix_mix_r_to_g".to_string(), -2.0, 2.0));
+            }
+            p.matrix_mix_r_to_g = red_g;
+            
+            let mut green_g = p.matrix_mix_g_to_g;
+            let _text_color = if is_learning("block3.matrix_mix_g_to_g") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("G→G##matrix").speed(0.002).range(-2.0, 2.0).build(ui, &mut green_g);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.matrix_mix_g_to_g".to_string(), -2.0, 2.0));
+            }
+            p.matrix_mix_g_to_g = green_g;
+            
+            let mut blue_g = p.matrix_mix_b_to_g;
+            let _text_color = if is_learning("block3.matrix_mix_b_to_g") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("B→G##matrix").speed(0.002).range(-2.0, 2.0).build(ui, &mut blue_g);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.matrix_mix_b_to_g".to_string(), -2.0, 2.0));
+            }
+            p.matrix_mix_b_to_g = blue_g;
+            
+            p.bg_rgb_into_fg_green = Vec3::new(red_g, green_g, blue_g);
         }
         
         if CollapsingHeader::new("Background RGB into Foreground Blue").default_open(true).build(ui) {
-            let mut blue_mix = [p.bg_rgb_into_fg_blue.x, p.bg_rgb_into_fg_blue.y, p.bg_rgb_into_fg_blue.z];
-            Drag::new("Mix##blue").speed(0.002).range(-2.0, 2.0).build_array(ui, &mut blue_mix);
-            p.bg_rgb_into_fg_blue = Vec3::new(blue_mix[0], blue_mix[1], blue_mix[2]);
+            let mut red_b = p.matrix_mix_r_to_b;
+            let _text_color = if is_learning("block3.matrix_mix_r_to_b") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("R→B##matrix").speed(0.002).range(-2.0, 2.0).build(ui, &mut red_b);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.matrix_mix_r_to_b".to_string(), -2.0, 2.0));
+            }
+            p.matrix_mix_r_to_b = red_b;
+            
+            let mut green_b = p.matrix_mix_g_to_b;
+            let _text_color = if is_learning("block3.matrix_mix_g_to_b") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("G→B##matrix").speed(0.002).range(-2.0, 2.0).build(ui, &mut green_b);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.matrix_mix_g_to_b".to_string(), -2.0, 2.0));
+            }
+            p.matrix_mix_g_to_b = green_b;
+            
+            let mut blue_b = p.matrix_mix_b_to_b;
+            let _text_color = if is_learning("block3.matrix_mix_b_to_b") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("B→B##matrix").speed(0.002).range(-2.0, 2.0).build(ui, &mut blue_b);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.matrix_mix_b_to_b".to_string(), -2.0, 2.0));
+            }
+            p.matrix_mix_b_to_b = blue_b;
+            
+            p.bg_rgb_into_fg_blue = Vec3::new(red_b, green_b, blue_b);
+        }
+        
+        // Process MIDI learn clicks (deferred to avoid borrow issues)
+        for (param_id, min, max) in midi_learn_clicks {
+            self.handle_midi_learn_click(&param_id, min, max);
         }
     }
-    
+
     /// Build Block 3 Final Mix panel
     fn build_block3_final_mix(&mut self, ui: &Ui) {
+        // Extract MIDI learn state before borrowing self mutably
+        let learn_mode = self.midi_learn_mode;
+        let learn_target = self.midi_learn_target.clone();
+        
+        // Collect clicks for deferred processing
+        let mut midi_learn_clicks: Vec<(String, f32, f32)> = Vec::new();
+        
         let p = &mut self.block3_edit;
+        
+        // Helper to check if a parameter is being learned
+        let is_learning = |param_id: &str| -> bool {
+            learn_mode && learn_target.as_deref() == Some(param_id)
+        };
         
         // Final mix section
         if CollapsingHeader::new("Final Mix").default_open(true).build(ui) {
             // Mix amount with fine control
-Drag::new("Mix Amount##final").speed(0.002).range(0.0, 1.0).build(ui, &mut p.final_mix_amount);
+            let _text_color = if is_learning("block3.final_mix_amount") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Mix Amount##final").speed(0.002).range(0.0, 1.0).build(ui, &mut p.final_mix_amount);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.final_mix_amount".to_string(), 0.0, 1.0));
+            }
             
             let mut mix_type = p.final_mix_type as usize;
             let preview = MIX_TYPES[mix_type].to_string();
@@ -2557,7 +4063,14 @@ Drag::new("Mix Amount##final").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fin
                 });
             p.final_mix_overflow = overflow.clamp(0, GEO_OVERFLOW_MODES.len() - 1) as i32;
             
+            let _text_color = if is_learning("block3.final_key_order") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Key Order##final").speed(1.0).range(0, 10).build(ui, &mut p.final_key_order);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.final_key_order".to_string(), 0.0, 10.0));
+            }
         }
         
         // Final key section
@@ -2567,15 +4080,37 @@ Drag::new("Mix Amount##final").speed(0.002).range(0.0, 1.0).build(ui, &mut p.fin
             p.final_key_value = Vec3::new(key_color[0], key_color[1], key_color[2]);
             
             // Key threshold with fine control
-Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.final_key_threshold);
+            let _text_color = if is_learning("block3.final_key_threshold") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
+            Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.final_key_threshold);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.final_key_threshold".to_string(), 0.0, 1.0));
+            }
+            
+            let _text_color = if is_learning("block3.final_key_soft") {
+                Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+            } else { None };
             Drag::new("Key Soft##final").speed(0.002).range(0.0, 1.0).build(ui, &mut p.final_key_soft);
+            drop(_text_color);
+            if learn_mode && ui.is_item_clicked() { 
+                midi_learn_clicks.push(("block3.final_key_soft".to_string(), 0.0, 1.0));
+            }
         }
         
         // Output Dither section
         if CollapsingHeader::new("Output Dither").default_open(true).build(ui) {
             ui.checkbox("Dither##final", &mut p.final_dither_switch);
             if p.final_dither_switch {
+                let _text_color = if is_learning("block3.final_dither") {
+                    Some(ui.push_style_color(imgui::StyleColor::Text, [0.0, 1.0, 0.0, 1.0]))
+                } else { None };
                 Drag::new("Dither Amount##final").speed(0.1).range(1.0, 64.0).build(ui, &mut p.final_dither);
+                drop(_text_color);
+                if learn_mode && ui.is_item_clicked() { 
+                    midi_learn_clicks.push(("block3.final_dither".to_string(), 1.0, 64.0));
+                }
                 let dither_types = [
                     "Bayer 4x4",
                     "Bayer 8x8", 
@@ -2606,8 +4141,13 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                 p.final_dither_type = dither_idx.clamp(0, dither_types.len() - 1) as i32;
             }
         }
+        
+        // Process MIDI learn clicks (deferred to avoid borrow issues)
+        for (param_id, min, max) in midi_learn_clicks {
+            self.handle_midi_learn_click(&param_id, min, max);
+        }
     }
-    
+
     /// Build Macros panel (LFO controls)
     fn build_macros_panel(&mut self, ui: &Ui) {
         ui.text("LFO Banks (0-15)");
@@ -3468,10 +5008,24 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                                     state.block1 = data.block1;
                                     state.block2 = data.block2;
                                     state.block3 = data.block3;
+                                    
+                                    // Restore LFO banks
+                                    for (idx, lfo_bank) in data.lfo_banks.iter().enumerate() {
+                                        if idx < state.lfo_banks.len() {
+                                            state.lfo_banks[idx] = *lfo_bank;
+                                        }
+                                    }
+                                    
+                                    // Restore MIDI mappings
+                                    state.midi.mappings.clear();
+                                    for mapping in &data.midi_mappings {
+                                        state.midi.mappings.insert(mapping.param_id.clone(), mapping.clone());
+                                    }
                                 }
                                 self.block1_edit = data.block1;
                                 self.block2_edit = data.block2;
                                 self.block3_edit = data.block3;
+                                
                                 self.show_status(&format!("Loaded preset: {}", preset_name));
                             }
                             Err(e) => {
@@ -3660,9 +5214,11 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
     fn save_current_preset(&mut self, name: &str) -> anyhow::Result<()> {
         use crate::params::preset::{PresetAudioSettings, PresetData, PresetTempoData};
         
-        let (block1, block2, block3) = {
+        let (block1, block2, block3, midi_mappings, lfo_banks) = {
             let state = self.shared_state.lock().unwrap();
-            (state.block1, state.block2, state.block3)
+            let mappings: Vec<crate::midi::MidiMapping> = state.midi.mappings.values().cloned().collect();
+            let lfos = state.lfo_banks.clone();
+            (state.block1, state.block2, state.block3, mappings, lfos)
         };
         
         let audio_settings = PresetAudioSettings {
@@ -3686,6 +5242,8 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
             block3_modulations: HashMap::new(),
             audio: audio_settings,
             tempo,
+            lfo_banks,
+            midi_mappings,
             version: env!("CARGO_PKG_VERSION").to_string(),
             name: name.to_string(),
         };
@@ -4859,6 +6417,19 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
                 self.draw_lfo_control(ui, param_id, label, 3);
             }
         }
+        
+        // === Dither LFOs ===
+        if CollapsingHeader::new("Dither LFOs").default_open(true).build(ui) {
+            let dither_params = [
+                ("block1_dither", "Block1 Dither"),
+                ("block2_dither", "Block2 Dither"),
+                ("final_dither", "Final Dither"),
+            ];
+            
+            for (param_id, label) in &dither_params {
+                self.draw_lfo_control(ui, param_id, label, 3);
+            }
+        }
     }
     
     /// Draw LFO control for a single parameter
@@ -5184,6 +6755,67 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
         format!("/block3/{}", param_id.replace('_', "/").replace(".", "/"))
     }
     
+    /// Check if MIDI learn mode is active and handle parameter click
+    /// Returns true if the click was consumed (learn mode was active)
+    pub fn handle_midi_learn_click(&mut self, param_id: &str, param_min: f32, param_max: f32) -> bool {
+        if self.midi_learn_mode {
+            // Start learning this parameter
+            self.midi_learn_target = Some(param_id.to_string());
+            if let Ok(mut state) = self.shared_state.lock() {
+                state.midi.start_learning(param_id.to_string(), param_min, param_max);
+            }
+            self.show_status(&format!("Learning MIDI for: {}", 
+                crate::midi::mapping::param_display_name(param_id)));
+            log::info!("MIDI Learn: Started learning for parameter '{}'", param_id);
+            true
+        } else {
+            false
+        }
+    }
+    
+    /// Check if a parameter is currently being learned (for visual feedback)
+    pub fn is_learning_param(&self, param_id: &str) -> bool {
+        self.midi_learn_mode && self.midi_learn_target.as_deref() == Some(param_id)
+    }
+    
+    /// Check if MIDI learning has completed and show success message
+    fn check_midi_learn_completion(&mut self) {
+        if !self.midi_learn_mode {
+            return;
+        }
+        
+        // Collect information while holding the lock
+        let learn_completed: bool;
+        let target_name: Option<String>;
+        let has_mapping: bool;
+        
+        {
+            if let Ok(state) = self.shared_state.lock() {
+                learn_completed = !state.midi.learn.is_active() && self.midi_learn_target.is_some();
+                target_name = self.midi_learn_target.clone();
+                has_mapping = target_name.as_ref()
+                    .map(|t| state.midi.mappings.contains_key(t))
+                    .unwrap_or(false);
+            } else {
+                return;
+            }
+        } // Lock dropped here
+        
+        // Now process the results without holding the lock
+        if learn_completed {
+            if let Some(ref target) = target_name {
+                if has_mapping {
+                    self.show_status(&format!("✅ MIDI mapped to: {}", 
+                        crate::midi::mapping::param_display_name(target)));
+                    log::info!("MIDI Learn: Successfully mapped parameter '{}'", target);
+                }
+            }
+            // Reset learn mode
+            self.midi_learn_mode = false;
+            self.midi_learn_target = None;
+        }
+    }
+    
     /// Build MIDI panel with learn mode and mapping management
     fn build_midi_panel(&mut self, ui: &Ui) {
         // Check if MIDI is enabled in config
@@ -5195,26 +6827,43 @@ Drag::new("Key Threshold##final").speed(0.001).range(0.0, 1.0).build(ui, &mut p.
         }
         
         // MIDI Learn Mode Toggle
-        let learn_active = if let Ok(state) = self.shared_state.lock() {
-            state.midi.learn.is_active()
-        } else {
-            false
-        };
+        let learn_active = self.midi_learn_mode;
         
         if learn_active {
             ui.text_colored([0.0, 1.0, 0.0, 1.0], "🎹 MIDI LEARN MODE ACTIVE");
             ui.same_line();
-            if ui.button("Cancel Learn") {
+            if ui.button("Cancel Learn##midi") {
+                self.midi_learn_mode = false;
+                self.midi_learn_target = None;
                 if let Ok(mut state) = self.shared_state.lock() {
                     state.midi.cancel_learning();
                 }
+                self.show_status("MIDI Learn cancelled");
             }
-            ui.text_disabled("Click any parameter, then move a MIDI control to map it");
+            
+            // Show current target if any
+            if let Some(ref target) = self.midi_learn_target {
+                ui.text_colored([0.0, 1.0, 0.5, 1.0], &format!("Waiting for MIDI input for: {}", 
+                    crate::midi::mapping::param_display_name(target)));
+            } else {
+                ui.text_disabled("Click any parameter (slider, checkbox, etc.) to select it for mapping");
+            }
         } else {
+            let button_color = if self.config.control.midi_enabled {
+                [0.2, 0.8, 0.2, 1.0] // Green when MIDI enabled
+            } else {
+                [0.5, 0.5, 0.5, 1.0] // Gray when MIDI disabled
+            };
+            let _button_style = ui.push_style_color(imgui::StyleColor::Button, button_color);
             if ui.button("🎹 Enable MIDI Learn Mode") {
-                // Just enable learn mode - user will click a parameter next
-                self.show_status("MIDI Learn enabled - click a parameter to map");
+                if self.config.control.midi_enabled {
+                    self.midi_learn_mode = true;
+                    self.show_status("MIDI Learn enabled - click a parameter to map");
+                } else {
+                    self.show_status("MIDI is disabled in config.toml");
+                }
             }
+            drop(_button_style);
         }
         
         ui.separator();
