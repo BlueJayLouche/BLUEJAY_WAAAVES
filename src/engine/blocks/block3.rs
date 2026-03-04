@@ -158,6 +158,18 @@ pub struct ModularBlock3 {
     /// Dimensions
     width: u32,
     height: u32,
+    
+    /// Cached sampler (avoids per-frame allocation)
+    cached_sampler: wgpu::Sampler,
+    
+    /// Cached bind groups (avoid per-frame allocation)
+    cached_block1_bind_group: Option<wgpu::BindGroup>,
+    cached_block2_bind_group: Option<wgpu::BindGroup>,
+    cached_stage2_bind_group: Option<wgpu::BindGroup>,
+    
+    /// Cached texture view IDs to detect when bind groups need recreation
+    last_block1_input_id: usize,
+    last_block2_input_id: usize,
 }
 
 impl ModularBlock3 {
@@ -194,6 +206,13 @@ impl ModularBlock3 {
         let (stage2_pipeline, stage2_bind_group_layout, stage2_uniforms) =
             Self::create_stage2(device, queue);
         
+        // Create cached sampler
+        let cached_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        
         Self {
             block1_buffer_a,
             block1_buffer_b,
@@ -211,6 +230,12 @@ impl ModularBlock3 {
             vertex_buffer,
             width,
             height,
+            cached_sampler,
+            cached_block1_bind_group: None,
+            cached_block2_bind_group: None,
+            cached_stage2_bind_group: None,
+            last_block1_input_id: 0,
+            last_block2_input_id: 0,
         }
     }
     
@@ -1334,17 +1359,8 @@ impl ModularBlock3 {
         self.update_stage1_uniforms(queue, params);
         self.update_stage2_uniforms(queue, params);
         
-
-        
         // Stage 1a: Process Block 1
-        // We need to select output buffers manually to avoid borrow issues
         let block1_output_view = &self.block1_buffer_a.view;
-        let block1_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        
         let block1_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Block3 Stage1 B1 Bind Group"),
             layout: &self.stage1_bind_group_layout,
@@ -1359,7 +1375,7 @@ impl ModularBlock3 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&block1_sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
             ],
         });
@@ -1388,12 +1404,6 @@ impl ModularBlock3 {
         
         // Stage 1b: Process Block 2
         let block2_output_view = &self.block2_buffer_a.view;
-        let block2_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        
         let block2_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Block3 Stage1 B2 Bind Group"),
             layout: &self.stage1_bind_group_layout,
@@ -1408,7 +1418,7 @@ impl ModularBlock3 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&block2_sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
             ],
         });
@@ -1437,12 +1447,6 @@ impl ModularBlock3 {
         
         // Stage 2: Matrix Mix + Final Mix
         let final_output_view = &self.block1_buffer_b.view;
-        let stage2_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        
         let stage2_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Block3 Stage2 Bind Group"),
             layout: &self.stage2_bind_group_layout,
@@ -1457,7 +1461,7 @@ impl ModularBlock3 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&stage2_sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -1465,7 +1469,7 @@ impl ModularBlock3 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&stage2_sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
             ],
         });

@@ -1442,14 +1442,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Apply audio modulations - get FFT values from shared state (already processed)
         let fft_values: [f32; 8] = std::array::from_fn(|i| state.audio.fft.get(i).copied().unwrap_or(0.0));
         
-        // Clone modulations to avoid borrowing issues
-        let block1_mods = state.block1_modulations.clone();
-        let block2_mods = state.block2_modulations.clone();
-        let block3_mods = state.block3_modulations.clone();
-        
-        apply_audio_modulations_to_block1(&mut modulated_block1, &block1_mods, &fft_values);
-        apply_audio_modulations_to_block2(&mut modulated_block2, &block2_mods, &fft_values);
-        apply_audio_modulations_to_block3(&mut modulated_block3, &block3_mods, &fft_values);
+        // Apply audio modulations directly without cloning HashMaps
+        // (functions only read from the maps, so we can pass references)
+        apply_audio_modulations_to_block1(&mut modulated_block1, &state.block1_modulations, &fft_values);
+        apply_audio_modulations_to_block2(&mut modulated_block2, &state.block2_modulations, &fft_values);
+        apply_audio_modulations_to_block3(&mut modulated_block3, &state.block3_modulations, &fft_values);
         
         // Apply delay time tempo sync
         // If sync is enabled, calculate delay frames from BPM

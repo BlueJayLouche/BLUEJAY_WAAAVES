@@ -220,6 +220,9 @@ pub struct ModularBlock2 {
     // Dimensions
     width: u32,
     height: u32,
+    
+    // Cached sampler (avoids per-frame allocation)
+    cached_sampler: wgpu::Sampler,
 }
 
 impl ModularBlock2 {
@@ -242,6 +245,9 @@ impl ModularBlock2 {
         let (stage3_pipeline, stage3_bind_group_layout, stage3_uniforms) = 
             Self::create_stage3(device, queue, width, height);
         
+        // Create cached sampler
+        let cached_sampler = create_default_sampler(device);
+        
         Self {
             resources,
             stage1_pipeline,
@@ -256,6 +262,7 @@ impl ModularBlock2 {
             vertex_buffer,
             width,
             height,
+            cached_sampler,
         }
     }
     
@@ -1561,10 +1568,7 @@ impl ModularBlock2 {
         // Update uniforms
         self.update_stage1_uniforms(queue, params);
         
-        // Create samplers
-        let sampler = create_default_sampler(device);
-        
-        // Create bind group
+        // Create bind group using cached sampler
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Block2 Stage 1 Bind Group"),
             layout: &self.stage1_bind_group_layout,
@@ -1579,7 +1583,7 @@ impl ModularBlock2 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -1587,7 +1591,7 @@ impl ModularBlock2 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
@@ -1595,7 +1599,7 @@ impl ModularBlock2 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
             ],
         });
@@ -1653,10 +1657,7 @@ impl ModularBlock2 {
         // Update uniforms
         self.update_stage2_uniforms(queue, params);
         
-        // Create sampler
-        let sampler = create_default_sampler(device);
-        
-        // Create bind group
+        // Create bind group using cached sampler
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Block2 Stage 2 Bind Group"),
             layout: &self.stage2_bind_group_layout,
@@ -1671,7 +1672,7 @@ impl ModularBlock2 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
             ],
         });
@@ -1754,9 +1755,6 @@ impl ModularBlock2 {
         // Update uniforms
         self.update_stage3_uniforms(queue, params);
         
-        // Create samplers
-        let sampler = create_default_sampler(device);
-        
         // Get feedback views based on delay setting
         // When delay_time > 0, both textures use the delayed frame (shader only uses delay_tex)
         // When delay_time == 0, fb2_tex uses immediate feedback, delay_tex is unused
@@ -1783,7 +1781,7 @@ impl ModularBlock2 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -1791,7 +1789,7 @@ impl ModularBlock2 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
@@ -1799,7 +1797,7 @@ impl ModularBlock2 {
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.cached_sampler),
                 },
             ],
         });
