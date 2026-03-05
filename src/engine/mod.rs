@@ -17,6 +17,7 @@ use crate::engine::blocks::{ModularBlock1, ModularBlock2, ModularBlock3};
 use crate::engine::texture::Texture;
 use crate::gui::ControlGui;
 use crate::input::{InputManager, InputTextureManager};
+// NDI output is managed through AsyncNdiOutput
 use anyhow::Result;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -854,11 +855,19 @@ impl ApplicationHandler for App {
                         log::error!("[INPUT] Video input manager not initialized! Cannot start webcam.");
                     }
                 }
+                crate::core::InputChangeRequest::StartNdi { source_name, .. } => {
+                    if let Some(ref mut video) = self.video_input {
+                        match video.start_input1_ndi(&source_name) {
+                            Ok(_) => log::info!("[INPUT] Started NDI input 1: {}", source_name),
+                            Err(e) => log::error!("[INPUT] Failed to start NDI input 1: {:?}", e),
+                        }
+                    } else {
+                        log::error!("[INPUT] Video input manager not initialized");
+                    }
+                }
                 crate::core::InputChangeRequest::StopInput { .. } => {
                     if let Some(ref mut video) = self.video_input {
-                        log::info!("[INPUT] Processing stop request for input 1");
                         video.stop_input1();
-                        log::info!("[INPUT] Input 1 stopped");
                     }
                 }
                 crate::core::InputChangeRequest::SetVsync(enabled) => {
@@ -887,11 +896,19 @@ impl ApplicationHandler for App {
                         log::error!("[INPUT] Video input manager not initialized!");
                     }
                 }
+                crate::core::InputChangeRequest::StartNdi { source_name, .. } => {
+                    if let Some(ref mut video) = self.video_input {
+                        match video.start_input2_ndi(&source_name) {
+                            Ok(_) => log::info!("[INPUT] Started NDI input 2: {}", source_name),
+                            Err(e) => log::error!("[INPUT] Failed to start NDI input 2: {:?}", e),
+                        }
+                    } else {
+                        log::error!("[INPUT] Video input manager not initialized");
+                    }
+                }
                 crate::core::InputChangeRequest::StopInput { .. } => {
                     if let Some(ref mut video) = self.video_input {
-                        log::info!("[INPUT] Processing stop request for input 2");
                         video.stop_input2();
-                        log::info!("[INPUT] Input 2 stopped");
                     }
                 }
                 _ => {}
@@ -923,6 +940,30 @@ impl ApplicationHandler for App {
                 }
                 _ => {}
             }
+            
+            // Handle NDI output command
+            let mut state = self.shared_state.lock().unwrap();
+            let ndi_command = std::mem::replace(&mut state.ndi_output_command, crate::core::NdiOutputCommand::None);
+            drop(state);
+            
+            match ndi_command {
+                crate::core::NdiOutputCommand::Start { name, include_alpha, frame_skip } => {
+                    if let Some(ref mut engine) = self.output_engine {
+                        match engine.start_ndi_output(&name, include_alpha, frame_skip) {
+                            Ok(_) => log::info!("[ENGINE] NDI output started: '{}'", name),
+                            Err(e) => log::error!("[ENGINE] Failed to start NDI output: {:?}", e),
+                        }
+                    } else {
+                        log::error!("[ENGINE] Output engine not initialized");
+                    }
+                }
+                crate::core::NdiOutputCommand::Stop => {
+                    if let Some(ref mut engine) = self.output_engine {
+                        engine.stop_ndi_output();
+                    }
+                }
+                _ => {}
+            }
         }
         
         // Update video input and upload frames to GPU
@@ -933,9 +974,7 @@ impl ApplicationHandler for App {
             if video.input1_has_new_frame() {
                 if let Some(frame_data) = video.take_input1_frame() {
                     let (width, height) = video.get_input1_resolution();
-                    log::debug!("[INPUT] Uploading input 1 frame to GPU: {}x{} ({} bytes)", width, height, frame_data.len());
                     engine.input_texture_manager.update_input1(&frame_data, width, height);
-                    log::debug!("[INPUT] Input 1 frame uploaded, has_data={}", engine.input_texture_manager.input1_has_data());
                 }
             }
             
@@ -1050,6 +1089,21 @@ pub struct WgpuEngine {
     
     /// Video recorder
     recorder: Option<crate::recorder::Recorder>,
+    
+    /// Async NDI processor (background thread)
+    ndi_async: Option<crate::output::AsyncNdiOutput>,
+    
+    /// Triple-buffered GPU readback buffers for NDI output (as Arc for sharing)
+    ndi_buffers: Vec<Arc<wgpu::Buffer>>,
+    
+    /// Current frame counter for NDI timing
+    ndi_frame_counter: u64,
+    
+    /// Frame skip factor (process every Nth frame)
+    ndi_frame_skip: u8,
+    
+    /// Current skip counter
+    ndi_skip_counter: u8,
 }
 
 impl WgpuEngine {
@@ -1327,6 +1381,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             
             // Initialize recorder (will be created when recording starts)
             recorder: None,
+            
+            // Initialize NDI output (will be created when enabled)
+            ndi_async: None,
+            ndi_buffers: Vec::new(),
+            ndi_frame_counter: 0,
+            ndi_frame_skip: 1,
+            ndi_skip_counter: 0,
         })
     }
     
@@ -1761,6 +1822,58 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             }
         }
         
+        // Process NDI output (triple-buffered with frame-delayed readback for performance)
+        let ndi_width = self.block3_texture.width;
+        let ndi_height = self.block3_texture.height;
+        
+        // Increment skip counter and check if we should process this frame
+        // ndi_frame_skip = 0 means process every frame (no skip)
+        // ndi_frame_skip = 1 means process every 2nd frame (skip 1)
+        self.ndi_skip_counter = self.ndi_skip_counter.wrapping_add(1);
+        let should_process = self.ndi_skip_counter % (self.ndi_frame_skip + 1) == 0;
+        
+        // Increment frame counter
+        self.ndi_frame_counter = self.ndi_frame_counter.wrapping_add(1);
+        
+        // NDI status is now logged from the sender thread
+        
+        // NDI output processing
+        let mut ndi_buffer_to_process: Option<usize> = None;
+        if let Some(async_ndi) = self.ndi_async.as_ref() {
+            if should_process {
+                // Try to acquire a free buffer
+                if let Some((idx, buffer)) = async_ndi.acquire_buffer() {
+                    encoder.copy_texture_to_buffer(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &self.block3_texture.texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::TexelCopyBufferInfo {
+                            buffer,
+                            layout: wgpu::TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(ndi_width * 4),
+                                rows_per_image: Some(ndi_height),
+                            },
+                        },
+                        wgpu::Extent3d {
+                            width: ndi_width,
+                            height: ndi_height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                    
+                    ndi_buffer_to_process = Some(idx);
+                    self.ndi_skip_counter = 0;
+                }
+            }
+        }
+        
+        // Store the buffer index for processing after submit
+        let ndi_buffer_idx = ndi_buffer_to_process;
+        
         // Handle recording commands
         let recording_command = {
             if let Ok(mut state) = self.shared_state.lock() {
@@ -1862,6 +1975,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     state.is_recording = false;
                 }
                 self.queue.submit(std::iter::once(encoder.finish()));
+                
+                // Process NDI buffer even in error case
+                if let (Some(idx), Some(async_ndi)) = (ndi_buffer_idx, self.ndi_async.as_ref()) {
+                    async_ndi.process_buffer_async(idx);
+                }
+                
                 surface_texture.present();
                 self.frame_count += 1;
                 return;
@@ -1934,8 +2053,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // buffer_slice is automatically dropped when it goes out of scope
             let _ = buffer_slice;
             staging_buffer.unmap();
+            
+            // Process NDI buffer after submit (if we have one pending)
+            if let (Some(idx), Some(async_ndi)) = (ndi_buffer_idx, self.ndi_async.as_ref()) {
+                async_ndi.process_buffer_async(idx);
+            }
         } else {
             self.queue.submit(std::iter::once(encoder.finish()));
+            
+            // Process NDI buffer after submit (if we have one pending)
+            if let (Some(idx), Some(async_ndi)) = (ndi_buffer_idx, self.ndi_async.as_ref()) {
+                async_ndi.process_buffer_async(idx);
+            }
         }
         
         surface_texture.present();
@@ -1966,6 +2095,71 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     /// Get the preview renderer (mutable)
     pub fn get_preview_renderer_mut(&mut self) -> Option<&mut crate::engine::preview::PreviewRenderer> {
         self.preview_renderer.as_mut()
+    }
+    
+    /// Start NDI output
+    pub fn start_ndi_output(&mut self, name: &str, include_alpha: bool, frame_skip: u8) -> anyhow::Result<()> {
+        // Stop existing NDI output if any
+        self.stop_ndi_output();
+        
+        // Use actual block3 texture dimensions, not config dimensions
+        let width = self.block3_texture.width;
+        let height = self.block3_texture.height;
+        
+        let skip = frame_skip.max(1);
+        self.ndi_frame_skip = skip;
+        self.ndi_skip_counter = 0;
+        
+        log::info!("[ENGINE] Starting NDI output: {} ({}x{}, alpha={}, skip={})", name, width, height, include_alpha, skip);
+        
+        // Create triple-buffered readback buffers as Arc for sharing
+        let buffer_size = (width * height * 4) as u64;
+        self.ndi_buffers.clear();
+        for i in 0..3 {
+            let buffer = Arc::new(self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("NDI Readback Buffer {}", i)),
+                size: buffer_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }));
+            self.ndi_buffers.push(buffer);
+        }
+        self.ndi_frame_counter = 0;
+        
+        // Create NDI sender
+        let ndi_sender = crate::output::NdiOutputSender::new(name, width, height, include_alpha)?;
+        
+        // Create async processor
+        let processor = crate::output::AsyncNdiOutput::new(
+            &self.device,
+            ndi_sender,
+            width,
+            height,
+        );
+        
+        self.ndi_async = Some(processor);
+        
+        // Update shared state
+        if let Ok(mut state) = self.shared_state.lock() {
+            state.ndi_output_active = true;
+        }
+        
+        Ok(())
+    }
+    
+    /// Stop NDI output
+    pub fn stop_ndi_output(&mut self) {
+        if self.ndi_async.is_some() {
+            self.ndi_async = None;
+            self.ndi_buffers.clear();
+            self.ndi_frame_counter = 0;
+            self.ndi_frame_skip = 1;
+            self.ndi_skip_counter = 0;
+            
+            if let Ok(mut state) = self.shared_state.lock() {
+                state.ndi_output_active = false;
+            }
+        }
     }
 }
 
@@ -2064,3 +2258,4 @@ fn apply_audio_modulations_to_block3(
         }
     }
 }
+

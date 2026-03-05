@@ -111,22 +111,30 @@ impl InputTextureManager {
     pub fn update_input1(&mut self, data: &[u8], width: u32, height: u32) {
         // Validate data size (RGBA = 4 bytes per pixel)
         let expected_size = (width * height * 4) as usize;
-        if data.len() != expected_size {
-            log::warn!("Input 1 frame data size mismatch: got {} bytes, expected {} for {}x{}", 
+        
+        // Allow some tolerance for stride/padding differences
+        let min_size = ((width - 1) * 4 + width * (height - 1) * 4 + 4) as usize; // At least one row + one pixel
+        let max_size = ((width + 1) * 4 * height as u32) as usize; // Allow some padding
+        
+        if data.len() < min_size || (data.len() > max_size && data.len() != expected_size) {
+            log::warn!("Input 1 frame data size mismatch: got {} bytes, expected ~{} for {}x{}", 
                 data.len(), expected_size, width, height);
-            // Try to use the actual data size to determine dimensions
-            if data.len() % 4 == 0 {
-                let actual_pixels = data.len() / 4;
-                // Try to find a reasonable width/height
-                if actual_pixels % width as usize == 0 {
-                    let actual_height = (actual_pixels / width as usize) as u32;
-                    log::info!("Adjusting height from {} to {} based on data size", height, actual_height);
-                    return self.update_input1_internal(data, width, actual_height);
-                }
-            }
             return;
         }
-        self.update_input1_internal(data, width, height);
+        
+        // If sizes don't match exactly but are close, trim or use as-is
+        let data_to_use = if data.len() == expected_size {
+            data
+        } else if data.len() > expected_size {
+            // Trim excess data (likely stride padding at end)
+            &data[..expected_size]
+        } else {
+            // This shouldn't happen with our min_size check, but handle gracefully
+            log::warn!("Input 1 frame data too small: {} < {}", data.len(), expected_size);
+            return;
+        };
+        
+        self.update_input1_internal(data_to_use, width, height);
     }
     
     fn update_input1_internal(&mut self, data: &[u8], width: u32, height: u32) {
@@ -177,9 +185,25 @@ impl InputTextureManager {
     pub fn update_input2(&mut self, data: &[u8], width: u32, height: u32) {
         // Validate data size (RGBA = 4 bytes per pixel)
         let expected_size = (width * height * 4) as usize;
-        if data.len() != expected_size {
-            log::warn!("Input 2 frame data size mismatch: got {} bytes, expected {}", 
-                data.len(), expected_size);
+        
+        // Allow some tolerance for stride/padding differences
+        let min_size = ((width - 1) * 4 + width * (height - 1) * 4 + 4) as usize;
+        let max_size = ((width + 1) * 4 * height as u32) as usize;
+        
+        if data.len() < min_size || (data.len() > max_size && data.len() != expected_size) {
+            log::warn!("Input 2 frame data size mismatch: got {} bytes, expected ~{} for {}x{}", 
+                data.len(), expected_size, width, height);
+            return;
+        }
+        
+        // Trim excess data if needed
+        let data_to_use: &[u8];
+        if data.len() == expected_size {
+            data_to_use = data;
+        } else if data.len() > expected_size {
+            data_to_use = &data[..expected_size];
+        } else {
+            log::warn!("Input 2 frame data too small: {} < {}", data.len(), expected_size);
             return;
         }
         
@@ -206,7 +230,7 @@ impl InputTextureManager {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                data,
+                data_to_use,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * width),

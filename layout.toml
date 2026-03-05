@@ -4,58 +4,58 @@ default_window_size = [
 ]
 auto_save = true
 
-[popped_tabs.Settings]
-pos_x = 12.0
-pos_y = 479.0
-width = 450.0
-height = 427.0
-collapsed = false
-
-[popped_tabs.Presets]
-pos_x = 13.0
-pos_y = 916.0
-width = 450.0
-height = 562.0
-collapsed = false
-
-[popped_tabs.Midi]
-pos_x = 487.0
-pos_y = 628.0
-width = 449.0
-height = 598.0
-collapsed = false
-
 [popped_tabs.Block2]
-pos_x = 909.0
-pos_y = -3.0
-width = 443.0
-height = 601.0
-collapsed = false
-
-[popped_tabs.Block3]
-pos_x = 1396.0
-pos_y = 12.0
-width = 425.0
-height = 601.0
-collapsed = false
-
-[popped_tabs.Macros]
-pos_x = 1345.0
-pos_y = 645.0
-width = 500.0
-height = 600.0
-collapsed = false
-
-[popped_tabs.Inputs]
-pos_x = 968.0
-pos_y = 678.0
-width = 368.0
-height = 585.0
+pos_x = 906.0
+pos_y = 1.0
+width = 441.0
+height = 627.0
 collapsed = false
 
 [popped_tabs.Block1]
 pos_x = 478.0
 pos_y = 1.0
+width = 429.0
+height = 628.0
+collapsed = false
+
+[popped_tabs.Block3]
+pos_x = 1335.0
+pos_y = 11.0
+width = 432.0
+height = 632.0
+collapsed = false
+
+[popped_tabs.Midi]
+pos_x = 476.0
+pos_y = 631.0
 width = 428.0
-height = 592.0
+height = 600.0
+collapsed = false
+
+[popped_tabs.Inputs]
+pos_x = 15.0
+pos_y = 892.0
+width = 450.0
+height = 394.0
+collapsed = false
+
+[popped_tabs.Macros]
+pos_x = 1350.0
+pos_y = 632.0
+width = 435.0
+height = 598.0
+collapsed = false
+
+[popped_tabs.Presets]
+pos_x = 907.0
+pos_y = 631.0
+width = 442.0
+height = 597.0
+collapsed = false
+
+[popped_tabs.Settings]
+pos_x = 17.0
+pos_y = 464.0
+width = 450.0
+height = 427.0
 collapsed = false

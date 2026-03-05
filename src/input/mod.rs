@@ -15,6 +15,10 @@ pub mod webcam;
 #[cfg(feature = "webcam")]
 pub use webcam::{WebcamCapture, WebcamFrame};
 
+// NDI input support
+pub mod ndi;
+pub use ndi::{NdiReceiver, list_ndi_sources, is_ndi_available};
+
 #[cfg(not(feature = "webcam"))]
 pub struct WebcamFrame {
     pub width: u32,
@@ -99,6 +103,8 @@ pub struct InputSource {
     frame_receiver: Option<mpsc::Receiver<WebcamFrame>>,
     /// Current frame data (CPU side)
     current_frame: Option<Vec<u8>>,
+    /// NDI receiver instance
+    ndi_receiver: Option<NdiReceiver>,
 }
 
 impl InputManager {
@@ -207,6 +213,16 @@ impl InputManager {
         self.input2.start_webcam(device_index, width, height, fps)
     }
     
+    /// Start NDI on input 1
+    pub fn start_input1_ndi(&mut self, source_name: impl Into<String>) -> Result<()> {
+        self.input1.start_ndi(source_name)
+    }
+    
+    /// Start NDI on input 2
+    pub fn start_input2_ndi(&mut self, source_name: impl Into<String>) -> Result<()> {
+        self.input2.start_ndi(source_name)
+    }
+    
     /// Stop input 1
     pub fn stop_input1(&mut self) {
         self.input1.stop();
@@ -261,6 +277,7 @@ impl InputSource {
             webcam: None,
             frame_receiver: None,
             current_frame: None,
+            ndi_receiver: None,
         }
     }
     
@@ -303,6 +320,22 @@ impl InputSource {
         Ok(())
     }
     
+    /// Start NDI receiver
+    pub fn start_ndi(&mut self, source_name: impl Into<String>) -> Result<()> {
+        self.stop();
+        
+        let source_name = source_name.into();
+        let mut ndi = NdiReceiver::new(source_name.clone());
+        ndi.start()?;
+        
+        self.input_type = InputType::Ndi;
+        self.ndi_source = Some(source_name);
+        self.active = true;
+        self.ndi_receiver = Some(ndi);
+        
+        Ok(())
+    }
+    
     /// Stop the input source
     pub fn stop(&mut self) {
         self.active = false;
@@ -311,10 +344,15 @@ impl InputSource {
             let _ = webcam.stop();
         }
         
+        if let Some(mut ndi) = self.ndi_receiver.take() {
+            ndi.stop();
+        }
+        
         self.frame_receiver = None;
         self.current_frame = None;
         self.input_type = InputType::None;
         self.device_index = -1;
+        self.ndi_source = None;
     }
     
     /// Update (check for new frames)
@@ -323,8 +361,7 @@ impl InputSource {
             return;
         }
         
-        // Drain all available frames to prevent queue buildup
-        // Only keep the most recent frame to avoid "fast forward" effect
+        // Handle webcam frames
         if let Some(ref receiver) = self.frame_receiver {
             let mut latest_frame: Option<WebcamFrame> = None;
             
@@ -335,6 +372,14 @@ impl InputSource {
             
             // Use the most recent frame if we got any
             if let Some(frame) = latest_frame {
+                self.resolution = (frame.width, frame.height);
+                self.current_frame = Some(frame.data);
+            }
+        }
+        
+        // Handle NDI frames
+        if let Some(ref mut ndi) = self.ndi_receiver {
+            if let Some(frame) = ndi.get_latest_frame() {
                 self.resolution = (frame.width, frame.height);
                 self.current_frame = Some(frame.data);
             }

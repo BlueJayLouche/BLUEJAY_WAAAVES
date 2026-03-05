@@ -33,15 +33,24 @@ impl PreviewSource {
 }
 
 /// Input change request
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum InputChangeRequest {
     None,
     StartWebcam { input_id: u8, device_index: usize, width: u32, height: u32, fps: u32 },
+    StartNdi { input_id: u8, source_name: String },
     StopInput { input_id: u8 },
     /// Set output window VSync
     SetVsync(bool),
     /// Set output window target FPS
     SetOutputFps(u32),
+}
+
+/// NDI Output command
+#[derive(Debug, Clone, PartialEq)]
+pub enum NdiOutputCommand {
+    None,
+    Start { name: String, include_alpha: bool, frame_skip: u8 },
+    Stop,
 }
 
 /// Audio change request
@@ -176,6 +185,10 @@ pub struct SharedState {
     pub input2_change_request: InputChangeRequest,
     /// Audio change request (GUI -> Engine)
     pub audio_change_request: AudioChangeRequest,
+    /// NDI output command (GUI -> Engine)
+    pub ndi_output_command: NdiOutputCommand,
+    /// NDI output status (Engine -> GUI)
+    pub ndi_output_active: bool,
     /// Output display mode (which block to show)
     pub output_mode: OutputMode,
     /// Global BPM for tempo-synced LFOs
@@ -261,6 +274,8 @@ impl SharedState {
             input1_change_request: InputChangeRequest::None,
             input2_change_request: InputChangeRequest::None,
             audio_change_request: AudioChangeRequest::None,
+            ndi_output_command: NdiOutputCommand::None,
+            ndi_output_active: false,
             output_mode: OutputMode::default(),
             bpm: 120.0,
             block1_modulations: HashMap::new(),

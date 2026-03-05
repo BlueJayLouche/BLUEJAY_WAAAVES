@@ -183,6 +183,12 @@ pub struct ControlGui {
     pub selected_webcam2: i32,
     pub webcam_devices: Vec<String>,
     
+    // NDI source selection
+    pub ndi_sources: Vec<String>,
+    pub selected_ndi_source1: i32,
+    pub selected_ndi_source2: i32,
+    pub ndi_sources_dirty: bool,
+    
     // Audio device selection
     pub audio_devices: Vec<String>,
     pub selected_audio_device: i32,
@@ -367,6 +373,10 @@ impl ControlGui {
             selected_webcam1,
             selected_webcam2,
             webcam_devices,
+            ndi_sources: Vec::new(),
+            selected_ndi_source1: -1,
+            selected_ndi_source2: -1,
+            ndi_sources_dirty: true, // Mark as dirty to trigger initial scan
             audio_devices,
             selected_audio_device: -1,
             audio_device_dirty: false,
@@ -532,6 +542,9 @@ impl ControlGui {
         self.audio_devices = crate::audio::AudioInput::list_devices();
         log::info!("Refreshed device list: {} audio device(s) found", self.audio_devices.len());
         
+        // Scan for NDI sources
+        self.refresh_ndi_sources();
+        
         // Reset selections if they're now out of bounds
         if self.selected_webcam1 >= 0 && (self.selected_webcam1 as usize) >= self.webcam_devices.len() {
             self.selected_webcam1 = -1;
@@ -542,6 +555,18 @@ impl ControlGui {
         if self.selected_audio_device >= 0 && (self.selected_audio_device as usize) >= self.audio_devices.len() {
             self.selected_audio_device = -1;
         }
+        if self.selected_ndi_source1 >= 0 && (self.selected_ndi_source1 as usize) >= self.ndi_sources.len() {
+            self.selected_ndi_source1 = -1;
+        }
+        if self.selected_ndi_source2 >= 0 && (self.selected_ndi_source2 as usize) >= self.ndi_sources.len() {
+            self.selected_ndi_source2 = -1;
+        }
+    }
+    
+    /// Refresh the list of available NDI sources
+    fn refresh_ndi_sources(&mut self) {
+        self.ndi_sources = crate::input::list_ndi_sources(1000);
+        self.ndi_sources_dirty = false;
     }
     
     /// Save current input settings to config file
@@ -4245,6 +4270,17 @@ impl ControlGui {
                 self.selected_webcam1 = 0;
             }
             
+            // Auto-select first NDI source if NDI is chosen but no source selected
+            if type_changed && self.input1_type == InputType::Ndi 
+                && self.selected_ndi_source1 < 0 && !self.ndi_sources.is_empty() {
+                self.selected_ndi_source1 = 0;
+            }
+            
+            // Refresh NDI sources when switching to NDI
+            if type_changed && self.input1_type == InputType::Ndi {
+                self.refresh_ndi_sources();
+            }
+            
             // Save config when input type changes
             if type_changed {
                 self.save_input_config();
@@ -4301,6 +4337,49 @@ impl ControlGui {
                 }
             }
             
+            // NDI source selection
+            if self.input1_type == InputType::Ndi {
+                let sources: Vec<&str> = self.ndi_sources.iter().map(|s| s.as_str()).collect();
+                if !sources.is_empty() {
+                    let preview = if self.selected_ndi_source1 >= 0 { 
+                        self.ndi_sources[self.selected_ndi_source1 as usize].clone()
+                    } else { "Select NDI source...".to_string() };
+                    
+                    let mut selected = self.selected_ndi_source1;
+                    ComboBox::new(ui, "##ndi1_select")
+                        .preview_value(&preview)
+                        .build(|| {
+                            for (idx, opt) in sources.iter().enumerate() {
+                                if ui.selectable_config(opt).selected(idx == selected as usize).build() {
+                                    selected = idx as i32;
+                                }
+                            }
+                        });
+                    let source_changed = self.selected_ndi_source1 != selected;
+                    self.selected_ndi_source1 = selected;
+                    
+                    // Save config when source selection changes
+                    if source_changed {
+                        self.save_input_config();
+                    }
+                    
+                    if ui.button("Start NDI Input 1") && self.selected_ndi_source1 >= 0 {
+                        let source_name = self.ndi_sources[self.selected_ndi_source1 as usize].clone();
+                        if let Ok(mut state) = self.shared_state.lock() {
+                            state.input1_change_request = InputChangeRequest::StartNdi {
+                                input_id: 1,
+                                source_name,
+                            };
+                        }
+                    }
+                } else {
+                    ui.text_disabled("No NDI sources found");
+                    if ui.button("Refresh NDI Sources") {
+                        self.refresh_ndi_sources();
+                    }
+                }
+            }
+            
             // Stop button
             if ui.button("Stop Input 1") {
                 if let Ok(mut state) = self.shared_state.lock() {
@@ -4340,6 +4419,17 @@ impl ControlGui {
             if type_changed && self.input2_type == InputType::Webcam 
                 && self.selected_webcam2 < 0 && !self.webcam_devices.is_empty() {
                 self.selected_webcam2 = 0;
+            }
+            
+            // Auto-select first NDI source if NDI is chosen but no source selected
+            if type_changed && self.input2_type == InputType::Ndi 
+                && self.selected_ndi_source2 < 0 && !self.ndi_sources.is_empty() {
+                self.selected_ndi_source2 = 0;
+            }
+            
+            // Refresh NDI sources when switching to NDI
+            if type_changed && self.input2_type == InputType::Ndi {
+                self.refresh_ndi_sources();
             }
             
             // Save config when input type changes
@@ -4398,6 +4488,49 @@ impl ControlGui {
                 }
             }
             
+            // NDI source selection
+            if self.input2_type == InputType::Ndi {
+                let sources: Vec<&str> = self.ndi_sources.iter().map(|s| s.as_str()).collect();
+                if !sources.is_empty() {
+                    let preview = if self.selected_ndi_source2 >= 0 { 
+                        self.ndi_sources[self.selected_ndi_source2 as usize].clone()
+                    } else { "Select NDI source...".to_string() };
+                    
+                    let mut selected = self.selected_ndi_source2;
+                    ComboBox::new(ui, "##ndi2_select")
+                        .preview_value(&preview)
+                        .build(|| {
+                            for (idx, opt) in sources.iter().enumerate() {
+                                if ui.selectable_config(opt).selected(idx == selected as usize).build() {
+                                    selected = idx as i32;
+                                }
+                            }
+                        });
+                    let source_changed = self.selected_ndi_source2 != selected;
+                    self.selected_ndi_source2 = selected;
+                    
+                    // Save config when source selection changes
+                    if source_changed {
+                        self.save_input_config();
+                    }
+                    
+                    if ui.button("Start NDI Input 2") && self.selected_ndi_source2 >= 0 {
+                        let source_name = self.ndi_sources[self.selected_ndi_source2 as usize].clone();
+                        if let Ok(mut state) = self.shared_state.lock() {
+                            state.input2_change_request = InputChangeRequest::StartNdi {
+                                input_id: 2,
+                                source_name,
+                            };
+                        }
+                    }
+                } else {
+                    ui.text_disabled("No NDI sources found");
+                    if ui.button("Refresh NDI Sources") {
+                        self.refresh_ndi_sources();
+                    }
+                }
+            }
+            
             // Stop button
             if ui.button("Stop Input 2") {
                 if let Ok(mut state) = self.shared_state.lock() {
@@ -4412,7 +4545,9 @@ impl ControlGui {
             self.refresh_devices();
         }
         ui.same_line();
-        ui.text(format!("Found {} webcam(s)", self.webcam_devices.len()));
+        ui.text(format!("Found {} webcam(s), {} NDI source(s)", 
+            self.webcam_devices.len(), 
+            self.ndi_sources.len()));
         
         // Audio input section
         if CollapsingHeader::new("Audio Input").default_open(true).build(ui) {
@@ -4716,6 +4851,101 @@ impl ControlGui {
             }
             
             ui.text_disabled("Note: Color sampling requires GPU readback (not yet implemented)");
+        }
+        
+        // NDI Output Settings
+        if CollapsingHeader::new("NDI Output").default_open(true).build(ui) {
+            // Read NDI output status
+            let is_active = self.shared_state.lock()
+                .map(|s| s.ndi_output_active)
+                .unwrap_or(false);
+            
+            // Status indicator
+            if is_active {
+                ui.text_colored([0.0, 1.0, 0.0, 1.0], "● Streaming");
+            } else {
+                ui.text("○ Not streaming");
+            }
+            
+            ui.separator();
+            
+            // NDI output name
+            ui.text("Output Name:");
+            let mut ndi_name = self.config.ndi.output_name.clone();
+            ui.input_text("##ndi_name", &mut ndi_name)
+                .build();
+            if ndi_name != self.config.ndi.output_name {
+                self.config.ndi.output_name = ndi_name;
+            }
+            
+            // Alpha channel option
+            let mut include_alpha = self.config.ndi.output_alpha;
+            ui.checkbox("Include Alpha Channel", &mut include_alpha);
+            if include_alpha != self.config.ndi.output_alpha {
+                self.config.ndi.output_alpha = include_alpha;
+            }
+            
+            // Frame skip option (for performance)
+            ui.text("Frame Skip (performance):");
+            let frame_skip_options = ["1 (60fps)", "2 (30fps)", "3 (20fps)", "4 (15fps)", "6 (10fps)"];
+            let current_skip = self.config.ndi.frame_skip.clamp(1, 6) as usize;
+            let skip_idx = match current_skip {
+                1 => 0,
+                2 => 1,
+                3 => 2,
+                4 => 3,
+                5 | 6 => 4,
+                _ => 1, // Default to 2 (30fps)
+            };
+            let preview = frame_skip_options[skip_idx];
+            
+            ComboBox::new(ui, "##ndi_frame_skip")
+                .preview_value(preview)
+                .build(|| {
+                    for (idx, label) in frame_skip_options.iter().enumerate() {
+                        if ui.selectable_config(label).selected(idx == skip_idx).build() {
+                            let new_skip = match idx {
+                                0 => 1,
+                                1 => 2,
+                                2 => 3,
+                                3 => 4,
+                                4 => 6,
+                                _ => 2,
+                            };
+                            self.config.ndi.frame_skip = new_skip;
+                        }
+                    }
+                });
+            
+            if ui.is_item_hovered() {
+                ui.tooltip_text("Higher frame skip = better performance but lower NDI output framerate");
+            }
+            
+            ui.separator();
+            
+            // Start/Stop button
+            if is_active {
+                if ui.button("Stop NDI Output") {
+                    if let Ok(mut state) = self.shared_state.lock() {
+                        state.ndi_output_command = crate::core::NdiOutputCommand::Stop;
+                    }
+                }
+            } else {
+                if ui.button("Start NDI Output") {
+                    let name = self.config.ndi.output_name.clone();
+                    let alpha = self.config.ndi.output_alpha;
+                    let skip = self.config.ndi.frame_skip.max(1);
+                    if let Ok(mut state) = self.shared_state.lock() {
+                        state.ndi_output_command = crate::core::NdiOutputCommand::Start { 
+                            name, 
+                            include_alpha: alpha,
+                            frame_skip: skip,
+                        };
+                    }
+                }
+            }
+            
+            ui.text_disabled("NDI output streams the final output at display resolution");
         }
         
         // Clear feedback button

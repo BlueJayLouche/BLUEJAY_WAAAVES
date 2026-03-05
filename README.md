@@ -116,15 +116,23 @@ The rendering pipeline consists of three main blocks:
 
 ### Inputs
 
-- Webcam capture
-- NDI input (Network Device Interface)
+- **Webcam capture** - Direct camera input with device selection
+- **NDI Input** - Network Device Interface for receiving video over IP
+  - Automatic source discovery on local network
+  - Low-latency frame receiving with background threading
+  - Supports BGRA/BGRX formats with automatic conversion
+  - Configurable bandwidth (highest quality by default)
 - Spout input (Windows only, planned)
 - Video file playback (planned)
 
 ### Outputs
 
-- Full-screen wgpu output
-- NDI output for external capture (planned)
+- **Full-screen wgpu output** - Hardware-accelerated rendering
+- **NDI Output** - Broadcast video over the network as an NDI source
+  - Async triple-buffered GPU readback for zero frame drops
+  - Dedicated send thread for low-latency streaming
+  - Configurable source name for easy discovery
+  - BGRA/BGRX format support with alpha channel option
 - Video recording (planned)
 
 ## Building
@@ -145,6 +153,7 @@ Key dependencies:
 - `cpal` - Audio I/O
 - `midir` - Cross-platform MIDI input
 - `serde` + `toml` - Configuration
+- `grafton-ndi 0.11` - NDI input/output support
 
 ### Build Commands
 
@@ -212,6 +221,22 @@ max_value = 1.0
 | `Space` | Clear feedback buffers |
 | `1-9` | Select macro bank |
 
+### Using NDI
+
+#### NDI Input
+1. Go to the **Inputs** tab
+2. For Input 1 or Input 2, select "NDI" from the dropdown
+3. Click "Refresh NDI Sources" to scan the network
+4. Select your NDI source from the list
+5. The source will automatically connect and start streaming
+
+#### NDI Output
+1. Go to the **Settings** tab
+2. Enable "NDI Output" checkbox
+3. Set your preferred NDI source name (default: "RustJay Waaaves")
+4. The output will be broadcast to the network immediately
+5. Use NDI Studio Monitor, OBS, or any NDI-enabled app to view it
+
 ### Parameter Control
 
 Parameters are organized in tabs:
@@ -265,7 +290,8 @@ Parameters are organized in tabs:
 The implementation includes several performance optimizations:
 
 - **Early-exit shaders**: Skip expensive operations when parameters are zero
-- **Persistent PBOs**: Async GPU→CPU readback for NDI output (planned)
+- **Triple-buffered NDI output**: Async GPU→CPU readback with concurrent buffer processing
+- **Dedicated send thread**: Non-blocking NDI frame transmission
 - **Framebuffer pooling**: Reuse GPU memory allocations
 - **Efficient uniforms**: Cache uniform locations, batch updates
 - **Shader branch reduction**: Use mix() instead of conditionals where possible
@@ -300,6 +326,12 @@ src/
 │   └── mod.rs     # Main engine with dual-window support
 ├── gui/           # ImGui interface
 ├── input/         # Video input handling
+│   ├── ndi.rs     # NDI input receiver
+│   ├── webcam.rs  # Webcam capture
+│   └── ...
+├── output/        # Video output handling
+│   ├── ndi_sender.rs   # NDI output sender
+│   └── ndi_async.rs    # Async NDI output processor
 ├── params/        # Parameter structures
 └── utils/         # Helper utilities
 ```
@@ -336,7 +368,7 @@ Original shaders and design concept by Andrei Jay.
 - [x] Dual-window architecture
 - [x] MIDI learn/mapping system
 - [ ] SPIR-V shader compilation for validation
-- [ ] NDI input/output
+- [x] NDI input/output
 - [ ] Video file player
 - [x] Audio analysis and reactivity
 - [ ] TouchOSC integration
@@ -357,8 +389,9 @@ Original shaders and design concept by Andrei Jay.
 
 ### Input not working
 - Check device permissions (camera/mic)
-- Verify NDI source is active
+- Verify NDI source is active and visible on the network
 - Try different input resolution
+- For NDI: Ensure firewall allows NDI traffic (ports 5960-5969 TCP/UDP)
 
 ### GUI not responding
 - Check winit event loop is running
@@ -381,6 +414,23 @@ If you're running a DAW (Digital Audio Workstation) or other MIDI applications:
 4. **Verify device connection**: The MIDI tab shows connected devices
 
 5. **Check logs**: Run with `RUST_LOG=info cargo run` to see MIDI initialization messages
+
+### NDI Issues
+
+**NDI source not found:**
+- Ensure NDI Runtime is installed (download from ndi.video)
+- Check that source and receiver are on the same network/subnet
+- Try using NDI Studio Monitor to verify source visibility
+
+**NDI output not visible to other apps:**
+- Check firewall settings - NDI uses ports 5960-5969
+- Verify the NDI source name is unique
+- Some NDI receivers require a few seconds to discover new sources
+
+**Low frame rate with NDI output:**
+- The async triple-buffered implementation minimizes overhead
+- If dropping frames, check network bandwidth (1080p60 ~250Mbps)
+- Consider lowering resolution or frame rate in Settings
 
 ## Support
 

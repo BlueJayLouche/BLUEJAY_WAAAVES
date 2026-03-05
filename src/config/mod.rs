@@ -111,6 +111,12 @@ pub struct NdiConfig {
     pub height: u32,
     /// Frame rate
     pub fps: u32,
+    /// NDI output source name
+    pub output_name: String,
+    /// Include alpha channel in NDI output
+    pub output_alpha: bool,
+    /// Frame skip factor (send every Nth frame, 1=no skip, 2=30fps, 3=20fps, etc)
+    pub frame_skip: u8,
 }
 
 /// Audio input configuration
@@ -201,6 +207,9 @@ impl Default for AppConfig {
                 width: 1280,
                 height: 720,
                 fps: 30,
+                output_name: "RustJay Waaaves".to_string(),
+                output_alpha: false,
+                frame_skip: 2, // Default to 30fps output (skip every other frame)
             },
             control: ControlConfig {
                 osc_receive_port: 7000,
