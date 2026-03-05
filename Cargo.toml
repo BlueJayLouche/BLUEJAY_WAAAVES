@@ -79,6 +79,8 @@ cocoa = { version = "0.25", optional = true }
 cocoa-foundation = { version = "0.1", optional = true }
 # For IOSurface sharing
 io-surface = { version = "0.16", optional = true }
+# For dlopen to load frameworks
+libc = { version = "0.2", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Spout uses Windows API
@@ -100,7 +102,7 @@ default = ["webcam", "ipc"]
 webcam = ["nokhwa"]
 # Inter-process video sharing (platform-specific)
 ipc = ["ipc-syphon", "ipc-spout", "ipc-v4l2"]
-ipc-syphon = ["objc", "objc-foundation", "objc_id", "core-foundation", "core-graphics", "cocoa", "cocoa-foundation", "io-surface"]
+ipc-syphon = ["objc", "objc-foundation", "objc_id", "core-foundation", "core-graphics", "cocoa", "cocoa-foundation", "io-surface", "libc"]
 ipc-spout = ["winapi"]
 ipc-v4l2 = ["v4l", "nix"]
 

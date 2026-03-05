@@ -33,6 +33,8 @@ fn ensure_runtime() {
 }
 
 /// Check if Syphon framework is available
+/// 
+/// This will attempt to load the framework from standard locations if not already loaded.
 pub fn is_syphon_available() -> bool {
     #[cfg(not(feature = "ipc-syphon"))]
     return false;
@@ -40,9 +42,50 @@ pub fn is_syphon_available() -> bool {
     #[cfg(feature = "ipc-syphon")]
     {
         ensure_runtime();
-        // Check if SyphonServer class exists
+        
         unsafe {
-            Class::get("SyphonServer").is_some()
+            // First check if already loaded
+            if Class::get("SyphonServer").is_some() {
+                return true;
+            }
+            
+            // Try to load the framework explicitly
+            // Common locations:
+            // - /Library/Frameworks/Syphon.framework
+            // - ~/Library/Frameworks/Syphon.framework
+            // - Bundled in the app
+            let paths = [
+                "/Library/Frameworks/Syphon.framework/Syphon",
+                "~/Library/Frameworks/Syphon.framework/Syphon",
+            ];
+            
+            for path in &paths {
+                let expanded = if path.starts_with("~") {
+                    // Expand tilde
+                    if let Some(home) = std::env::var_os("HOME") {
+                        let home_str = home.to_string_lossy();
+                        path.replacen("~", &home_str, 1)
+                    } else {
+                        continue;
+                    }
+                } else {
+                    path.to_string()
+                };
+                
+                let path_cstring = match std::ffi::CString::new(expanded) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let handle = libc::dlopen(path_cstring.as_ptr(), libc::RTLD_LAZY | libc::RTLD_GLOBAL);
+                if !handle.is_null() {
+                    log::info!("[Syphon] Loaded framework from: {}", path);
+                    // Check again if classes are available
+                    return Class::get("SyphonServer").is_some();
+                }
+            }
+            
+            log::warn!("[Syphon] Framework not found. Install from: https://github.com/Syphon/Syphon-Framework");
+            false
         }
     }
 }

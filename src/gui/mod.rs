@@ -5099,7 +5099,12 @@ impl ControlGui {
             
             if !available {
                 ui.text_colored([1.0, 0.5, 0.0, 1.0], "⚠ Syphon.framework not available");
-                ui.text_disabled("Install Syphon from https://github.com/Syphon/Syphon-Framework");
+                ui.text_disabled("Install to: /Library/Frameworks/Syphon.framework");
+                ui.text_disabled("Download from: github.com/Syphon/Syphon-Framework");
+                if ui.button("Check Again") {
+                    // Force recheck - reload the library
+                    log::info!("[GUI] Rechecking Syphon availability...");
+                }
             } else {
                 // Status indicator
                 if is_active {
