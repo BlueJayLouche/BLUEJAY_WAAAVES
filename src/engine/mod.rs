@@ -1928,12 +1928,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             if let Some(async_syphon) = self.syphon_async.as_ref() {
                 // Try to acquire a free buffer
                 if let Some((idx, buffer)) = async_syphon.acquire_buffer() {
-                    let syphon_width = self.config.width;
-                    let syphon_height = self.config.height;
+                    // Use actual texture dimensions, not config (they may differ)
+                    let texture = &self.block3_texture.texture;
+                    let syphon_width = texture.width();
+                    let syphon_height = texture.height();
                     
                     encoder.copy_texture_to_buffer(
                         wgpu::TexelCopyTextureInfo {
-                            texture: &self.block3_texture.texture,
+                            texture,
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
                             aspect: wgpu::TextureAspect::All,
@@ -2272,8 +2274,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Stop existing Syphon output if any
         self.stop_syphon_output();
         
-        let width = self.config.width;
-        let height = self.config.height;
+        // Use actual texture dimensions, not config (they may differ)
+        let width = self.block3_texture.texture.width();
+        let height = self.block3_texture.texture.height();
         
         log::info!("[Engine] Starting Syphon output '{}' at {}x{}", name, width, height);
         

@@ -146,14 +146,20 @@ pub unsafe fn create_server(name: &str) -> Option<SyphonServerHandle> {
     // Convert Rust string to NSString
     let name_ns = NSString::alloc(nil).init_str(name);
     
+    // Create an empty NSMutableDictionary for options
+    let options_cls = Class::get("NSMutableDictionary").expect("NSMutableDictionary not found");
+    let options: *mut Object = msg_send![options_cls, dictionary];
+    
     // Initialize with name and options
-    // - initWithName:theName options:theOptions
-    let server: *mut Object = msg_send![server, initWithName:name_ns options:nil];
+    // SyphonServer initializer: initWithName:options:
+    let server: *mut Object = msg_send![server, initWithName:name_ns options:options];
     
     if server.is_null() {
+        log::error!("[Syphon] Server initialization returned null");
         return None;
     }
     
+    log::info!("[Syphon] Server '{}' created successfully", name);
     Some(SyphonServerHandle { obj: server })
 }
 
