@@ -66,6 +66,24 @@ imgui = "0.12"
 imgui-wgpu = "0.25"
 imgui-winit-support = "0.13"
 
+# Platform-specific IPC dependencies
+[target.'cfg(target_os = "macos")'.dependencies]
+# Syphon uses Objective-C runtime
+objc = { version = "0.2", optional = true }
+objc-foundation = { version = "0.1", optional = true }
+objc_id = { version = "0.1", optional = true }
+core-foundation = { version = "0.9", optional = true }
+core-graphics = { version = "0.23", optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Spout uses Windows API
+winapi = { version = "0.3", features = ["d3d11", "d3d12", "dxgi", "handleapi"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# V4L2 for video devices
+v4l = { version = "0.14", optional = true }
+nix = { version = "0.27", features = ["ioctl"], optional = true }
+
 [profile.release]
 opt-level = 3
 lto = "fat"
@@ -73,8 +91,13 @@ codegen-units = 1
 panic = "abort"
 
 [features]
-default = ["webcam"]
+default = ["webcam", "ipc"]
 webcam = ["nokhwa"]
+# Inter-process video sharing (platform-specific)
+ipc = ["ipc-syphon", "ipc-spout", "ipc-v4l2"]
+ipc-syphon = ["objc", "objc-foundation", "objc_id", "core-foundation", "core-graphics"]
+ipc-spout = ["winapi"]
+ipc-v4l2 = ["v4l", "nix"]
 
 [profile.dev]
 opt-level = 1
