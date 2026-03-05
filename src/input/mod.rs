@@ -19,6 +19,12 @@ pub use webcam::{WebcamCapture, WebcamFrame};
 pub mod ndi;
 pub use ndi::{NdiReceiver, list_ndi_sources, is_ndi_available};
 
+// Syphon input support (macOS)
+#[cfg(target_os = "macos")]
+pub mod syphon_input;
+#[cfg(target_os = "macos")]
+pub use syphon_input::{SyphonInputReceiver, SyphonDiscovery, SyphonInputIntegration, SyphonServerInfo};
+
 #[cfg(not(feature = "webcam"))]
 pub struct WebcamFrame {
     pub width: u32,
