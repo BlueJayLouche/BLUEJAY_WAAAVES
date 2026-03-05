@@ -74,6 +74,11 @@ objc-foundation = { version = "0.1", optional = true }
 objc_id = { version = "0.1", optional = true }
 core-foundation = { version = "0.9", optional = true }
 core-graphics = { version = "0.23", optional = true }
+# macOS frameworks
+cocoa = { version = "0.25", optional = true }
+cocoa-foundation = { version = "0.1", optional = true }
+# For IOSurface sharing
+io-surface = { version = "0.16", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Spout uses Windows API
@@ -95,7 +100,7 @@ default = ["webcam", "ipc"]
 webcam = ["nokhwa"]
 # Inter-process video sharing (platform-specific)
 ipc = ["ipc-syphon", "ipc-spout", "ipc-v4l2"]
-ipc-syphon = ["objc", "objc-foundation", "objc_id", "core-foundation", "core-graphics"]
+ipc-syphon = ["objc", "objc-foundation", "objc_id", "core-foundation", "core-graphics", "cocoa", "cocoa-foundation", "io-surface"]
 ipc-spout = ["winapi"]
 ipc-v4l2 = ["v4l", "nix"]
 

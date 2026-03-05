@@ -966,6 +966,32 @@ impl ApplicationHandler for App {
             }
         }
         
+        // Handle Syphon output commands
+        {
+            let mut state = self.shared_state.lock().unwrap();
+            let syphon_command = std::mem::replace(&mut state.syphon_output_command, crate::core::SyphonOutputCommand::None);
+            drop(state);
+            
+            match syphon_command {
+                crate::core::SyphonOutputCommand::Start { name } => {
+                    if let Some(ref mut engine) = self.output_engine {
+                        match engine.start_syphon_output(&name) {
+                            Ok(_) => log::info!("[ENGINE] Syphon output started: '{}'", name),
+                            Err(e) => log::error!("[ENGINE] Failed to start Syphon output: {:?}", e),
+                        }
+                    } else {
+                        log::error!("[ENGINE] Output engine not initialized");
+                    }
+                }
+                crate::core::SyphonOutputCommand::Stop => {
+                    if let Some(ref mut engine) = self.output_engine {
+                        engine.stop_syphon_output();
+                    }
+                }
+                _ => {}
+            }
+        }
+        
         // Update video input and upload frames to GPU
         if let (Some(ref mut video), Some(ref mut engine)) = (self.video_input.as_mut(), self.output_engine.as_mut()) {
             video.update();
@@ -1104,6 +1130,18 @@ pub struct WgpuEngine {
     
     /// Current skip counter
     ndi_skip_counter: u8,
+    
+    /// Async Syphon processor (background thread, macOS only)
+    #[cfg(target_os = "macos")]
+    syphon_async: Option<crate::output::AsyncSyphonOutput>,
+    
+    /// Triple-buffered GPU readback buffers for Syphon output
+    #[cfg(target_os = "macos")]
+    syphon_buffers: Vec<Arc<wgpu::Buffer>>,
+    
+    /// Syphon frame counter
+    #[cfg(target_os = "macos")]
+    syphon_frame_counter: u64,
 }
 
 impl WgpuEngine {
@@ -1388,6 +1426,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             ndi_frame_counter: 0,
             ndi_frame_skip: 1,
             ndi_skip_counter: 0,
+            
+            // Initialize Syphon output (macOS only, created when enabled)
+            #[cfg(target_os = "macos")]
+            syphon_async: None,
+            #[cfg(target_os = "macos")]
+            syphon_buffers: Vec::new(),
+            #[cfg(target_os = "macos")]
+            syphon_frame_counter: 0,
         })
     }
     
@@ -1874,6 +1920,44 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Store the buffer index for processing after submit
         let ndi_buffer_idx = ndi_buffer_to_process;
         
+        // Syphon output processing (macOS only)
+        #[cfg(target_os = "macos")]
+        let mut syphon_buffer_to_process: Option<usize> = None;
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(async_syphon) = self.syphon_async.as_ref() {
+                // Try to acquire a free buffer
+                if let Some((idx, buffer)) = async_syphon.acquire_buffer() {
+                    let syphon_width = self.config.width;
+                    let syphon_height = self.config.height;
+                    
+                    encoder.copy_texture_to_buffer(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &self.block3_texture.texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::TexelCopyBufferInfo {
+                            buffer,
+                            layout: wgpu::TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(syphon_width * 4),
+                                rows_per_image: Some(syphon_height),
+                            },
+                        },
+                        wgpu::Extent3d {
+                            width: syphon_width,
+                            height: syphon_height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                    
+                    syphon_buffer_to_process = Some(idx);
+                }
+            }
+        }
+        
         // Handle recording commands
         let recording_command = {
             if let Ok(mut state) = self.shared_state.lock() {
@@ -1981,6 +2065,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     async_ndi.process_buffer_async(idx);
                 }
                 
+                // Process Syphon buffer (macOS only)
+                #[cfg(target_os = "macos")]
+                if let (Some(idx), Some(async_syphon)) = (syphon_buffer_to_process, self.syphon_async.as_ref()) {
+                    async_syphon.process_buffer_async(idx);
+                }
+                
                 surface_texture.present();
                 self.frame_count += 1;
                 return;
@@ -2058,12 +2148,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             if let (Some(idx), Some(async_ndi)) = (ndi_buffer_idx, self.ndi_async.as_ref()) {
                 async_ndi.process_buffer_async(idx);
             }
+            
+            // Process Syphon buffer (macOS only)
+            #[cfg(target_os = "macos")]
+            if let (Some(idx), Some(async_syphon)) = (syphon_buffer_to_process, self.syphon_async.as_ref()) {
+                async_syphon.process_buffer_async(idx);
+            }
         } else {
             self.queue.submit(std::iter::once(encoder.finish()));
             
             // Process NDI buffer after submit (if we have one pending)
             if let (Some(idx), Some(async_ndi)) = (ndi_buffer_idx, self.ndi_async.as_ref()) {
                 async_ndi.process_buffer_async(idx);
+            }
+            
+            // Process Syphon buffer (macOS only)
+            #[cfg(target_os = "macos")]
+            if let (Some(idx), Some(async_syphon)) = (syphon_buffer_to_process, self.syphon_async.as_ref()) {
+                async_syphon.process_buffer_async(idx);
             }
         }
         
@@ -2161,6 +2263,78 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             }
         }
     }
+    
+    /// Start Syphon output (macOS only)
+    #[cfg(target_os = "macos")]
+    pub fn start_syphon_output(&mut self, name: &str) -> anyhow::Result<()> {
+        use crate::output::{SyphonSender, AsyncSyphonOutput};
+        
+        // Stop existing Syphon output if any
+        self.stop_syphon_output();
+        
+        let width = self.config.width;
+        let height = self.config.height;
+        
+        log::info!("[Engine] Starting Syphon output '{}' at {}x{}", name, width, height);
+        
+        // Create readback buffers (triple buffered)
+        let buffer_size = (width * height * 4) as u64;
+        self.syphon_buffers.clear();
+        for i in 0..3 {
+            let buffer = Arc::new(self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("Syphon Readback Buffer {}", i)),
+                size: buffer_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }));
+            self.syphon_buffers.push(buffer);
+        }
+        self.syphon_frame_counter = 0;
+        
+        // Create Syphon sender
+        let syphon_sender = SyphonSender::new(name, width, height)?;
+        
+        // Create async processor
+        let processor = AsyncSyphonOutput::new(
+            &self.device,
+            syphon_sender,
+            width,
+            height,
+        );
+        
+        self.syphon_async = Some(processor);
+        
+        // Update shared state
+        if let Ok(mut state) = self.shared_state.lock() {
+            state.syphon_output_active = true;
+        }
+        
+        Ok(())
+    }
+    
+    /// Stop Syphon output (macOS only)
+    #[cfg(target_os = "macos")]
+    pub fn stop_syphon_output(&mut self) {
+        if self.syphon_async.is_some() {
+            self.syphon_async = None;
+            self.syphon_buffers.clear();
+            self.syphon_frame_counter = 0;
+            
+            if let Ok(mut state) = self.shared_state.lock() {
+                state.syphon_output_active = false;
+            }
+        }
+    }
+    
+    /// Stub for non-macOS platforms
+    #[cfg(not(target_os = "macos"))]
+    pub fn start_syphon_output(&mut self, _name: &str) -> anyhow::Result<()> {
+        Err(anyhow::anyhow!("Syphon is only available on macOS"))
+    }
+    
+    /// Stub for non-macOS platforms
+    #[cfg(not(target_os = "macos"))]
+    pub fn stop_syphon_output(&mut self) {}
 }
 
 /// Apply audio modulations to Block 1 parameters

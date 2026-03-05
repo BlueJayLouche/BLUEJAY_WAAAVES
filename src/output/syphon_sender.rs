@@ -6,11 +6,6 @@
 //! - Dedicated publish thread for non-blocking operation
 //! - CPU buffer queue (bounded, drops old frames)
 //! - Converts RGBA to Syphon-compatible format
-//!
-//! ## Prerequisites
-//!
-//! Syphon.framework must be available at runtime. It's included with most VJ apps
-//! or can be installed standalone from https://github.com/Syphon/Syphon-Framework
 
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread::{self, JoinHandle};
@@ -21,7 +16,7 @@ use crossbeam::channel::{self, Sender as ChannelSender, Receiver};
 pub struct SyphonFrameData {
     pub width: u32,
     pub height: u32,
-    /// RGBA pixel data (will be converted to IOSurface/buffer as needed)
+    /// RGBA pixel data
     pub data: Vec<u8>,
     pub timestamp: Instant,
 }
@@ -94,7 +89,7 @@ impl SyphonSender {
     }
     
     /// Publish thread that owns the Syphon server
-    #[allow(unused_variables)]
+    #[cfg(target_os = "macos")]
     fn publish_thread(
         name: String,
         width: u32,
@@ -102,10 +97,22 @@ impl SyphonSender {
         frame_rx: Receiver<SyphonFrameData>,
         running: Arc<AtomicBool>,
     ) {
-        // TODO: Initialize Objective-C runtime and create SyphonServer
-        // This will be implemented with objc crate
+        use crate::ipc::syphon_sys;
         
         log::info!("[Syphon] Publish thread started for '{}'", name);
+        
+        // Create Syphon server
+        let server = unsafe {
+            match syphon_sys::create_server(&name) {
+                Some(s) => s,
+                None => {
+                    log::error!("[Syphon] Failed to create server '{}'", name);
+                    return;
+                }
+            }
+        };
+        
+        log::info!("[Syphon] Server '{}' created successfully", name);
         
         let mut frame_count = 0u64;
         let mut last_log = Instant::now();
@@ -115,12 +122,21 @@ impl SyphonSender {
                 Ok(frame_data) => {
                     frame_count += 1;
                     
-                    // TODO: Publish frame to Syphon:
-                    // 1. Convert RGBA to Syphon-compatible format
-                    // 2. Create CGImage or IOSurface from buffer
-                    // 3. Publish via SyphonServer
+                    // Publish frame to Syphon
+                    let success = unsafe {
+                        syphon_sys::publish_frame_buffer(
+                            &server,
+                            &frame_data.data,
+                            frame_data.width,
+                            frame_data.height,
+                        )
+                    };
                     
-                    // For now, just log occasionally
+                    if !success {
+                        log::warn!("[Syphon] Failed to publish frame {}", frame_count);
+                    }
+                    
+                    // Log stats periodically
                     if last_log.elapsed().as_secs() >= 30 {
                         log::info!("[Syphon] {} frames published to '{}'", frame_count, name);
                         last_log = Instant::now();
@@ -135,8 +151,33 @@ impl SyphonSender {
             }
         }
         
-        // TODO: Release SyphonServer
-        log::info!("[Syphon] Publish thread stopped for '{}'", name);
+        // Cleanup
+        unsafe {
+            syphon_sys::destroy_server(server);
+        }
+        
+        log::info!("[Syphon] Publish thread stopped for '{}' ({} frames total)", name, frame_count);
+    }
+    
+    /// Publish thread stub for non-macOS platforms
+    #[cfg(not(target_os = "macos"))]
+    fn publish_thread(
+        name: String,
+        _width: u32,
+        _height: u32,
+        frame_rx: Receiver<SyphonFrameData>,
+        running: Arc<AtomicBool>,
+    ) {
+        log::warn!("[Syphon] Publish thread for '{}' not available on this platform", name);
+        
+        // Just drain the queue
+        while running.load(Ordering::SeqCst) {
+            match frame_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(_) => {}
+                Err(channel::RecvTimeoutError::Timeout) => {}
+                Err(channel::RecvTimeoutError::Disconnected) => break,
+            }
+        }
     }
     
     /// Submit a frame for publishing
@@ -201,9 +242,14 @@ impl SyphonSender {
     
     /// Check if Syphon framework is available
     pub fn is_syphon_available() -> bool {
-        // TODO: Check if Syphon.framework can be loaded
-        // For now, assume true on macOS
-        cfg!(target_os = "macos")
+        #[cfg(target_os = "macos")]
+        {
+            crate::ipc::syphon_sys::is_syphon_available()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
     }
 }
 
@@ -267,10 +313,10 @@ mod tests {
     fn test_syphon_sender_creation() {
         // This will fail on non-macOS, that's expected
         if !SyphonSender::is_syphon_available() {
+            println!("Syphon not available (expected on non-macOS)");
             return;
         }
         
-        // Can't actually create without macOS runtime
-        // Just verify the function exists
+        // Can't actually test without macOS runtime
     }
 }

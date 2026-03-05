@@ -9,14 +9,23 @@ This guide explains how to complete the implementation of Syphon (macOS), Spout 
 ✅ **Completed:**
 - Core trait abstractions (`IpcInput`, `IpcOutput`, `IpcDiscovery`)
 - Module structure with platform-specific implementations
-- Stub implementations for all three platforms
+- Framework implementations for all three platforms
 - Cargo.toml with platform-specific dependencies
+- **Syphon Output Framework:**
+  - `SyphonSender` with background publish thread (mirrors `NdiOutputSender`)
+  - `AsyncSyphonOutput` with triple-buffered GPU readback (mirrors `AsyncNdiOutput`)
+  - `SyphonOutputIntegration` for engine integration
+- **Syphon Input Framework:**
+  - `SyphonInputReceiver` with background receive thread
+  - `SyphonDiscovery` for server enumeration
+  - `SyphonInputIntegration` for engine integration
 
 🔄 **Remaining:**
-- Native API bindings for each platform
-- GPU texture interop with wgpu
-- GUI integration
-- Testing and validation
+- **Objective-C bindings** for Syphon.framework
+- GPU texture interop with wgpu Metal backend
+- GUI integration (Inputs/Settings tabs)
+- Testing and validation with Resolume/MadMapper
+- Spout and v4l2loopback implementation (follow Syphon pattern)
 
 ---
 

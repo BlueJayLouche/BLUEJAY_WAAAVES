@@ -65,6 +65,7 @@ pub enum InputType {
     None,
     Webcam,
     Ndi,
+    Syphon,
     Spout,
     VideoFile,
 }
@@ -296,6 +297,9 @@ impl InputSource {
             }
             InputType::Ndi => {
                 // TODO: Initialize NDI receiver
+            }
+            InputType::Syphon => {
+                // TODO: Initialize Syphon receiver
             }
             InputType::Spout => {
                 // TODO: Initialize Spout receiver

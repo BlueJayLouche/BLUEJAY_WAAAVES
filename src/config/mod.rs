@@ -33,6 +33,8 @@ pub struct AppConfig {
     pub audio: AudioConfig,
     /// NDI output settings
     pub ndi: NdiConfig,
+    /// Syphon output settings (macOS only)
+    pub syphon: SyphonConfig,
     /// OSC/MIDI settings
     pub control: ControlConfig,
     /// UI scaling factor (0.5 - 2.0)
@@ -117,6 +119,24 @@ pub struct NdiConfig {
     pub output_alpha: bool,
     /// Frame skip factor (send every Nth frame, 1=no skip, 2=30fps, 3=20fps, etc)
     pub frame_skip: u8,
+}
+
+/// Syphon output configuration (macOS only)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyphonConfig {
+    /// Enable Syphon output
+    pub enabled: bool,
+    /// Syphon server name
+    pub server_name: String,
+}
+
+impl Default for SyphonConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_name: "RustJay Waaaves".to_string(),
+        }
+    }
 }
 
 /// Audio input configuration
@@ -211,6 +231,7 @@ impl Default for AppConfig {
                 output_alpha: false,
                 frame_skip: 2, // Default to 30fps output (skip every other frame)
             },
+            syphon: SyphonConfig::default(),
             control: ControlConfig {
                 osc_receive_port: 7000,
                 osc_send_port: 7001,

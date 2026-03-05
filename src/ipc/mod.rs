@@ -264,12 +264,8 @@ pub mod platform {
 // Platform-specific implementations
 #[cfg(target_os = "macos")]
 pub mod syphon;
-
-#[cfg(target_os = "windows")]
-pub mod spout;
-
-#[cfg(target_os = "linux")]
-pub mod v4l2;
+#[cfg(target_os = "macos")]
+pub mod syphon_sys;
 
 /// Factory functions for creating platform-specific implementations
 pub mod factory {

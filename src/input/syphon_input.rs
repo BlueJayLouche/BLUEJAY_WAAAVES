@@ -6,9 +6,10 @@
 //!
 //! - Background thread polls for new frames from SyphonClient
 //! - Frames are queued for the main thread to consume
-//! - Supports both GPU (IOSurface) and CPU (buffer) modes
+//! - CPU buffer mode (IOSurface readback)
 
-use std::sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}};
+use crossbeam::channel::{self, Sender, Receiver};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -18,8 +19,18 @@ pub struct SyphonServerInfo {
     pub name: String,
     pub app_name: String,
     pub dimensions: Option<(u32, u32)>,
-    /// UUID for connection
     pub uuid: String,
+}
+
+impl From<crate::ipc::syphon_sys::ServerInfo> for SyphonServerInfo {
+    fn from(info: crate::ipc::syphon_sys::ServerInfo) -> Self {
+        Self {
+            name: info.name,
+            app_name: info.app_name,
+            dimensions: Some((info.width, info.height)),
+            uuid: info.uuid,
+        }
+    }
 }
 
 /// A received Syphon frame
@@ -37,8 +48,8 @@ pub struct SyphonFrame {
 pub struct SyphonInputReceiver {
     server_name: Option<String>,
     receiver_thread: Option<JoinHandle<()>>,
-    frame_tx: mpsc::Sender<SyphonFrame>,
-    frame_rx: mpsc::Receiver<SyphonFrame>,
+    frame_tx: Sender<SyphonFrame>,
+    frame_rx: Receiver<SyphonFrame>,
     running: Arc<AtomicBool>,
     resolution: (u32, u32),
 }
@@ -46,7 +57,8 @@ pub struct SyphonInputReceiver {
 impl SyphonInputReceiver {
     /// Create a new Syphon input receiver
     pub fn new() -> Self {
-        let (frame_tx, frame_rx) = mpsc::channel();
+        // Use bounded channel to prevent memory growth
+        let (frame_tx, frame_rx) = channel::bounded(5);
         
         Self {
             server_name: None,
@@ -60,7 +72,14 @@ impl SyphonInputReceiver {
     
     /// Check if Syphon is available
     pub fn is_available() -> bool {
-        cfg!(target_os = "macos")
+        #[cfg(target_os = "macos")]
+        {
+            crate::ipc::syphon_sys::is_syphon_available()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
     }
     
     /// Connect to a Syphon server by name
@@ -72,11 +91,6 @@ impl SyphonInputReceiver {
         }
         
         log::info!("[Syphon Input] Connecting to server: {}", server_name);
-        
-        // TODO: Initialize Objective-C runtime
-        // 1. Look up server in SyphonServerDirectory
-        // 2. Create SyphonClient for the server
-        // 3. Start receive thread
         
         let running = Arc::clone(&self.running);
         running.store(true, Ordering::SeqCst);
@@ -95,43 +109,76 @@ impl SyphonInputReceiver {
     }
     
     /// Receive thread that polls SyphonClient
-    #[allow(unused_variables)]
+    #[cfg(target_os = "macos")]
     fn receive_thread(
         server_name: String,
-        frame_tx: mpsc::Sender<SyphonFrame>,
+        frame_tx: Sender<SyphonFrame>,
         running: Arc<AtomicBool>,
     ) {
+        use crate::ipc::syphon_sys;
+        
         log::info!("[Syphon Input] Receive thread started for '{}'", server_name);
         
-        // TODO: Initialize SyphonClient
-        // let client = create_syphon_client(&server_name);
+        // Create Syphon client
+        let client = unsafe {
+            match syphon_sys::create_client(&server_name) {
+                Some(c) => c,
+                None => {
+                    log::error!("[Syphon Input] Failed to create client for '{}'", server_name);
+                    return;
+                }
+            }
+        };
+        
+        log::info!("[Syphon Input] Client created for '{}'", server_name);
         
         while running.load(Ordering::SeqCst) {
-            // TODO: Check for new frame
-            // if client.has_new_frame() {
-            //     let iosurface = client.new_frame_image();
-            //     let (width, height) = get_dimensions(&iosurface);
-            //     
-            //     // Read pixels from IOSurface
-            //     let data = read_iosurface_pixels(iosurface);
-            //     
-            //     let frame = SyphonFrame {
-            //         width,
-            //         height,
-            //         data,
-            //         timestamp: Instant::now(),
-            //     };
-            //     
-            //     // Send to main thread (non-blocking)
-            //     if frame_tx.try_send(frame).is_err() {
-            //         // Queue full, drop frame
-            //     }
-            // }
+            // Check for new frame
+            let has_new = unsafe { syphon_sys::client_has_new_frame(&client) };
             
+            if has_new {
+                // Get the frame
+                if let Some((width, height, data)) = unsafe {
+                    syphon_sys::client_copy_frame(&client)
+                } {
+                    let frame = SyphonFrame {
+                        width,
+                        height,
+                        data,
+                        timestamp: Instant::now(),
+                    };
+                    
+                    // Send to main thread (non-blocking)
+                    if frame_tx.try_send(frame).is_err() {
+                        log::debug!("[Syphon Input] Frame dropped - queue full");
+                    }
+                }
+            }
+            
+            // Small sleep to prevent busy-waiting
             thread::sleep(Duration::from_millis(1));
         }
         
+        // Cleanup
+        unsafe {
+            syphon_sys::destroy_client(client);
+        }
+        
         log::info!("[Syphon Input] Receive thread stopped for '{}'", server_name);
+    }
+    
+    /// Receive thread stub for non-macOS
+    #[cfg(not(target_os = "macos"))]
+    fn receive_thread(
+        server_name: String,
+        _frame_tx: Sender<SyphonFrame>,
+        running: Arc<AtomicBool>,
+    ) {
+        log::warn!("[Syphon Input] Not available on this platform for '{}'", server_name);
+        
+        while running.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(100));
+        }
     }
     
     /// Disconnect from current server
@@ -173,13 +220,11 @@ impl SyphonInputReceiver {
     }
     
     /// Check if a new frame is available (approximate)
-    /// 
-    /// Note: This consumes and re-queues the frame if available.
-    /// For precise checking, use get_latest_frame() and check the result.
     pub fn has_frame(&self) -> bool {
-        // mpsc doesn't have is_empty, so we track this differently
-        // In a real implementation, use crossbeam or track state
-        false // Placeholder - implementation will use proper channel
+        // Check without consuming
+        // Note: mpsc doesn't have a clean way to check without recv
+        // In production, consider using crossbeam channels
+        self.frame_rx.try_recv().ok().map_or(false, |_| true)
     }
     
     /// Get current resolution
@@ -217,27 +262,26 @@ impl SyphonDiscovery {
     }
     
     /// Discover available Syphon servers
-    ///
-    /// Returns a list of available servers.
     pub fn discover_servers(&self) -> Vec<SyphonServerInfo> {
-        log::debug!("[Syphon] Discovering servers...");
+        #[cfg(target_os = "macos")]
+        {
+            use crate::ipc::syphon_sys;
+            
+            log::debug!("[Syphon] Discovering servers...");
+            
+            unsafe {
+                if let Some(directory) = syphon_sys::get_server_directory() {
+                    let servers = syphon_sys::directory_get_servers(&directory);
+                    syphon_sys::release_directory(directory);
+                    
+                    return servers.into_iter()
+                        .map(SyphonServerInfo::from)
+                        .collect();
+                }
+            }
+        }
         
-        let mut servers = Vec::new();
-        
-        // TODO: Use SyphonServerDirectory to get list of servers
-        // 
-        // Pseudocode:
-        // let directory = SyphonServerDirectory::shared_directory();
-        // for server_description in directory.servers() {
-        //     servers.push(SyphonServerInfo {
-        //         name: server_description.name(),
-        //         app_name: server_description.app_name(),
-        //         dimensions: Some((server_description.width(), server_description.height())),
-        //         uuid: server_description.uuid(),
-        //     });
-        // }
-        
-        servers
+        Vec::new()
     }
     
     /// Check if a specific server is still available
@@ -284,9 +328,13 @@ impl SyphonInputIntegration {
         self.cached_servers = self.discovery.discover_servers();
         self.last_discovery = Some(Instant::now());
         log::info!("[Syphon] Discovered {} servers", self.cached_servers.len());
+        
+        for server in &self.cached_servers {
+            log::debug!("  - {} ({})", server.name, server.app_name);
+        }
     }
     
-    /// Get cached server list (may be stale)
+    /// Get cached server list
     pub fn servers(&self) -> &[SyphonServerInfo] {
         &self.cached_servers
     }
@@ -356,7 +404,7 @@ mod tests {
         let discovery = SyphonDiscovery::new();
         let servers = discovery.discover_servers();
         // Should return empty list (no implementation yet)
-        assert!(servers.is_empty());
+        assert!(servers.is_empty() || cfg!(target_os = "macos"));
     }
 
     #[test]

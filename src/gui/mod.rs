@@ -189,6 +189,12 @@ pub struct ControlGui {
     pub selected_ndi_source2: i32,
     pub ndi_sources_dirty: bool,
     
+    // Syphon source selection (macOS only)
+    pub syphon_sources: Vec<String>,
+    pub selected_syphon_source1: i32,
+    pub selected_syphon_source2: i32,
+    pub syphon_sources_dirty: bool,
+    
     // Audio device selection
     pub audio_devices: Vec<String>,
     pub selected_audio_device: i32,
@@ -377,6 +383,10 @@ impl ControlGui {
             selected_ndi_source1: -1,
             selected_ndi_source2: -1,
             ndi_sources_dirty: true, // Mark as dirty to trigger initial scan
+            syphon_sources: Vec::new(),
+            selected_syphon_source1: -1,
+            selected_syphon_source2: -1,
+            syphon_sources_dirty: true,
             audio_devices,
             selected_audio_device: -1,
             audio_device_dirty: false,
@@ -561,12 +571,34 @@ impl ControlGui {
         if self.selected_ndi_source2 >= 0 && (self.selected_ndi_source2 as usize) >= self.ndi_sources.len() {
             self.selected_ndi_source2 = -1;
         }
+        if self.selected_syphon_source1 >= 0 && (self.selected_syphon_source1 as usize) >= self.syphon_sources.len() {
+            self.selected_syphon_source1 = -1;
+        }
+        if self.selected_syphon_source2 >= 0 && (self.selected_syphon_source2 as usize) >= self.syphon_sources.len() {
+            self.selected_syphon_source2 = -1;
+        }
     }
     
     /// Refresh the list of available NDI sources
     fn refresh_ndi_sources(&mut self) {
         self.ndi_sources = crate::input::list_ndi_sources(1000);
         self.ndi_sources_dirty = false;
+    }
+    
+    /// Refresh the list of available Syphon servers (macOS only)
+    #[cfg(target_os = "macos")]
+    fn refresh_syphon_sources(&mut self) {
+        let discovery = crate::input::SyphonDiscovery::new();
+        let servers = discovery.discover_servers();
+        self.syphon_sources = servers.into_iter().map(|s| s.name).collect();
+        self.syphon_sources_dirty = false;
+    }
+    
+    /// Stub for non-macOS platforms
+    #[cfg(not(target_os = "macos"))]
+    fn refresh_syphon_sources(&mut self) {
+        self.syphon_sources.clear();
+        self.syphon_sources_dirty = false;
     }
     
     /// Save current input settings to config file
@@ -576,15 +608,17 @@ impl ControlGui {
             InputType::None => 0,
             InputType::Webcam => 1,
             InputType::Ndi => 2,
-            InputType::Spout => 3,
-            InputType::VideoFile => 4,
+            InputType::Syphon => 3,
+            InputType::Spout => 4,
+            InputType::VideoFile => 5,
         };
         let input2_type_int = match self.input2_type {
             InputType::None => 0,
             InputType::Webcam => 1,
             InputType::Ndi => 2,
-            InputType::Spout => 3,
-            InputType::VideoFile => 4,
+            InputType::Syphon => 3,
+            InputType::Spout => 4,
+            InputType::VideoFile => 5,
         };
         
         // We can't modify self.config directly since it's used immutably,
@@ -4239,7 +4273,7 @@ impl ControlGui {
     fn build_inputs_panel(&mut self, ui: &Ui) {
         // Input 1 section
         if CollapsingHeader::new("Input 1").default_open(true).build(ui) {
-            let input_types = ["None", "Webcam", "NDI", "Spout", "Video File"];
+            let input_types = ["None", "Webcam", "NDI", "Syphon", "Spout", "Video File"];
             let mut type_idx = self.input1_type as usize;
             let old_type = type_idx;
             let preview = input_types[type_idx].to_string();
@@ -4259,8 +4293,9 @@ impl ControlGui {
                 0 => InputType::None,
                 1 => InputType::Webcam,
                 2 => InputType::Ndi,
-                3 => InputType::Spout,
-                4 => InputType::VideoFile,
+                3 => InputType::Syphon,
+                4 => InputType::Spout,
+                5 => InputType::VideoFile,
                 _ => InputType::None,
             };
             
@@ -4274,6 +4309,17 @@ impl ControlGui {
             if type_changed && self.input1_type == InputType::Ndi 
                 && self.selected_ndi_source1 < 0 && !self.ndi_sources.is_empty() {
                 self.selected_ndi_source1 = 0;
+            }
+            
+            // Auto-select first Syphon source if Syphon is chosen but no source selected
+            if type_changed && self.input1_type == InputType::Syphon 
+                && self.selected_syphon_source1 < 0 && !self.syphon_sources.is_empty() {
+                self.selected_syphon_source1 = 0;
+            }
+            
+            // Refresh Syphon sources when switching to Syphon
+            if type_changed && self.input1_type == InputType::Syphon {
+                self.refresh_syphon_sources();
             }
             
             // Refresh NDI sources when switching to NDI
@@ -4380,6 +4426,46 @@ impl ControlGui {
                 }
             }
             
+            // Syphon source selection (macOS only)
+            #[cfg(target_os = "macos")]
+            if self.input1_type == InputType::Syphon {
+                let sources: Vec<&str> = self.syphon_sources.iter().map(|s| s.as_str()).collect();
+                if !sources.is_empty() {
+                    let preview = if self.selected_syphon_source1 >= 0 { 
+                        self.syphon_sources[self.selected_syphon_source1 as usize].clone()
+                    } else { "Select Syphon source...".to_string() };
+                    
+                    let mut selected = self.selected_syphon_source1;
+                    ComboBox::new(ui, "##syphon1_select")
+                        .preview_value(&preview)
+                        .build(|| {
+                            for (idx, opt) in sources.iter().enumerate() {
+                                if ui.selectable_config(opt).selected(idx == selected as usize).build() {
+                                    selected = idx as i32;
+                                }
+                            }
+                        });
+                    let source_changed = self.selected_syphon_source1 != selected;
+                    self.selected_syphon_source1 = selected;
+                    
+                    // Save config when source selection changes
+                    if source_changed {
+                        self.save_input_config();
+                    }
+                    
+                    if ui.button("Start Syphon Input 1") && self.selected_syphon_source1 >= 0 {
+                        let source_name = self.syphon_sources[self.selected_syphon_source1 as usize].clone();
+                        // TODO: Implement Syphon input start via InputChangeRequest
+                        log::info!("Start Syphon Input 1: {}", source_name);
+                    }
+                } else {
+                    ui.text_disabled("No Syphon sources found");
+                    if ui.button("Refresh Syphon Sources") {
+                        self.refresh_syphon_sources();
+                    }
+                }
+            }
+            
             // Stop button
             if ui.button("Stop Input 1") {
                 if let Ok(mut state) = self.shared_state.lock() {
@@ -4390,7 +4476,7 @@ impl ControlGui {
         
         // Input 2 section
         if CollapsingHeader::new("Input 2").default_open(true).build(ui) {
-            let input_types = ["None", "Webcam", "NDI", "Spout", "Video File"];
+            let input_types = ["None", "Webcam", "NDI", "Syphon", "Spout", "Video File"];
             let mut type_idx = self.input2_type as usize;
             let old_type = type_idx;
             let preview = input_types[type_idx].to_string();
@@ -4410,8 +4496,9 @@ impl ControlGui {
                 0 => InputType::None,
                 1 => InputType::Webcam,
                 2 => InputType::Ndi,
-                3 => InputType::Spout,
-                4 => InputType::VideoFile,
+                3 => InputType::Syphon,
+                4 => InputType::Spout,
+                5 => InputType::VideoFile,
                 _ => InputType::None,
             };
             
@@ -4427,9 +4514,20 @@ impl ControlGui {
                 self.selected_ndi_source2 = 0;
             }
             
+            // Auto-select first Syphon source if Syphon is chosen but no source selected
+            if type_changed && self.input2_type == InputType::Syphon 
+                && self.selected_syphon_source2 < 0 && !self.syphon_sources.is_empty() {
+                self.selected_syphon_source2 = 0;
+            }
+            
             // Refresh NDI sources when switching to NDI
             if type_changed && self.input2_type == InputType::Ndi {
                 self.refresh_ndi_sources();
+            }
+            
+            // Refresh Syphon sources when switching to Syphon
+            if type_changed && self.input2_type == InputType::Syphon {
+                self.refresh_syphon_sources();
             }
             
             // Save config when input type changes
@@ -4527,6 +4625,46 @@ impl ControlGui {
                     ui.text_disabled("No NDI sources found");
                     if ui.button("Refresh NDI Sources") {
                         self.refresh_ndi_sources();
+                    }
+                }
+            }
+            
+            // Syphon source selection (macOS only)
+            #[cfg(target_os = "macos")]
+            if self.input2_type == InputType::Syphon {
+                let sources: Vec<&str> = self.syphon_sources.iter().map(|s| s.as_str()).collect();
+                if !sources.is_empty() {
+                    let preview = if self.selected_syphon_source2 >= 0 { 
+                        self.syphon_sources[self.selected_syphon_source2 as usize].clone()
+                    } else { "Select Syphon source...".to_string() };
+                    
+                    let mut selected = self.selected_syphon_source2;
+                    ComboBox::new(ui, "##syphon2_select")
+                        .preview_value(&preview)
+                        .build(|| {
+                            for (idx, opt) in sources.iter().enumerate() {
+                                if ui.selectable_config(opt).selected(idx == selected as usize).build() {
+                                    selected = idx as i32;
+                                }
+                            }
+                        });
+                    let source_changed = self.selected_syphon_source2 != selected;
+                    self.selected_syphon_source2 = selected;
+                    
+                    // Save config when source selection changes
+                    if source_changed {
+                        self.save_input_config();
+                    }
+                    
+                    if ui.button("Start Syphon Input 2") && self.selected_syphon_source2 >= 0 {
+                        let source_name = self.syphon_sources[self.selected_syphon_source2 as usize].clone();
+                        // TODO: Implement Syphon input start via InputChangeRequest
+                        log::info!("Start Syphon Input 2: {}", source_name);
+                    }
+                } else {
+                    ui.text_disabled("No Syphon sources found");
+                    if ui.button("Refresh Syphon Sources") {
+                        self.refresh_syphon_sources();
                     }
                 }
             }
@@ -4946,6 +5084,61 @@ impl ControlGui {
             }
             
             ui.text_disabled("NDI output streams the final output at display resolution");
+        }
+        
+        // Syphon Output Settings (macOS only)
+        #[cfg(target_os = "macos")]
+        if CollapsingHeader::new("Syphon Output (macOS)").default_open(true).build(ui) {
+            // Read Syphon output status
+            let is_active = self.shared_state.lock()
+                .map(|s| s.syphon_output_active)
+                .unwrap_or(false);
+            
+            // Check if Syphon is available
+            let available = crate::output::SyphonSender::is_syphon_available();
+            
+            if !available {
+                ui.text_colored([1.0, 0.5, 0.0, 1.0], "⚠ Syphon.framework not available");
+                ui.text_disabled("Install Syphon from https://github.com/Syphon/Syphon-Framework");
+            } else {
+                // Status indicator
+                if is_active {
+                    ui.text_colored([0.0, 1.0, 0.0, 1.0], "● Streaming");
+                } else {
+                    ui.text("○ Not streaming");
+                }
+                
+                ui.separator();
+                
+                // Syphon server name
+                ui.text("Server Name:");
+                let mut server_name = self.config.syphon.server_name.clone();
+                ui.input_text("##syphon_name", &mut server_name)
+                    .build();
+                if server_name != self.config.syphon.server_name {
+                    self.config.syphon.server_name = server_name;
+                }
+                
+                ui.separator();
+                
+                // Start/Stop button
+                if is_active {
+                    if ui.button("Stop Syphon Output") {
+                        if let Ok(mut state) = self.shared_state.lock() {
+                            state.syphon_output_command = crate::core::SyphonOutputCommand::Stop;
+                        }
+                    }
+                } else {
+                    if ui.button("Start Syphon Output") {
+                        let name = self.config.syphon.server_name.clone();
+                        if let Ok(mut state) = self.shared_state.lock() {
+                            state.syphon_output_command = crate::core::SyphonOutputCommand::Start { name };
+                        }
+                    }
+                }
+                
+                ui.text_disabled("Syphon output streams to other macOS apps (Resolume, MadMapper, etc.)");
+            }
         }
         
         // Clear feedback button

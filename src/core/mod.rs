@@ -53,6 +53,14 @@ pub enum NdiOutputCommand {
     Stop,
 }
 
+/// Syphon Output command (macOS)
+#[derive(Debug, Clone, PartialEq)]
+pub enum SyphonOutputCommand {
+    None,
+    Start { name: String },
+    Stop,
+}
+
 /// Audio change request
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AudioChangeRequest {
@@ -189,6 +197,10 @@ pub struct SharedState {
     pub ndi_output_command: NdiOutputCommand,
     /// NDI output status (Engine -> GUI)
     pub ndi_output_active: bool,
+    /// Syphon output command (GUI -> Engine)
+    pub syphon_output_command: SyphonOutputCommand,
+    /// Syphon output status (Engine -> GUI)
+    pub syphon_output_active: bool,
     /// Output display mode (which block to show)
     pub output_mode: OutputMode,
     /// Global BPM for tempo-synced LFOs
@@ -276,6 +288,8 @@ impl SharedState {
             audio_change_request: AudioChangeRequest::None,
             ndi_output_command: NdiOutputCommand::None,
             ndi_output_active: false,
+            syphon_output_command: SyphonOutputCommand::None,
+            syphon_output_active: false,
             output_mode: OutputMode::default(),
             bpm: 120.0,
             block1_modulations: HashMap::new(),
