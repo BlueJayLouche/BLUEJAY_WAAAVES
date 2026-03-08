@@ -272,60 +272,51 @@ pub mod factory {
     pub fn create_input() -> Option<Box<dyn IpcInput>> {
         #[cfg(all(target_os = "macos", feature = "ipc-syphon"))]
         {
-            Some(Box::new(syphon::SyphonInput::new()))
+            return Some(Box::new(syphon::SyphonInput::new()));
         }
         #[cfg(target_os = "windows")]
         {
-            Some(Box::new(spout::SpoutInput::new()))
+            return Some(Box::new(spout::SpoutInput::new()));
         }
         #[cfg(target_os = "linux")]
         {
-            Some(Box::new(v4l2::V4L2Input::new()))
+            return Some(Box::new(v4l2::V4L2Input::new()));
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-        {
-            None
-        }
+        None
     }
 
     /// Create the best available IPC output for this platform
     pub fn create_output() -> Option<Box<dyn IpcOutput>> {
         #[cfg(all(target_os = "macos", feature = "ipc-syphon"))]
         {
-            Some(Box::new(syphon::SyphonOutput::new()))
+            return Some(Box::new(syphon::SyphonOutput::new()));
         }
         #[cfg(target_os = "windows")]
         {
-            Some(Box::new(spout::SpoutOutput::new()))
+            return Some(Box::new(spout::SpoutOutput::new()));
         }
         #[cfg(target_os = "linux")]
         {
-            Some(Box::new(v4l2::V4L2Output::new()))
+            return Some(Box::new(v4l2::V4L2Output::new()));
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-        {
-            None
-        }
+        None
     }
 
     /// Create the best available discovery for this platform
     pub fn create_discovery() -> Option<Box<dyn IpcDiscovery>> {
         #[cfg(all(target_os = "macos", feature = "ipc-syphon"))]
         {
-            Some(Box::new(syphon::SyphonDiscovery::new()))
+            return Some(Box::new(syphon::SyphonDiscovery::new()));
         }
         #[cfg(target_os = "windows")]
         {
-            Some(Box::new(spout::SpoutDiscovery::new()))
+            return Some(Box::new(spout::SpoutDiscovery::new()));
         }
         #[cfg(target_os = "linux")]
         {
-            Some(Box::new(v4l2::V4L2Discovery::new()))
+            return Some(Box::new(v4l2::V4L2Discovery::new()));
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-        {
-            None
-        }
+        None
     }
 }
 

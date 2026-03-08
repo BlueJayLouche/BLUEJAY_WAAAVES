@@ -962,27 +962,30 @@ impl ApplicationHandler for App {
             }
             
             // Handle NDI output command
-            let mut state = self.shared_state.lock().unwrap();
-            let ndi_command = std::mem::replace(&mut state.ndi_output_command, crate::core::NdiOutputCommand::None);
-            drop(state);
-            
-            match ndi_command {
-                crate::core::NdiOutputCommand::Start { name, include_alpha, frame_skip } => {
-                    if let Some(ref mut engine) = self.output_engine {
-                        match engine.start_ndi_output(&name, include_alpha, frame_skip) {
-                            Ok(_) => log::info!("[ENGINE] NDI output started: '{}'", name),
-                            Err(e) => log::error!("[ENGINE] Failed to start NDI output: {:?}", e),
+            #[cfg(feature = "ndi")]
+            {
+                let mut state = self.shared_state.lock().unwrap();
+                let ndi_command = std::mem::replace(&mut state.ndi_output_command, crate::core::NdiOutputCommand::None);
+                drop(state);
+                
+                match ndi_command {
+                    crate::core::NdiOutputCommand::Start { name, include_alpha, frame_skip } => {
+                        if let Some(ref mut engine) = self.output_engine {
+                            match engine.start_ndi_output(&name, include_alpha, frame_skip) {
+                                Ok(_) => log::info!("[ENGINE] NDI output started: '{}'", name),
+                                Err(e) => log::error!("[ENGINE] Failed to start NDI output: {:?}", e),
+                            }
+                        } else {
+                            log::error!("[ENGINE] Output engine not initialized");
                         }
-                    } else {
-                        log::error!("[ENGINE] Output engine not initialized");
                     }
-                }
-                crate::core::NdiOutputCommand::Stop => {
-                    if let Some(ref mut engine) = self.output_engine {
-                        engine.stop_ndi_output();
+                    crate::core::NdiOutputCommand::Stop => {
+                        if let Some(ref mut engine) = self.output_engine {
+                            engine.stop_ndi_output();
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
         
@@ -1915,56 +1918,61 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         
         // Process NDI output (triple-buffered with frame-delayed readback for performance)
-        let ndi_width = self.block3_texture.width;
-        let ndi_height = self.block3_texture.height;
-        
-        // Increment skip counter and check if we should process this frame
-        // ndi_frame_skip = 0 means process every frame (no skip)
-        // ndi_frame_skip = 1 means process every 2nd frame (skip 1)
-        self.ndi_skip_counter = self.ndi_skip_counter.wrapping_add(1);
-        let should_process = self.ndi_skip_counter % (self.ndi_frame_skip + 1) == 0;
-        
-        // Increment frame counter
-        self.ndi_frame_counter = self.ndi_frame_counter.wrapping_add(1);
-        
-        // NDI status is now logged from the sender thread
-        
-        // NDI output processing
-        let mut ndi_buffer_to_process: Option<usize> = None;
-        if let Some(async_ndi) = self.ndi_async.as_ref() {
-            if should_process {
-                // Try to acquire a free buffer
-                if let Some((idx, buffer)) = async_ndi.acquire_buffer() {
-                    encoder.copy_texture_to_buffer(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: &self.block3_texture.texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        wgpu::TexelCopyBufferInfo {
-                            buffer,
-                            layout: wgpu::TexelCopyBufferLayout {
-                                offset: 0,
-                                bytes_per_row: Some(ndi_width * 4),
-                                rows_per_image: Some(ndi_height),
+        #[cfg(feature = "ndi")]
+        let ndi_buffer_idx = {
+            let ndi_width = self.block3_texture.width;
+            let ndi_height = self.block3_texture.height;
+            
+            // Increment skip counter and check if we should process this frame
+            // ndi_frame_skip = 0 means process every frame (no skip)
+            // ndi_frame_skip = 1 means process every 2nd frame (skip 1)
+            self.ndi_skip_counter = self.ndi_skip_counter.wrapping_add(1);
+            let should_process = self.ndi_skip_counter % (self.ndi_frame_skip + 1) == 0;
+            
+            // Increment frame counter
+            self.ndi_frame_counter = self.ndi_frame_counter.wrapping_add(1);
+            
+            // NDI status is now logged from the sender thread
+            
+            // NDI output processing
+            let mut ndi_buffer_to_process: Option<usize> = None;
+            if let Some(async_ndi) = self.ndi_async.as_ref() {
+                if should_process {
+                    // Try to acquire a free buffer
+                    if let Some((idx, buffer)) = async_ndi.acquire_buffer() {
+                        encoder.copy_texture_to_buffer(
+                            wgpu::TexelCopyTextureInfo {
+                                texture: &self.block3_texture.texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d::ZERO,
+                                aspect: wgpu::TextureAspect::All,
                             },
-                        },
-                        wgpu::Extent3d {
-                            width: ndi_width,
-                            height: ndi_height,
-                            depth_or_array_layers: 1,
-                        },
-                    );
-                    
-                    ndi_buffer_to_process = Some(idx);
-                    self.ndi_skip_counter = 0;
+                            wgpu::TexelCopyBufferInfo {
+                                buffer,
+                                layout: wgpu::TexelCopyBufferLayout {
+                                    offset: 0,
+                                    bytes_per_row: Some(ndi_width * 4),
+                                    rows_per_image: Some(ndi_height),
+                                },
+                            },
+                            wgpu::Extent3d {
+                                width: ndi_width,
+                                height: ndi_height,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                        
+                        ndi_buffer_to_process = Some(idx);
+                        self.ndi_skip_counter = 0;
+                    }
                 }
             }
-        }
+            
+            ndi_buffer_to_process
+        };
         
-        // Store the buffer index for processing after submit
-        let ndi_buffer_idx = ndi_buffer_to_process;
+        #[cfg(not(feature = "ndi"))]
+        let ndi_buffer_idx: Option<usize> = None;
         
         // Note: Syphon zero-copy publish happens after submit, see below
         
@@ -2264,6 +2272,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     
     /// Stop NDI output
+    #[cfg(feature = "ndi")]
     pub fn stop_ndi_output(&mut self) {
         if self.ndi_async.is_some() {
             self.ndi_async = None;
