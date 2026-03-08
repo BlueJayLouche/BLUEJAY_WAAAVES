@@ -1,6 +1,11 @@
 //! # NDI Output Sender
 //!
 //! Sends video frames as an NDI stream.
+//! This module is only compiled when the `ndi` feature is enabled.
+
+#![cfg(feature = "ndi")]
+
+//!
 //!
 //! Architecture:
 //! - Dedicated send thread to avoid blocking render loop

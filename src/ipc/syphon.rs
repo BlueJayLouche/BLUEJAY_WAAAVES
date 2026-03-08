@@ -2,6 +2,9 @@
 //!
 //! Provides Syphon video sharing support on macOS using the well-tested
 //! syphon-core and syphon-wgpu crates for zero-copy GPU texture sharing.
+//! This module is only compiled when the `syphon` feature is enabled on macOS.
+
+#![cfg(all(target_os = "macos", feature = "syphon"))]
 //!
 //! ## Architecture
 //!

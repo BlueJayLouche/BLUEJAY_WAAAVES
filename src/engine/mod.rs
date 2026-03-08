@@ -1016,8 +1016,8 @@ impl ApplicationHandler for App {
         if let (Some(ref mut video), Some(ref mut engine)) = (self.video_input.as_mut(), self.output_engine.as_mut()) {
             video.update();
             
-            // Check for GPU-accelerated Syphon input first (macOS only)
-            #[cfg(target_os = "macos")]
+            // Check for GPU-accelerated Syphon input first (macOS + syphon feature only)
+            #[cfg(all(target_os = "macos", feature = "syphon"))]
             {
                 // Input 1: GPU Syphon texture
                 if video.input1_is_gpu_syphon() {
@@ -1048,8 +1048,8 @@ impl ApplicationHandler for App {
                 }
             }
             
-            // Non-macOS: CPU frame data only
-            #[cfg(not(target_os = "macos"))]
+            // Non-macOS or syphon disabled: CPU frame data only
+            #[cfg(not(all(target_os = "macos", feature = "syphon")))]
             {
                 // Upload input 1 frame if available
                 if video.input1_has_new_frame() {
@@ -1172,7 +1172,8 @@ pub struct WgpuEngine {
     /// Video recorder
     recorder: Option<crate::recorder::Recorder>,
     
-    /// Async NDI processor (background thread)
+    /// Async NDI processor (background thread, requires ndi feature)
+    #[cfg(feature = "ndi")]
     ndi_async: Option<crate::output::AsyncNdiOutput>,
     
     /// Triple-buffered GPU readback buffers for NDI output (as Arc for sharing)
@@ -1187,8 +1188,8 @@ pub struct WgpuEngine {
     /// Current skip counter
     ndi_skip_counter: u8,
     
-    /// Zero-copy Syphon output (macOS only)
-    #[cfg(target_os = "macos")]
+    /// Zero-copy Syphon output (macOS only, requires syphon feature)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     syphon_sender: Option<crate::output::SyphonWgpuSender>,
 }
 
@@ -1468,15 +1469,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // Initialize recorder (will be created when recording starts)
             recorder: None,
             
-            // Initialize NDI output (will be created when enabled)
+            // Initialize NDI output (will be created when enabled, requires ndi feature)
+            #[cfg(feature = "ndi")]
             ndi_async: None,
             ndi_buffers: Vec::new(),
             ndi_frame_counter: 0,
             ndi_frame_skip: 1,
             ndi_skip_counter: 0,
             
-            // Initialize Syphon output (macOS only, created when enabled)
-            #[cfg(target_os = "macos")]
+            // Initialize Syphon output (macOS only, requires syphon feature)
+            #[cfg(all(target_os = "macos", feature = "syphon"))]
             syphon_sender: None,
         })
     }
@@ -2069,12 +2071,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 self.queue.submit(std::iter::once(encoder.finish()));
                 
                 // Process NDI buffer even in error case
+                #[cfg(feature = "ndi")]
                 if let (Some(idx), Some(async_ndi)) = (ndi_buffer_idx, self.ndi_async.as_ref()) {
                     async_ndi.process_buffer_async(idx);
                 }
                 
-                // Publish to Syphon (zero-copy, macOS only)
-                #[cfg(target_os = "macos")]
+                // Publish to Syphon (zero-copy, macOS + syphon feature only)
+                #[cfg(all(target_os = "macos", feature = "syphon"))]
                 if let Some(ref mut syphon) = self.syphon_sender {
                     syphon.publish(&self.block3_texture.texture, &self.device, &self.queue);
                 }
@@ -2153,12 +2156,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             staging_buffer.unmap();
             
             // Process NDI buffer after submit (if we have one pending)
+            #[cfg(feature = "ndi")]
             if let (Some(idx), Some(async_ndi)) = (ndi_buffer_idx, self.ndi_async.as_ref()) {
                 async_ndi.process_buffer_async(idx);
             }
             
             // Publish to Syphon (zero-copy, macOS only)
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", feature = "syphon"))]
             if let Some(ref mut syphon) = self.syphon_sender {
                 syphon.publish(&self.block3_texture.texture, &self.device, &self.queue);
             }
@@ -2166,12 +2170,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             self.queue.submit(std::iter::once(encoder.finish()));
             
             // Process NDI buffer after submit (if we have one pending)
+            #[cfg(feature = "ndi")]
             if let (Some(idx), Some(async_ndi)) = (ndi_buffer_idx, self.ndi_async.as_ref()) {
                 async_ndi.process_buffer_async(idx);
             }
             
-            // Publish to Syphon (zero-copy, macOS only)
-            #[cfg(target_os = "macos")]
+            // Publish to Syphon (zero-copy, macOS + syphon feature only)
+            #[cfg(all(target_os = "macos", feature = "syphon"))]
             if let Some(ref mut syphon) = self.syphon_sender {
                 syphon.publish(&self.block3_texture.texture, &self.device, &self.queue);
             }
@@ -2208,6 +2213,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     
     /// Start NDI output
+    #[cfg(feature = "ndi")]
     pub fn start_ndi_output(&mut self, name: &str, include_alpha: bool, frame_skip: u8) -> anyhow::Result<()> {
         // Stop existing NDI output if any
         self.stop_ndi_output();
@@ -2272,8 +2278,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
     
-    /// Start Syphon output (macOS only)
-    #[cfg(target_os = "macos")]
+    /// Start Syphon output (macOS only, requires syphon feature)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     pub fn start_syphon_output(&mut self, name: &str) -> anyhow::Result<()> {
         // Stop existing Syphon output if any
         self.stop_syphon_output();
@@ -2306,8 +2312,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         Ok(())
     }
     
-    /// Stop Syphon output (macOS only)
-    #[cfg(target_os = "macos")]
+    /// Stop Syphon output (macOS only, requires syphon feature)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     pub fn stop_syphon_output(&mut self) {
         if self.syphon_sender.is_some() {
             log::info!("[Engine] Stopping Syphon output");
@@ -2319,15 +2325,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
     
-    /// Stub for non-macOS platforms
-    #[cfg(not(target_os = "macos"))]
+    /// Stub for non-macOS platforms or when syphon feature is disabled
+    #[cfg(not(all(target_os = "macos", feature = "syphon")))]
     pub fn start_syphon_output(&mut self, _name: &str) -> anyhow::Result<()> {
-        Err(anyhow::anyhow!("Syphon is only available on macOS"))
+        Err(anyhow::anyhow!("Syphon is only available on macOS with the 'syphon' feature enabled"))
     }
     
-    /// Stub for non-macOS platforms
-    #[cfg(not(target_os = "macos"))]
+    /// Stub for non-macOS platforms or when syphon feature is disabled
+    #[cfg(not(all(target_os = "macos", feature = "syphon")))]
     pub fn stop_syphon_output(&mut self) {}
+    
+    /// Stub for when NDI feature is disabled
+    #[cfg(not(feature = "ndi"))]
+    pub fn start_ndi_output(&mut self, _name: &str, _include_alpha: bool, _frame_skip: u8) -> anyhow::Result<()> {
+        Err(anyhow::anyhow!("NDI support not compiled. Enable the 'ndi' feature."))
+    }
 }
 
 /// Apply audio modulations to Block 1 parameters

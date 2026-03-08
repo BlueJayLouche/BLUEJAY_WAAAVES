@@ -1,5 +1,10 @@
 //! Fixed Syphon Output (macOS)
 //!
+//! This module is only compiled when the `syphon` feature is enabled on macOS.
+
+#![cfg(all(target_os = "macos", feature = "syphon"))]
+
+//!
 //! This module provides a working Syphon output implementation that avoids
 //! the crash in syphon-core's new_with_name_and_device method.
 //!

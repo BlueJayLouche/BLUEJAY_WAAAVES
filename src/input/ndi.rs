@@ -1,6 +1,11 @@
 //! # NDI Input Implementation
 //!
 //! Provides NDI (Network Device Interface) video input support using grafton-ndi 0.11.
+//! This module is only compiled when the `ndi` feature is enabled.
+
+#![cfg(feature = "ndi")]
+
+//!
 //! 
 //! Architecture:
 //! - NdiSourceFinder: Discovers available NDI sources on the network

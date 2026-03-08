@@ -188,12 +188,18 @@ pub struct ControlGui {
     pub selected_ndi_source1: i32,
     pub selected_ndi_source2: i32,
     pub ndi_sources_dirty: bool,
+    // Saved NDI source names from config (for matching after discovery)
+    pub saved_ndi_source1: String,
+    pub saved_ndi_source2: String,
     
     // Syphon source selection (macOS only)
     pub syphon_sources: Vec<String>,
     pub selected_syphon_source1: i32,
     pub selected_syphon_source2: i32,
     pub syphon_sources_dirty: bool,
+    // Saved Syphon source names from config (for matching after discovery)
+    pub saved_syphon_source1: String,
+    pub saved_syphon_source2: String,
     
     // Audio device selection
     pub audio_devices: Vec<String>,
@@ -267,6 +273,10 @@ pub struct ControlGui {
     // MIDI learn mode
     midi_learn_mode: bool,         // Is MIDI learn mode active?
     midi_learn_target: Option<String>, // Current parameter being learned (if any)
+    
+    // Deferred input startup (to avoid reentrant event handling during app init)
+    startup_frame_count: u32,      // Frames since GUI started
+    syphon_start_pending: [bool; 2], // [Input1, Input2] - true if Syphon should start after delay
 }
 
 /// LFO parameters for a group of controls
@@ -319,20 +329,23 @@ impl ControlGui {
         log::info!("Found {} audio device(s)", audio_devices.len());
         
         // Load input settings from config
+        // Note: Input type values: 0=None, 1=Webcam, 2=NDI, 3=Syphon, 4=Spout, 5=VideoFile
         let input1_type = match config.inputs.input1_type {
             0 => InputType::None,
             1 => InputType::Webcam,
             2 => InputType::Ndi,
-            3 => InputType::Spout,
-            4 => InputType::VideoFile,
+            3 => InputType::Syphon,
+            4 => InputType::Spout,
+            5 => InputType::VideoFile,
             _ => InputType::None,
         };
         let input2_type = match config.inputs.input2_type {
             0 => InputType::None,
             1 => InputType::Webcam,
             2 => InputType::Ndi,
-            3 => InputType::Spout,
-            4 => InputType::VideoFile,
+            3 => InputType::Syphon,
+            4 => InputType::Spout,
+            5 => InputType::VideoFile,
             _ => InputType::None,
         };
         
@@ -350,8 +363,16 @@ impl ControlGui {
             -1
         };
         
+        // Store saved NDI/Syphon source names for later matching after discovery
+        let saved_ndi_source1 = config.inputs.input1_ndi_source.clone();
+        let saved_ndi_source2 = config.inputs.input2_ndi_source.clone();
+        let saved_syphon_source1 = config.inputs.input1_syphon_source.clone();
+        let saved_syphon_source2 = config.inputs.input2_syphon_source.clone();
+        
         log::info!("Config: Input1={:?} (device {}), Input2={:?} (device {}), AutoStart={}",
             input1_type, selected_webcam1, input2_type, selected_webcam2, config.inputs.auto_start_webcams);
+        log::info!("Saved sources: NDI1='{}', NDI2='{}', Syphon1='{}', Syphon2='{}'",
+            saved_ndi_source1, saved_ndi_source2, saved_syphon_source1, saved_syphon_source2);
         
         Ok(Self {
             shared_state,
@@ -383,10 +404,14 @@ impl ControlGui {
             selected_ndi_source1: -1,
             selected_ndi_source2: -1,
             ndi_sources_dirty: true, // Mark as dirty to trigger initial scan
+            saved_ndi_source1,
+            saved_ndi_source2,
             syphon_sources: Vec::new(),
             selected_syphon_source1: -1,
             selected_syphon_source2: -1,
             syphon_sources_dirty: true,
+            saved_syphon_source1,
+            saved_syphon_source2,
             audio_devices,
             selected_audio_device: -1,
             audio_device_dirty: false,
@@ -455,6 +480,10 @@ impl ControlGui {
             // MIDI learn mode
             midi_learn_mode: false,
             midi_learn_target: None,
+            
+            // Deferred input startup
+            startup_frame_count: 0,
+            syphon_start_pending: [false, false],
         })
     }
     
@@ -583,22 +612,51 @@ impl ControlGui {
     fn refresh_ndi_sources(&mut self) {
         self.ndi_sources = crate::input::list_ndi_sources(1000);
         self.ndi_sources_dirty = false;
+        
+        // Try to match saved sources if currently not selected
+        if self.selected_ndi_source1 < 0 && !self.saved_ndi_source1.is_empty() {
+            if let Some(idx) = self.ndi_sources.iter().position(|s| s == &self.saved_ndi_source1) {
+                self.selected_ndi_source1 = idx as i32;
+                log::info!("[GUI] Matched saved NDI source 1: {} at index {}", self.saved_ndi_source1, idx);
+            }
+        }
+        if self.selected_ndi_source2 < 0 && !self.saved_ndi_source2.is_empty() {
+            if let Some(idx) = self.ndi_sources.iter().position(|s| s == &self.saved_ndi_source2) {
+                self.selected_ndi_source2 = idx as i32;
+                log::info!("[GUI] Matched saved NDI source 2: {} at index {}", self.saved_ndi_source2, idx);
+            }
+        }
     }
     
-    /// Refresh the list of available Syphon servers (macOS only)
-    #[cfg(target_os = "macos")]
+    /// Refresh the list of available Syphon servers (macOS only, requires syphon feature)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     fn refresh_syphon_sources(&mut self) {
+        use crate::input::SyphonServerInfo;
         let discovery = crate::input::SyphonDiscovery::new();
-        let servers = discovery.discover_servers();
+        let servers: Vec<SyphonServerInfo> = discovery.discover_servers();
         // Use display_name() which handles empty names automatically
         self.syphon_sources = servers.into_iter()
             .map(|s| s.display_name().to_string())
             .collect();
         self.syphon_sources_dirty = false;
+        
+        // Try to match saved sources if currently not selected
+        if self.selected_syphon_source1 < 0 && !self.saved_syphon_source1.is_empty() {
+            if let Some(idx) = self.syphon_sources.iter().position(|s| s == &self.saved_syphon_source1) {
+                self.selected_syphon_source1 = idx as i32;
+                log::info!("[GUI] Matched saved Syphon source 1: {} at index {}", self.saved_syphon_source1, idx);
+            }
+        }
+        if self.selected_syphon_source2 < 0 && !self.saved_syphon_source2.is_empty() {
+            if let Some(idx) = self.syphon_sources.iter().position(|s| s == &self.saved_syphon_source2) {
+                self.selected_syphon_source2 = idx as i32;
+                log::info!("[GUI] Matched saved Syphon source 2: {} at index {}", self.saved_syphon_source2, idx);
+            }
+        }
     }
     
-    /// Stub for non-macOS platforms
-    #[cfg(not(target_os = "macos"))]
+    /// Stub for non-macOS platforms or when syphon feature is disabled
+    #[cfg(not(all(target_os = "macos", feature = "syphon")))]
     fn refresh_syphon_sources(&mut self) {
         self.syphon_sources.clear();
         self.syphon_sources_dirty = false;
@@ -607,6 +665,7 @@ impl ControlGui {
     /// Save current input settings to config file
     fn save_input_config(&self) {
         // Update config with current values
+        // Input type values: 0=None, 1=Webcam, 2=NDI, 3=Syphon, 4=Spout, 5=VideoFile
         let input1_type_int = match self.input1_type {
             InputType::None => 0,
             InputType::Webcam => 1,
@@ -624,6 +683,30 @@ impl ControlGui {
             InputType::VideoFile => 5,
         };
         
+        // Get current NDI source names if selected
+        let ndi_source1 = if self.selected_ndi_source1 >= 0 && (self.selected_ndi_source1 as usize) < self.ndi_sources.len() {
+            self.ndi_sources[self.selected_ndi_source1 as usize].clone()
+        } else {
+            self.saved_ndi_source1.clone()
+        };
+        let ndi_source2 = if self.selected_ndi_source2 >= 0 && (self.selected_ndi_source2 as usize) < self.ndi_sources.len() {
+            self.ndi_sources[self.selected_ndi_source2 as usize].clone()
+        } else {
+            self.saved_ndi_source2.clone()
+        };
+        
+        // Get current Syphon source names if selected
+        let syphon_source1 = if self.selected_syphon_source1 >= 0 && (self.selected_syphon_source1 as usize) < self.syphon_sources.len() {
+            self.syphon_sources[self.selected_syphon_source1 as usize].clone()
+        } else {
+            self.saved_syphon_source1.clone()
+        };
+        let syphon_source2 = if self.selected_syphon_source2 >= 0 && (self.selected_syphon_source2 as usize) < self.syphon_sources.len() {
+            self.syphon_sources[self.selected_syphon_source2 as usize].clone()
+        } else {
+            self.saved_syphon_source2.clone()
+        };
+        
         // We can't modify self.config directly since it's used immutably,
         // so we save directly using the current values
         let mut config = crate::config::AppConfig::load_or_default();
@@ -631,6 +714,10 @@ impl ControlGui {
         config.inputs.input2_type = input2_type_int;
         config.inputs.input1_device = self.selected_webcam1;
         config.inputs.input2_device = self.selected_webcam2;
+        config.inputs.input1_ndi_source = ndi_source1;
+        config.inputs.input2_ndi_source = ndi_source2;
+        config.inputs.input1_syphon_source = syphon_source1;
+        config.inputs.input2_syphon_source = syphon_source2;
         config.inputs.auto_start_webcams = true; // Once user sets up, auto-start is enabled
         
         if let Err(e) = config.save() {
@@ -641,16 +728,19 @@ impl ControlGui {
         }
     }
     
-    /// Auto-start webcams based on saved config (called once at startup)
+    /// Auto-start inputs based on saved config (called once at startup)
+    /// Only auto-starts webcams immediately. NDI and Syphon are deferred
+    /// to avoid reentrant event handling issues during app initialization.
     pub fn auto_start_webcams(&mut self) {
         if !self.config.inputs.auto_start_webcams {
-            log::info!("Auto-start webcams disabled in config");
+            log::info!("Auto-start inputs disabled in config");
             return;
         }
         
         log::info!("Auto-starting webcams...");
         
-        // Auto-start webcam 1 if configured
+        // Only auto-start webcams during initialization
+        // NDI and Syphon require manual start to avoid event loop issues
         if self.input1_type == InputType::Webcam && self.selected_webcam1 >= 0 {
             let device_index = self.selected_webcam1 as usize;
             if device_index < self.webcam_devices.len() {
@@ -671,7 +761,6 @@ impl ControlGui {
             }
         }
         
-        // Auto-start webcam 2 if configured
         if self.input2_type == InputType::Webcam && self.selected_webcam2 >= 0 {
             let device_index = self.selected_webcam2 as usize;
             if device_index < self.webcam_devices.len() {
@@ -689,6 +778,77 @@ impl ControlGui {
             } else {
                 log::warn!("Webcam 2 device index {} out of bounds ({} devices)", 
                     device_index, self.webcam_devices.len());
+            }
+        }
+        
+        // Mark Syphon inputs for deferred startup (to avoid event loop issues)
+        // We wait ~2 seconds (120 frames at 60fps) before starting Syphon
+        if self.input1_type == InputType::Syphon && !self.saved_syphon_source1.is_empty() {
+            self.syphon_start_pending[0] = true;
+            log::info!("Syphon Input 1 marked for deferred startup (source: {})", self.saved_syphon_source1);
+        }
+        if self.input2_type == InputType::Syphon && !self.saved_syphon_source2.is_empty() {
+            self.syphon_start_pending[1] = true;
+            log::info!("Syphon Input 2 marked for deferred startup (source: {})", self.saved_syphon_source2);
+        }
+        
+        // Note: NDI is also deferred to avoid potential issues
+        if self.input1_type == InputType::Ndi && !self.saved_ndi_source1.is_empty() {
+            log::info!("NDI Input 1 configured but requires manual start (source: {})", self.saved_ndi_source1);
+        }
+        if self.input2_type == InputType::Ndi && !self.saved_ndi_source2.is_empty() {
+            log::info!("NDI Input 2 configured but requires manual start (source: {})", self.saved_ndi_source2);
+        }
+    }
+    
+    /// Process deferred input startups (called every frame)
+    /// This avoids reentrant event handling during app initialization
+    fn process_deferred_startups(&mut self) {
+        self.startup_frame_count += 1;
+        
+        // Wait ~120 frames (~2 seconds at 60fps) before starting deferred inputs
+        // This gives the event loop time to stabilize
+        if self.startup_frame_count == 120 {
+            // Start Syphon Input 1 if pending
+            if self.syphon_start_pending[0] {
+                self.syphon_start_pending[0] = false;
+                self.start_deferred_syphon(1);
+            }
+        }
+        
+        if self.startup_frame_count == 150 {
+            // Start Syphon Input 2 if pending (slight delay after input 1)
+            if self.syphon_start_pending[1] {
+                self.syphon_start_pending[1] = false;
+                self.start_deferred_syphon(2);
+            }
+        }
+    }
+    
+    /// Start a deferred Syphon input (called after app is fully initialized)
+    /// This avoids the reentrant event handling issue during startup
+    pub fn start_deferred_syphon(&mut self, input_id: u8) {
+        match input_id {
+            1 if self.input1_type == InputType::Syphon && !self.saved_syphon_source1.is_empty() => {
+                log::info!("Starting deferred Syphon Input 1: {}", self.saved_syphon_source1);
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.input1_change_request = crate::core::InputChangeRequest::StartSyphon { 
+                        input_id: 1,
+                        server_name: self.saved_syphon_source1.clone(),
+                    };
+                }
+            }
+            2 if self.input2_type == InputType::Syphon && !self.saved_syphon_source2.is_empty() => {
+                log::info!("Starting deferred Syphon Input 2: {}", self.saved_syphon_source2);
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.input2_change_request = crate::core::InputChangeRequest::StartSyphon { 
+                        input_id: 2,
+                        server_name: self.saved_syphon_source2.clone(),
+                    };
+                }
+            }
+            _ => {
+                log::warn!("Invalid deferred Syphon start request for input {}", input_id);
             }
         }
     }
@@ -716,6 +876,9 @@ impl ControlGui {
     
     /// Build the complete UI
     pub fn build_ui(&mut self, ui: &mut Ui) {
+        // Process deferred startups (e.g., Syphon inputs that need to wait for event loop stabilization)
+        self.process_deferred_startups();
+        
         // Update FPS counter (average over last 60 frames for smooth display)
         let now = std::time::Instant::now();
         let delta = now.duration_since(self.last_frame_time).as_secs_f32();
@@ -4330,8 +4493,14 @@ impl ControlGui {
                 self.refresh_ndi_sources();
             }
             
-            // Save config when input type changes
+            // Stop current input and save config when input type changes
             if type_changed {
+                log::info!("[GUI] Input 1 type changed from {} to {}, stopping current input", 
+                    old_type, type_idx);
+                // Stop the current input before switching
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.input1_change_request = InputChangeRequest::StopInput { input_id: 1 };
+                }
                 self.save_input_config();
             }
             
@@ -4551,8 +4720,14 @@ impl ControlGui {
                 self.refresh_syphon_sources();
             }
             
-            // Save config when input type changes
+            // Stop current input and save config when input type changes
             if type_changed {
+                log::info!("[GUI] Input 2 type changed from {} to {}, stopping current input", 
+                    old_type, type_idx);
+                // Stop the current input before switching
+                if let Ok(mut state) = self.shared_state.lock() {
+                    state.input2_change_request = InputChangeRequest::StopInput { input_id: 2 };
+                }
                 self.save_input_config();
             }
             
@@ -5133,8 +5308,11 @@ impl ControlGui {
                 .map(|s| s.syphon_output_active)
                 .unwrap_or(false);
             
-            // Check if Syphon is available
+            // Check if Syphon is available (requires syphon feature)
+            #[cfg(all(target_os = "macos", feature = "syphon"))]
             let available = crate::output::SyphonSender::is_syphon_available();
+            #[cfg(not(all(target_os = "macos", feature = "syphon")))]
+            let available = false;
             
             if !available {
                 ui.text_colored([1.0, 0.5, 0.0, 1.0], "⚠ Syphon.framework not available");

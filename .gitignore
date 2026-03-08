@@ -21,3 +21,14 @@ Thumbs.db
 /config.toml
 /presets/*.json
 !/presets/.gitkeep
+
+# Video files (output recordings)
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.gif
+output*.mp4
+output*.mov
+crunch.mp4

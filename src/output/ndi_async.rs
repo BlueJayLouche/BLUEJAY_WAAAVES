@@ -1,6 +1,11 @@
 //! # Async NDI Output
 //!
 //! High-performance NDI output with concurrent buffer processing.
+//! This module is only compiled when the `ndi` feature is enabled.
+
+#![cfg(feature = "ndi")]
+
+//!
 //!
 //! Architecture:
 //! - Main thread: Record copy command, submit, start map_async for each buffer independently

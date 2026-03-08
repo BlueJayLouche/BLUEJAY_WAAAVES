@@ -1,5 +1,10 @@
 //! GPU-based BGRA to RGBA conversion for Syphon input
 //!
+//! This module is only compiled when the `syphon` feature is enabled on macOS.
+
+#![cfg(all(target_os = "macos", feature = "syphon"))]
+
+//!
 //! Uses wgpu compute shaders for high-performance color format conversion.
 //! This avoids CPU-bound pixel manipulation and keeps video processing on the GPU.
 

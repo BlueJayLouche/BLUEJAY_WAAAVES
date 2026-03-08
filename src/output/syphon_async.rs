@@ -1,6 +1,9 @@
 //! # Async Syphon Output (macOS)
 //!
 //! High-performance Syphon output with zero-copy GPU texture publishing.
+//! This module is only compiled when the `syphon` feature is enabled on macOS.
+
+#![cfg(all(target_os = "macos", feature = "syphon"))]
 //!
 //! ## Architecture
 //!

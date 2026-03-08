@@ -21,6 +21,7 @@ use crate::core::SharedState;
 use crate::engine::simple_engine::{SimpleEngine, SimpleEngineConfig};
 use crate::engine::imgui_renderer::ImGuiRenderer;
 use crate::config::AppConfig;
+/// Syphon types (real when syphon feature enabled, stubs otherwise)
 use crate::input::{SyphonDiscovery, SyphonServerInfo};
 use imgui::ComboBox;
 

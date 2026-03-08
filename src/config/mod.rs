@@ -90,15 +90,21 @@ pub struct InputConfig {
     pub input1_device: i32,
     /// Secondary input device ID (webcam index)
     pub input2_device: i32,
-    /// Input source type (0=None, 1=Webcam, 2=NDI, 3=Spout, 4=Video, 5=Test Pattern)
+    /// Input source type (0=None, 1=Webcam, 2=NDI, 3=Syphon, 4=Spout, 5=Video File)
     pub input1_type: i32,
     pub input2_type: i32,
-    /// NDI source names
+    /// NDI source names (selected source for each input)
+    pub input1_ndi_source: String,
+    pub input2_ndi_source: String,
+    /// Syphon source names (selected source for each input)
+    pub input1_syphon_source: String,
+    pub input2_syphon_source: String,
+    /// Legacy field - kept for backward compatibility (deprecated)
     pub ndi_sources: Vec<String>,
     /// Input resolution
     pub input_width: u32,
     pub input_height: u32,
-    /// Whether to auto-start webcams on startup
+    /// Whether to auto-start inputs on startup (webcam, ndi, syphon)
     pub auto_start_webcams: bool,
 }
 
@@ -210,7 +216,11 @@ impl Default for AppConfig {
                 input2_device: 1,      // Default to second webcam
                 input1_type: 1,        // Default to Webcam (1)
                 input2_type: 0,        // Default to None (0)
-                ndi_sources: vec![],
+                input1_ndi_source: String::new(),  // No default NDI source
+                input2_ndi_source: String::new(),
+                input1_syphon_source: String::new(), // No default Syphon source
+                input2_syphon_source: String::new(),
+                ndi_sources: vec![],   // Legacy field
                 input_width: 640,
                 input_height: 480,
                 auto_start_webcams: true, // Auto-start on launch

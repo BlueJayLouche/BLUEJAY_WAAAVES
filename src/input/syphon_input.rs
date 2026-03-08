@@ -1,6 +1,9 @@
 //! # Syphon Input Receiver (macOS)
 //!
 //! Receives video frames from Syphon servers on the local machine.
+//! This module is only compiled when the `syphon` feature is enabled on macOS.
+
+#![cfg(all(target_os = "macos", feature = "syphon"))]
 //! 
 //! This module wraps the syphon-core crate's SyphonClient for integration
 //! with the input system. It provides:

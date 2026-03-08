@@ -1,6 +1,10 @@
 //! # Syphon Output Sender (macOS)
 //!
 //! Sends video frames to a Syphon server for consumption by other macOS apps.
+//! This module is only compiled when the `syphon` feature is enabled on macOS.
+
+#![cfg(all(target_os = "macos", feature = "syphon"))]
+
 //!
 //! This module provides two approaches:
 //! 1. **SyphonSender** - CPU-based frame submission (compatibility mode)

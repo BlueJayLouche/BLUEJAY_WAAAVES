@@ -261,7 +261,7 @@ pub mod platform {
 }
 
 // Platform-specific implementations
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "ipc-syphon"))]
 pub mod syphon;
 
 /// Factory functions for creating platform-specific implementations
@@ -270,7 +270,7 @@ pub mod factory {
 
     /// Create the best available IPC input for this platform
     pub fn create_input() -> Option<Box<dyn IpcInput>> {
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "ipc-syphon"))]
         {
             Some(Box::new(syphon::SyphonInput::new()))
         }
@@ -290,7 +290,7 @@ pub mod factory {
 
     /// Create the best available IPC output for this platform
     pub fn create_output() -> Option<Box<dyn IpcOutput>> {
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "ipc-syphon"))]
         {
             Some(Box::new(syphon::SyphonOutput::new()))
         }
@@ -310,7 +310,7 @@ pub mod factory {
 
     /// Create the best available discovery for this platform
     pub fn create_discovery() -> Option<Box<dyn IpcDiscovery>> {
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "ipc-syphon"))]
         {
             Some(Box::new(syphon::SyphonDiscovery::new()))
         }

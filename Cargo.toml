@@ -60,7 +60,7 @@ rosc = "0.11"
 midir = "0.10"
 
 # NDI (Network Device Interface) for video input/output
-grafton-ndi = "0.11"
+grafton-ndi = { version = "0.11", optional = true }
 
 # Time and scheduling
 instant = "0.1"
@@ -74,6 +74,8 @@ imgui-winit-support = "0.13"
 # Provides zero-copy GPU-to-GPU Syphon output for macOS
 syphon-core = { path = "../crates/syphon/syphon-core", optional = true }
 syphon-wgpu = { path = "../crates/syphon/syphon-wgpu", optional = true }
+
+
 
 # Platform-specific IPC dependencies
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -98,8 +100,12 @@ codegen-units = 1
 panic = "abort"
 
 [features]
-default = ["webcam", "ipc"]
+default = ["webcam", "ipc", "ndi", "syphon"]
 webcam = ["nokhwa"]
+# NDI support (requires NDI runtime to be installed)
+ndi = ["dep:grafton-ndi"]
+# Syphon support (macOS only)
+syphon = ["syphon-core", "syphon-wgpu"]
 # Inter-process video sharing (platform-specific)
 ipc = ["ipc-syphon", "ipc-spout", "ipc-v4l2"]
 ipc-syphon = ["syphon-core", "syphon-wgpu", "metal"]

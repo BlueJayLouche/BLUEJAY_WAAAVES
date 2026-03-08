@@ -15,25 +15,62 @@ pub mod webcam;
 #[cfg(feature = "webcam")]
 pub use webcam::{WebcamCapture, WebcamFrame};
 
-// NDI input support
+// NDI input support (optional - requires NDI runtime to be installed)
+#[cfg(feature = "ndi")]
 pub mod ndi;
+#[cfg(feature = "ndi")]
 pub use ndi::{NdiReceiver, list_ndi_sources, is_ndi_available};
 
-// Syphon input support (macOS) - Now uses GPU-accelerated wgpu integration
-#[cfg(target_os = "macos")]
+// Stub NDI types when NDI feature is disabled
+#[cfg(not(feature = "ndi"))]
+pub struct NdiReceiver;
+
+#[cfg(not(feature = "ndi"))]
+impl NdiReceiver {
+    pub fn new(_source_name: String) -> Self {
+        Self
+    }
+    pub fn start(&mut self) -> anyhow::Result<()> {
+        Err(anyhow::anyhow!("NDI support not compiled. Enable the 'ndi' feature."))
+    }
+    pub fn stop(&mut self) {}
+    pub fn get_latest_frame(&mut self) -> Option<NdiFrame> {
+        None
+    }
+}
+
+#[cfg(not(feature = "ndi"))]
+pub struct NdiFrame {
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
+}
+
+#[cfg(not(feature = "ndi"))]
+pub fn list_ndi_sources(_timeout_ms: u32) -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(not(feature = "ndi"))]
+pub fn is_ndi_available() -> bool {
+    false
+}
+
+// Syphon input support (macOS only, requires syphon feature)
+#[cfg(all(target_os = "macos", feature = "syphon"))]
 pub use syphon_wgpu::SyphonWgpuInputFast as SyphonWgpuInput;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "syphon"))]
 pub use syphon_wgpu::InputFormat as SyphonInputFormat;
 
 // Re-export discovery types from syphon-core for GUI use
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "syphon"))]
 pub use syphon_core::ServerInfo as SyphonServerInfo;
 
-/// Syphon discovery helper for GUI
-#[cfg(target_os = "macos")]
+/// Syphon discovery helper for GUI (macOS only, requires syphon feature)
+#[cfg(all(target_os = "macos", feature = "syphon"))]
 pub struct SyphonDiscovery;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "syphon"))]
 impl SyphonDiscovery {
     /// Create a new discovery helper
     pub fn new() -> Self {
@@ -46,7 +83,51 @@ impl SyphonDiscovery {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "syphon"))]
+impl Default for SyphonDiscovery {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// Stub SyphonServerInfo for when syphon is not available
+#[cfg(not(all(target_os = "macos", feature = "syphon")))]
+#[derive(Debug, Clone)]
+pub struct SyphonServerInfo {
+    pub name: String,
+}
+
+#[cfg(not(all(target_os = "macos", feature = "syphon")))]
+impl SyphonServerInfo {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    
+    pub fn display_name(&self) -> &str {
+        if self.name.is_empty() {
+            "Unnamed Server"
+        } else {
+            &self.name
+        }
+    }
+}
+
+// Stub Syphon types when syphon feature is disabled or not on macOS
+#[cfg(not(all(target_os = "macos", feature = "syphon")))]
+pub struct SyphonDiscovery;
+
+#[cfg(not(all(target_os = "macos", feature = "syphon")))]
+impl SyphonDiscovery {
+    pub fn new() -> Self {
+        Self
+    }
+    
+    pub fn discover_servers(&self) -> Vec<SyphonServerInfo> {
+        Vec::new()
+    }
+}
+
+#[cfg(not(all(target_os = "macos", feature = "syphon")))]
 impl Default for SyphonDiscovery {
     fn default() -> Self {
         Self::new()
@@ -147,15 +228,19 @@ pub struct InputSource {
     frame_receiver: Option<mpsc::Receiver<WebcamFrame>>,
     /// Current frame data (CPU side)
     current_frame: Option<Vec<u8>>,
-    /// NDI receiver instance
+    /// NDI receiver instance (only when NDI feature is enabled)
+    #[cfg(feature = "ndi")]
     ndi_receiver: Option<NdiReceiver>,
-    /// Syphon receiver instance (GPU-accelerated wgpu integration)
-    #[cfg(target_os = "macos")]
+    /// NDI receiver placeholder (when NDI feature is disabled)
+    #[cfg(not(feature = "ndi"))]
+    ndi_receiver: Option<()>,
+    /// Syphon receiver instance (GPU-accelerated wgpu integration, macOS + syphon feature only)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     syphon_receiver: Option<SyphonWgpuInput>,
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(all(target_os = "macos", feature = "syphon")))]
     syphon_receiver: Option<()>,
-    /// Last received Syphon texture (GPU-accelerated path)
-    #[cfg(target_os = "macos")]
+    /// Last received Syphon texture (GPU-accelerated path, macOS + syphon feature only)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     syphon_texture: Option<wgpu::Texture>,
     /// wgpu device for GPU operations
     device: Option<Arc<wgpu::Device>>,
@@ -203,30 +288,36 @@ impl InputManager {
         Ok(())
     }
     
-    /// Get input 1 Syphon texture (if using GPU Syphon input)
-    /// Returns the texture and dimensions for GPU-to-GPU copy
-    #[cfg(target_os = "macos")]
+    /// Get input 1 Syphon texture (if using GPU Syphon input, macOS + syphon feature only)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     pub fn get_input1_syphon_texture(&self) -> Option<&wgpu::Texture> {
         self.input1.get_syphon_texture()
     }
     
-    /// Get input 2 Syphon texture (if using GPU Syphon input)
-    #[cfg(target_os = "macos")]
+    /// Get input 2 Syphon texture (if using GPU Syphon input, macOS + syphon feature only)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     pub fn get_input2_syphon_texture(&self) -> Option<&wgpu::Texture> {
         self.input2.get_syphon_texture()
     }
     
-    /// Check if input 1 is using GPU Syphon (has texture ready)
-    #[cfg(target_os = "macos")]
+    /// Check if input 1 is using GPU Syphon (has texture ready, macOS + syphon feature only)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     pub fn input1_is_gpu_syphon(&self) -> bool {
         self.input1.has_gpu_syphon_texture()
     }
     
-    /// Check if input 2 is using GPU Syphon (has texture ready)
-    #[cfg(target_os = "macos")]
+    /// Check if input 2 is using GPU Syphon (has texture ready, macOS + syphon feature only)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     pub fn input2_is_gpu_syphon(&self) -> bool {
         self.input2.has_gpu_syphon_texture()
     }
+    
+    // Stubs for when syphon feature is disabled
+    #[cfg(not(all(target_os = "macos", feature = "syphon")))]
+    pub fn input1_is_gpu_syphon(&self) -> bool { false }
+    
+    #[cfg(not(all(target_os = "macos", feature = "syphon")))]
+    pub fn input2_is_gpu_syphon(&self) -> bool { false }
     
     /// Update inputs (capture new frames)
     pub fn update(&mut self) {
@@ -417,7 +508,8 @@ impl InputSource {
         Ok(())
     }
     
-    /// Start NDI receiver
+    /// Start NDI receiver (only available when NDI feature is enabled)
+    #[cfg(feature = "ndi")]
     pub fn start_ndi(&mut self, source_name: impl Into<String>) -> Result<()> {
         self.stop();
         
@@ -433,8 +525,14 @@ impl InputSource {
         Ok(())
     }
     
-    /// Start Syphon receiver (macOS only) - GPU-accelerated
-    #[cfg(target_os = "macos")]
+    /// Start NDI receiver stub (when NDI feature is disabled)
+    #[cfg(not(feature = "ndi"))]
+    pub fn start_ndi(&mut self, _source_name: impl Into<String>) -> Result<()> {
+        Err(anyhow::anyhow!("NDI support not compiled. Enable the 'ndi' feature."))
+    }
+    
+    /// Start Syphon receiver (macOS only, requires syphon feature) - GPU-accelerated
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     pub fn start_syphon(&mut self, server_name: impl Into<String>) -> Result<()> {
         self.stop();
         
@@ -461,10 +559,10 @@ impl InputSource {
         Ok(())
     }
     
-    /// Start Syphon receiver (stub for non-macOS)
-    #[cfg(not(target_os = "macos"))]
+    /// Start Syphon receiver (stub when not on macOS or syphon feature disabled)
+    #[cfg(not(all(target_os = "macos", feature = "syphon")))]
     pub fn start_syphon(&mut self, _server_name: impl Into<String>) -> Result<()> {
-        Err(anyhow::anyhow!("Syphon input is only available on macOS"))
+        Err(anyhow::anyhow!("Syphon input is only available on macOS with the 'syphon' feature enabled"))
     }
     
     /// Stop the input source
@@ -475,11 +573,12 @@ impl InputSource {
             let _ = webcam.stop();
         }
         
+        #[cfg(feature = "ndi")]
         if let Some(mut ndi) = self.ndi_receiver.take() {
             ndi.stop();
         }
         
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "syphon"))]
         {
             self.syphon_receiver = None;
             self.syphon_texture = None;
@@ -514,7 +613,8 @@ impl InputSource {
             }
         }
         
-        // Handle NDI frames
+        // Handle NDI frames (only when NDI feature is enabled)
+        #[cfg(feature = "ndi")]
         if let Some(ref mut ndi) = self.ndi_receiver {
             if let Some(frame) = ndi.get_latest_frame() {
                 self.resolution = (frame.width, frame.height);
@@ -522,8 +622,8 @@ impl InputSource {
             }
         }
         
-        // Handle Syphon frames (macOS only) - GPU-accelerated
-        #[cfg(target_os = "macos")]
+        // Handle Syphon frames (macOS only, requires syphon feature) - GPU-accelerated
+        #[cfg(all(target_os = "macos", feature = "syphon"))]
         {
             if let Some(ref mut syphon) = self.syphon_receiver {
                 if let Some(device) = self.device.as_ref() {
@@ -571,16 +671,27 @@ impl InputSource {
         self.active
     }
     
-    /// Get Syphon texture reference (macOS only, GPU input)
-    #[cfg(target_os = "macos")]
+    /// Get Syphon texture reference (macOS only, requires syphon feature, GPU input)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     pub fn get_syphon_texture(&self) -> Option<&wgpu::Texture> {
         self.syphon_texture.as_ref()
     }
     
-    /// Check if this input has a GPU Syphon texture ready
-    #[cfg(target_os = "macos")]
+    /// Check if this input has a GPU Syphon texture ready (macOS only, requires syphon feature)
+    #[cfg(all(target_os = "macos", feature = "syphon"))]
     pub fn has_gpu_syphon_texture(&self) -> bool {
         self.syphon_texture.is_some()
+    }
+    
+    // Stubs for when syphon feature is disabled
+    #[cfg(not(all(target_os = "macos", feature = "syphon")))]
+    pub fn get_syphon_texture(&self) -> Option<&wgpu::Texture> {
+        None
+    }
+    
+    #[cfg(not(all(target_os = "macos", feature = "syphon")))]
+    pub fn has_gpu_syphon_texture(&self) -> bool {
+        false
     }
 }
 
