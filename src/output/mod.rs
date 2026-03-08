@@ -16,7 +16,7 @@ pub use ndi_async::AsyncNdiOutput;
 #[cfg(target_os = "macos")]
 pub mod syphon_sender;
 #[cfg(target_os = "macos")]
-pub use syphon_sender::SyphonSender;
+pub use syphon_sender::{SyphonSender, SyphonWgpuSender};
 
 #[cfg(target_os = "macos")]
 pub mod syphon_async;

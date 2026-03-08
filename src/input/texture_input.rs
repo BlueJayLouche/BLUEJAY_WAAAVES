@@ -109,6 +109,8 @@ impl InputTextureManager {
     
     /// Update input 1 with new frame data
     pub fn update_input1(&mut self, data: &[u8], width: u32, height: u32) {
+        log::debug!("[TextureManager] Updating input 1: {}x{}, {} bytes", width, height, data.len());
+        
         // Validate data size (RGBA = 4 bytes per pixel)
         let expected_size = (width * height * 4) as usize;
         
@@ -183,6 +185,8 @@ impl InputTextureManager {
     
     /// Update input 2 with new frame data
     pub fn update_input2(&mut self, data: &[u8], width: u32, height: u32) {
+        log::debug!("[TextureManager] Updating input 2: {}x{}, {} bytes", width, height, data.len());
+        
         // Validate data size (RGBA = 4 bytes per pixel)
         let expected_size = (width * height * 4) as usize;
         
@@ -242,6 +246,112 @@ impl InputTextureManager {
                     depth_or_array_layers: 1,
                 },
             );
+            input.has_data = true;
+        }
+    }
+    
+    /// Update input 1 from a GPU texture (for GPU-accelerated Syphon input)
+    /// Copies the source texture to the input texture using GPU blit
+    pub fn update_input1_from_texture(&mut self, source_texture: &wgpu::Texture) {
+        let width = source_texture.size().width;
+        let height = source_texture.size().height;
+        
+        // Ensure input texture exists with correct size
+        if let Some(ref mut input) = self.input1 {
+            if input.width != width || input.height != height {
+                input.texture = Texture::create_render_target(
+                    &self.device,
+                    width,
+                    height,
+                    "Input 1 Texture",
+                );
+                input.width = width;
+                input.height = height;
+            }
+        } else {
+            self.init_input1(width, height, 0);
+        }
+        
+        // Copy from source texture to input texture
+        if let Some(ref mut input) = self.input1 {
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Input 1 Texture Copy"),
+            });
+            
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: source_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &input.texture.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            
+            self.queue.submit(std::iter::once(encoder.finish()));
+            input.has_data = true;
+        }
+    }
+    
+    /// Update input 2 from a GPU texture (for GPU-accelerated Syphon input)
+    /// Copies the source texture to the input texture using GPU blit
+    pub fn update_input2_from_texture(&mut self, source_texture: &wgpu::Texture) {
+        let width = source_texture.size().width;
+        let height = source_texture.size().height;
+        
+        // Ensure input texture exists with correct size
+        if let Some(ref mut input) = self.input2 {
+            if input.width != width || input.height != height {
+                input.texture = Texture::create_render_target(
+                    &self.device,
+                    width,
+                    height,
+                    "Input 2 Texture",
+                );
+                input.width = width;
+                input.height = height;
+            }
+        } else {
+            self.init_input2(width, height, 0);
+        }
+        
+        // Copy from source texture to input texture
+        if let Some(ref mut input) = self.input2 {
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Input 2 Texture Copy"),
+            });
+            
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: source_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &input.texture.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            
+            self.queue.submit(std::iter::once(encoder.finish()));
             input.has_data = true;
         }
     }

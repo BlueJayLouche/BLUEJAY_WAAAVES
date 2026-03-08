@@ -21,6 +21,7 @@ use crate::core::SharedState;
 use crate::engine::simple_engine::{SimpleEngine, SimpleEngineConfig};
 use crate::engine::imgui_renderer::ImGuiRenderer;
 use crate::config::AppConfig;
+use crate::input::{SyphonDiscovery, SyphonServerInfo};
 use imgui::ComboBox;
 
 /// Simple app that runs the feedback engine with a control window
@@ -42,10 +43,38 @@ pub struct SimpleApp {
     tap_times: VecDeque<Instant>,
     current_bpm: f32,
     last_tap_info: String,
+    
+    // Deferred input auto-start (to avoid event loop conflicts)
+    pending_input_autostart: Option<String>, // None = webcam, Some(server) = Syphon
+    
+    // Input selection UI state
+    syphon_discovery: SyphonDiscovery,
+    available_syphon_servers: Vec<SyphonServerInfo>,
+    selected_syphon_server: i32,
+    current_input_source: String, // "webcam" or syphon server name
+    last_server_refresh: Instant,
+    input_switch_requested: Option<String>, // None = no switch, Some("webcam") or Some(server_name)
 }
 
 impl SimpleApp {
     pub fn new(shared_state: Arc<Mutex<SharedState>>) -> Self {
+        // Check for Syphon input env var at startup
+        // Empty string means use webcam, any other value is the Syphon server name
+        let pending_input_autostart = match std::env::var("SYPHON_INPUT") {
+            Ok(val) if !val.is_empty() => {
+                log::info!("[SIMPLE_APP] Will auto-start Syphon input from '{}' (deferred)", val);
+                Some(val)
+            }
+            Ok(_) => {
+                log::info!("[SIMPLE_APP] SYPHON_INPUT set but empty - will use webcam");
+                Some(String::new()) // Empty string = webcam
+            }
+            Err(_) => {
+                log::info!("[SIMPLE_APP] No SYPHON_INPUT set - will use webcam");
+                Some(String::new()) // No env var = webcam
+            }
+        };
+        
         Self {
             shared_state,
             engine: None,
@@ -60,6 +89,13 @@ impl SimpleApp {
             tap_times: VecDeque::with_capacity(8),
             current_bpm: 120.0,
             last_tap_info: String::from("Tap to set tempo"),
+            pending_input_autostart,
+            syphon_discovery: SyphonDiscovery::new(),
+            available_syphon_servers: Vec::new(),
+            selected_syphon_server: -1, // -1 means webcam
+            current_input_source: String::from("webcam"),
+            last_server_refresh: Instant::now(),
+            input_switch_requested: None,
         }
     }
     
@@ -177,10 +213,8 @@ impl ApplicationHandler for SimpleApp {
         self.engine = Some(engine);
         self.imgui_renderer = Some(imgui_renderer);
         
-        // Auto-start webcam
-        if let Some(ref mut engine) = self.engine {
-            engine.auto_start_webcam();
-        }
+        // Note: Input auto-start is deferred to first frame to avoid event loop conflicts
+        // See about_to_wait() for the actual connection logic
         
         log::info!("[SIMPLE_APP] Windows created, engine ready");
     }
@@ -217,11 +251,89 @@ impl ApplicationHandler for SimpleApp {
                             let mut key_softness = self.key_softness;
                             let mut tap_pressed = false;
                             
+                            // Refresh Syphon servers periodically (every 2 seconds)
+                            if self.last_server_refresh.elapsed().as_secs() >= 2 {
+                                self.available_syphon_servers = self.syphon_discovery.discover_servers();
+                                self.last_server_refresh = Instant::now();
+                            }
+                            
+                            // Prepare input source options
+                            let input_sources: Vec<String> = std::iter::once("Webcam".to_string())
+                                .chain(self.available_syphon_servers.iter().map(|s| {
+                                    if s.name.is_empty() {
+                                        format!("{} (app: {})", s.name, s.app_name)
+                                    } else {
+                                        s.name.clone()
+                                    }
+                                }))
+                                .collect();
+                            
+                            let mut selected_input = self.selected_syphon_server + 1; // +1 because -1 (webcam) -> 0
+                            let mut input_switch_requested: Option<String> = None;
+                            
                             let _ = renderer.render_frame(|ui| {
                                 ui.window("Controls")
-                                    .size([380.0, 400.0], imgui::Condition::FirstUseEver)
+                                    .size([380.0, 500.0], imgui::Condition::FirstUseEver)
                                     .build(|| {
                                         ui.text("RustJay Simple Feedback");
+                                        ui.separator();
+                                        
+                                        // Input source selection
+                                        ui.text("Input Source");
+                                        let input_preview = if selected_input == 0 {
+                                            "Webcam"
+                                        } else if let Some(server) = self.available_syphon_servers.get((selected_input - 1) as usize) {
+                                            if server.name.is_empty() {
+                                                &server.app_name
+                                            } else {
+                                                &server.name
+                                            }
+                                        } else {
+                                            "Webcam"
+                                        };
+                                        
+                                        ComboBox::new(ui, "##input_source")
+                                            .preview_value(input_preview)
+                                            .build(|| {
+                                                // Webcam option
+                                                if ui.selectable_config("Webcam")
+                                                    .selected(selected_input == 0)
+                                                    .build() {
+                                                    selected_input = 0;
+                                                }
+                                                
+                                                // Syphon servers
+                                                for (idx, server) in self.available_syphon_servers.iter().enumerate() {
+                                                    let label = if server.name.is_empty() {
+                                                        format!("{} (app: {})", server.name, server.app_name)
+                                                    } else {
+                                                        server.name.clone()
+                                                    };
+                                                    if ui.selectable_config(&label)
+                                                        .selected(selected_input == (idx + 1) as i32)
+                                                        .build() {
+                                                        selected_input = (idx + 1) as i32;
+                                                    }
+                                                }
+                                            });
+                                        
+                                        // Show current input status
+                                        ui.text(format!("Current: {}", self.current_input_source));
+                                        
+                                        // Apply button for input switch
+                                        if ui.button_with_size("Switch Input", [120.0, 25.0]) {
+                                            if selected_input == 0 {
+                                                input_switch_requested = Some("webcam".to_string());
+                                            } else if let Some(server) = self.available_syphon_servers.get((selected_input - 1) as usize) {
+                                                let server_name = if server.name.is_empty() {
+                                                    server.app_name.clone()
+                                                } else {
+                                                    server.name.clone()
+                                                };
+                                                input_switch_requested = Some(server_name);
+                                            }
+                                        }
+                                        
                                         ui.separator();
                                         
                                         // Mix amount slider
@@ -293,6 +405,12 @@ impl ApplicationHandler for SimpleApp {
                             self.mix_type = mix_type as i32;
                             self.key_threshold = key_threshold;
                             self.key_softness = key_softness;
+                            self.selected_syphon_server = selected_input - 1; // Convert back to -1-based
+                            
+                            // Handle input switch request
+                            if let Some(source) = input_switch_requested {
+                                self.input_switch_requested = Some(source);
+                            }
                             
                             // Update shared state for mixing/keying
                             if let Ok(mut state) = self.shared_state.lock() {
@@ -338,6 +456,52 @@ impl ApplicationHandler for SimpleApp {
     }
     
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        // Handle deferred input auto-start (must be done outside of event handlers)
+        if let Some(server_name) = self.pending_input_autostart.take() {
+            if let Some(ref mut engine) = self.engine {
+                if server_name.is_empty() {
+                    log::info!("[SIMPLE_APP] Auto-starting webcam");
+                    engine.auto_start_webcam();
+                    self.current_input_source = String::from("webcam");
+                } else {
+                    log::info!("[SIMPLE_APP] Auto-starting Syphon input from: {}", server_name);
+                    #[cfg(target_os = "macos")]
+                    {
+                        engine.start_input1_syphon(&server_name);
+                        self.current_input_source = format!("Syphon: {}", server_name);
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        log::warn!("[SIMPLE_APP] Syphon input only available on macOS, falling back to webcam");
+                        engine.auto_start_webcam();
+                        self.current_input_source = String::from("webcam");
+                    }
+                }
+            }
+        }
+        
+        // Handle input switch requests from UI
+        if let Some(source) = self.input_switch_requested.take() {
+            if let Some(ref mut engine) = self.engine {
+                if source == "webcam" {
+                    log::info!("[SIMPLE_APP] Switching to webcam");
+                    engine.auto_start_webcam();
+                    self.current_input_source = String::from("webcam");
+                } else {
+                    log::info!("[SIMPLE_APP] Switching to Syphon: {}", source);
+                    #[cfg(target_os = "macos")]
+                    {
+                        engine.start_input1_syphon(&source);
+                        self.current_input_source = format!("Syphon: {}", source);
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        log::warn!("[SIMPLE_APP] Syphon not available on this platform");
+                    }
+                }
+            }
+        }
+        
         // Request continuous redraw for both windows
         if let Some(ref window) = self.output_window {
             window.request_redraw();

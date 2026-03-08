@@ -865,6 +865,16 @@ impl ApplicationHandler for App {
                         log::error!("[INPUT] Video input manager not initialized");
                     }
                 }
+                crate::core::InputChangeRequest::StartSyphon { server_name, .. } => {
+                    if let Some(ref mut video) = self.video_input {
+                        match video.start_input1_syphon(&server_name) {
+                            Ok(_) => log::info!("[INPUT] Started Syphon input 1: {}", server_name),
+                            Err(e) => log::error!("[INPUT] Failed to start Syphon input 1: {:?}", e),
+                        }
+                    } else {
+                        log::error!("[INPUT] Video input manager not initialized");
+                    }
+                }
                 crate::core::InputChangeRequest::StopInput { .. } => {
                     if let Some(ref mut video) = self.video_input {
                         video.stop_input1();
@@ -901,6 +911,16 @@ impl ApplicationHandler for App {
                         match video.start_input2_ndi(&source_name) {
                             Ok(_) => log::info!("[INPUT] Started NDI input 2: {}", source_name),
                             Err(e) => log::error!("[INPUT] Failed to start NDI input 2: {:?}", e),
+                        }
+                    } else {
+                        log::error!("[INPUT] Video input manager not initialized");
+                    }
+                }
+                crate::core::InputChangeRequest::StartSyphon { server_name, .. } => {
+                    if let Some(ref mut video) = self.video_input {
+                        match video.start_input2_syphon(&server_name) {
+                            Ok(_) => log::info!("[INPUT] Started Syphon input 2: {}", server_name),
+                            Err(e) => log::error!("[INPUT] Failed to start Syphon input 2: {:?}", e),
                         }
                     } else {
                         log::error!("[INPUT] Video input manager not initialized");
@@ -996,19 +1016,55 @@ impl ApplicationHandler for App {
         if let (Some(ref mut video), Some(ref mut engine)) = (self.video_input.as_mut(), self.output_engine.as_mut()) {
             video.update();
             
-            // Upload input 1 frame if available
-            if video.input1_has_new_frame() {
-                if let Some(frame_data) = video.take_input1_frame() {
-                    let (width, height) = video.get_input1_resolution();
-                    engine.input_texture_manager.update_input1(&frame_data, width, height);
+            // Check for GPU-accelerated Syphon input first (macOS only)
+            #[cfg(target_os = "macos")]
+            {
+                // Input 1: GPU Syphon texture
+                if video.input1_is_gpu_syphon() {
+                    if let Some(texture) = video.get_input1_syphon_texture() {
+                        engine.input_texture_manager.update_input1_from_texture(texture);
+                    }
+                }
+                // Input 1: CPU frame data (webcam, NDI, or fallback Syphon)
+                else if video.input1_has_new_frame() {
+                    if let Some(frame_data) = video.take_input1_frame() {
+                        let (width, height) = video.get_input1_resolution();
+                        engine.input_texture_manager.update_input1(&frame_data, width, height);
+                    }
+                }
+                
+                // Input 2: GPU Syphon texture
+                if video.input2_is_gpu_syphon() {
+                    if let Some(texture) = video.get_input2_syphon_texture() {
+                        engine.input_texture_manager.update_input2_from_texture(texture);
+                    }
+                }
+                // Input 2: CPU frame data
+                else if video.input2_has_new_frame() {
+                    if let Some(frame_data) = video.take_input2_frame() {
+                        let (width, height) = video.get_input2_resolution();
+                        engine.input_texture_manager.update_input2(&frame_data, width, height);
+                    }
                 }
             }
             
-            // Upload input 2 frame if available
-            if video.input2_has_new_frame() {
-                if let Some(frame_data) = video.take_input2_frame() {
-                    let (width, height) = video.get_input2_resolution();
-                    engine.input_texture_manager.update_input2(&frame_data, width, height);
+            // Non-macOS: CPU frame data only
+            #[cfg(not(target_os = "macos"))]
+            {
+                // Upload input 1 frame if available
+                if video.input1_has_new_frame() {
+                    if let Some(frame_data) = video.take_input1_frame() {
+                        let (width, height) = video.get_input1_resolution();
+                        engine.input_texture_manager.update_input1(&frame_data, width, height);
+                    }
+                }
+                
+                // Upload input 2 frame if available
+                if video.input2_has_new_frame() {
+                    if let Some(frame_data) = video.take_input2_frame() {
+                        let (width, height) = video.get_input2_resolution();
+                        engine.input_texture_manager.update_input2(&frame_data, width, height);
+                    }
                 }
             }
         }
@@ -1131,17 +1187,9 @@ pub struct WgpuEngine {
     /// Current skip counter
     ndi_skip_counter: u8,
     
-    /// Async Syphon processor (background thread, macOS only)
+    /// Zero-copy Syphon output (macOS only)
     #[cfg(target_os = "macos")]
-    syphon_async: Option<crate::output::AsyncSyphonOutput>,
-    
-    /// Triple-buffered GPU readback buffers for Syphon output
-    #[cfg(target_os = "macos")]
-    syphon_buffers: Vec<Arc<wgpu::Buffer>>,
-    
-    /// Syphon frame counter
-    #[cfg(target_os = "macos")]
-    syphon_frame_counter: u64,
+    syphon_sender: Option<crate::output::SyphonWgpuSender>,
 }
 
 impl WgpuEngine {
@@ -1429,11 +1477,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             
             // Initialize Syphon output (macOS only, created when enabled)
             #[cfg(target_os = "macos")]
-            syphon_async: None,
-            #[cfg(target_os = "macos")]
-            syphon_buffers: Vec::new(),
-            #[cfg(target_os = "macos")]
-            syphon_frame_counter: 0,
+            syphon_sender: None,
         })
     }
     
@@ -1920,45 +1964,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Store the buffer index for processing after submit
         let ndi_buffer_idx = ndi_buffer_to_process;
         
-        // Syphon output processing (macOS only)
-        #[cfg(target_os = "macos")]
-        let mut syphon_buffer_to_process: Option<usize> = None;
-        #[cfg(target_os = "macos")]
-        {
-            if let Some(async_syphon) = self.syphon_async.as_ref() {
-                // Try to acquire a free buffer
-                if let Some((idx, buffer)) = async_syphon.acquire_buffer() {
-                    // Use actual texture dimensions, not config (they may differ)
-                    let texture = &self.block3_texture.texture;
-                    let syphon_width = texture.width();
-                    let syphon_height = texture.height();
-                    
-                    encoder.copy_texture_to_buffer(
-                        wgpu::TexelCopyTextureInfo {
-                            texture,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        wgpu::TexelCopyBufferInfo {
-                            buffer,
-                            layout: wgpu::TexelCopyBufferLayout {
-                                offset: 0,
-                                bytes_per_row: Some(syphon_width * 4),
-                                rows_per_image: Some(syphon_height),
-                            },
-                        },
-                        wgpu::Extent3d {
-                            width: syphon_width,
-                            height: syphon_height,
-                            depth_or_array_layers: 1,
-                        },
-                    );
-                    
-                    syphon_buffer_to_process = Some(idx);
-                }
-            }
-        }
+        // Note: Syphon zero-copy publish happens after submit, see below
         
         // Handle recording commands
         let recording_command = {
@@ -2067,10 +2073,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     async_ndi.process_buffer_async(idx);
                 }
                 
-                // Process Syphon buffer (macOS only)
+                // Publish to Syphon (zero-copy, macOS only)
                 #[cfg(target_os = "macos")]
-                if let (Some(idx), Some(async_syphon)) = (syphon_buffer_to_process, self.syphon_async.as_ref()) {
-                    async_syphon.process_buffer_async(idx);
+                if let Some(ref mut syphon) = self.syphon_sender {
+                    syphon.publish(&self.block3_texture.texture, &self.device, &self.queue);
                 }
                 
                 surface_texture.present();
@@ -2151,10 +2157,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 async_ndi.process_buffer_async(idx);
             }
             
-            // Process Syphon buffer (macOS only)
+            // Publish to Syphon (zero-copy, macOS only)
             #[cfg(target_os = "macos")]
-            if let (Some(idx), Some(async_syphon)) = (syphon_buffer_to_process, self.syphon_async.as_ref()) {
-                async_syphon.process_buffer_async(idx);
+            if let Some(ref mut syphon) = self.syphon_sender {
+                syphon.publish(&self.block3_texture.texture, &self.device, &self.queue);
             }
         } else {
             self.queue.submit(std::iter::once(encoder.finish()));
@@ -2164,10 +2170,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 async_ndi.process_buffer_async(idx);
             }
             
-            // Process Syphon buffer (macOS only)
+            // Publish to Syphon (zero-copy, macOS only)
             #[cfg(target_os = "macos")]
-            if let (Some(idx), Some(async_syphon)) = (syphon_buffer_to_process, self.syphon_async.as_ref()) {
-                async_syphon.process_buffer_async(idx);
+            if let Some(ref mut syphon) = self.syphon_sender {
+                syphon.publish(&self.block3_texture.texture, &self.device, &self.queue);
             }
         }
         
@@ -2269,8 +2275,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     /// Start Syphon output (macOS only)
     #[cfg(target_os = "macos")]
     pub fn start_syphon_output(&mut self, name: &str) -> anyhow::Result<()> {
-        use crate::output::{SyphonSender, AsyncSyphonOutput};
-        
         // Stop existing Syphon output if any
         self.stop_syphon_output();
         
@@ -2280,37 +2284,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         
         log::info!("[Engine] Starting Syphon output '{}' at {}x{}", name, width, height);
         
-        // Create readback buffers (triple buffered)
-        let buffer_size = (width * height * 4) as u64;
-        self.syphon_buffers.clear();
-        for i in 0..3 {
-            let buffer = Arc::new(self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(&format!("Syphon Readback Buffer {}", i)),
-                size: buffer_size,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            }));
-            self.syphon_buffers.push(buffer);
-        }
-        self.syphon_frame_counter = 0;
-        
-        // Create Syphon sender
-        let syphon_sender = SyphonSender::new(name, width, height)?;
-        
-        // Create async processor
-        let processor = AsyncSyphonOutput::new(
+        // Create zero-copy Syphon sender
+        let sender = crate::output::SyphonWgpuSender::new(
+            name,
             &self.device,
-            syphon_sender,
+            &self.queue,
             width,
             height,
-        );
+        )?;
         
-        self.syphon_async = Some(processor);
+        self.syphon_sender = Some(sender);
         
         // Update shared state
         if let Ok(mut state) = self.shared_state.lock() {
             state.syphon_output_active = true;
         }
+        
+        log::info!("[Engine] Syphon output started (zero-copy: {})", 
+            self.syphon_sender.as_ref().map_or(false, |s| s.is_zero_copy()));
         
         Ok(())
     }
@@ -2318,10 +2309,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     /// Stop Syphon output (macOS only)
     #[cfg(target_os = "macos")]
     pub fn stop_syphon_output(&mut self) {
-        if self.syphon_async.is_some() {
-            self.syphon_async = None;
-            self.syphon_buffers.clear();
-            self.syphon_frame_counter = 0;
+        if self.syphon_sender.is_some() {
+            log::info!("[Engine] Stopping Syphon output");
+            self.syphon_sender = None;
             
             if let Ok(mut state) = self.shared_state.lock() {
                 state.syphon_output_active = false;

@@ -132,11 +132,10 @@ pub enum IpcFrame {
         /// Height in pixels
         height: u32,
     },
-    /// GPU texture handle (platform-specific, zero-copy)
-    #[cfg(target_os = "macos")]
-    GpuTexture(crate::ipc::syphon::SyphonTextureHandle),
-    #[cfg(target_os = "windows")]
-    GpuTexture(crate::ipc::spout::SpoutTextureHandle),
+    // GPU texture handle (platform-specific, zero-copy)
+    // TODO: Implement zero-copy GPU texture handles using syphon-metal types
+    // #[cfg(target_os = "macos")]
+    // GpuTexture(...),
 }
 
 /// Core trait for IPC video input
@@ -264,8 +263,6 @@ pub mod platform {
 // Platform-specific implementations
 #[cfg(target_os = "macos")]
 pub mod syphon;
-#[cfg(target_os = "macos")]
-pub mod syphon_sys;
 
 /// Factory functions for creating platform-specific implementations
 pub mod factory {

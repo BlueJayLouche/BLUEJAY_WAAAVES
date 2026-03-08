@@ -1,53 +1,84 @@
-//! # Syphon Implementation (macOS)
+//! # Syphon Implementation using syphon-core crate (macOS)
 //!
-//! Provides Syphon video sharing support on macOS.
+//! Provides Syphon video sharing support on macOS using the well-tested
+//! syphon-core and syphon-wgpu crates for zero-copy GPU texture sharing.
 //!
-//! ## Overview
-//!
-//! Syphon is an open-source Mac OS X technology that allows applications to share frames
-//! with one another in realtime. It uses IOSurface for zero-copy GPU texture sharing.
-//!
-//! ## Implementation Notes
-//!
-//! This implementation uses Objective-C runtime bindings via the `objc` crate.
-//! The Syphon framework must be available at runtime (included with many VJ apps).
-//!
-//! ## Zero-Copy Architecture
+//! ## Architecture
 //!
 //! ```
-//! RustJay (wgpu/Metal) ────► IOSurface ────► Syphon Server ────► Receiving App
-//!                              (shared)          (publish)
+//! RustJay Waaaves
+//!      │
+//!      ▼
+//! IpcInput/IpcOutput traits
+//!      │
+//!      ▼
+//! SyphonInput/SyphonOutput (wrappers)
+//!      │
+//!      ▼
+//! syphon-core / syphon-wgpu crates
+//!      │
+//!      ▼
+//! Syphon.framework (macOS)
+//! ```
+//!
+//! ## GPU Device Compatibility
+//!
+//! On multi-GPU systems (e.g., MacBook Pro with Intel + AMD), it's important
+//! that the Syphon server uses the same GPU as your rendering. This module
+//! provides device compatibility checking to help diagnose issues.
+//!
+//! Example:
+//! ```rust,no_run
+//! use crate::ipc::syphon::{SyphonOutput, check_gpu_compatibility};
+//!
+//! // Before creating output, check available GPUs
+//! if let Ok(gpus) = list_available_gpus() {
+//!     for gpu in gpus {
+//!         log::info!("Available GPU: {} (high-performance: {})", 
+//!             gpu.name, gpu.is_high_performance());
+//!     }
+//! }
+//!
+//! // Create output with automatic device selection
+//! let output = SyphonOutput::new_with_wgpu("My Server", &device, &queue, 1920, 1080)?;
 //! ```
 
 use super::{IpcDiscovery, IpcError, IpcFrame, IpcInput, IpcOutput, IpcResult, IpcSourceInfo, PixelFormat};
 use std::fmt::Debug;
 
-/// Handle to a Syphon-shared GPU texture
-#[derive(Debug)]
-pub struct SyphonTextureHandle {
-    /// IOSurface ID for sharing
-    pub iosurface_id: u32,
-    /// Texture dimensions
-    pub width: u32,
-    pub height: u32,
+/// Re-export the external crate types for advanced users
+pub use syphon_core::{SyphonServer, SyphonClient, SyphonServerDirectory, ServerInfo, is_available};
+pub use syphon_wgpu::SyphonWgpuOutput;
+
+/// Re-export Metal device utilities for GPU compatibility checking
+pub use syphon_core::{
+    MetalDeviceInfo,
+    default_device,
+    available_devices,
+    recommended_high_performance_device,
+    check_device_compatibility,
+    validate_device_match,
+};
+
+/// Check if Syphon framework is available
+pub fn is_syphon_available() -> bool {
+    is_available()
 }
 
 /// Syphon input client
 ///
 /// Receives video frames from Syphon servers on the local machine.
+/// Wraps syphon_core::SyphonClient to implement the IpcInput trait.
 pub struct SyphonInput {
     /// Connected server name
     server_name: Option<String>,
     /// Current dimensions
     dimensions: Option<(u32, u32)>,
-    /// Native Syphon client (opaque pointer)
-    #[allow(dead_code)]
-    native_client: Option<*mut std::ffi::c_void>,
+    /// Native Syphon client from external crate
+    client: Option<SyphonClient>,
+    /// Pending frame data from last receive call
+    pending_frame: Option<Vec<u8>>,
 }
-
-// Safety: The native client pointer is only accessed from the thread that created it
-// and is properly synchronized via the option wrapper
-unsafe impl Send for SyphonInput {}
 
 impl SyphonInput {
     /// Create a new Syphon input client
@@ -55,15 +86,19 @@ impl SyphonInput {
         Self {
             server_name: None,
             dimensions: None,
-            native_client: None,
+            client: None,
+            pending_frame: None,
         }
     }
 
     /// Check if Syphon framework is available
     pub fn is_available() -> bool {
-        // Check if Syphon framework can be loaded
-        // In a real implementation, this would try to load the framework
-        true // Placeholder
+        is_available()
+    }
+
+    /// Get direct access to the underlying client (for advanced usage)
+    pub fn client(&self) -> Option<&SyphonClient> {
+        self.client.as_ref()
     }
 }
 
@@ -85,15 +120,23 @@ impl IpcInput for SyphonInput {
 
         log::info!("[Syphon] Connecting to server: {}", source);
 
-        // TODO: Implement using objc crate:
-        // 1. Create SyphonClient with server name
-        // 2. Set up frame callback or polling
-        // 3. Store native client pointer
-
-        self.server_name = Some(source.to_string());
-        
-        // Placeholder: Would return Err on actual failure
-        Ok(())
+        // Use the external crate to connect
+        match SyphonClient::connect(source) {
+            Ok(client) => {
+                self.server_name = Some(source.to_string());
+                // Get initial frame to determine dimensions
+                if let Ok(Some(frame)) = client.try_receive() {
+                    self.dimensions = Some((frame.width, frame.height));
+                }
+                self.client = Some(client);
+                log::info!("[Syphon] Connected to '{}'", source);
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("[Syphon] Failed to connect to '{}': {}", source, e);
+                Err(IpcError::ConnectionFailed(e.to_string()))
+            }
+        }
     }
 
     fn disconnect(&mut self) {
@@ -103,33 +146,51 @@ impl IpcInput for SyphonInput {
 
         log::info!("[Syphon] Disconnecting from server: {:?}", self.server_name);
 
-        // TODO: Release SyphonClient
-        // 1. Stop frame callbacks
-        // 2. Release native client
-        // 3. Clean up resources
-
+        // Drop the client (SyphonClient implements Drop)
+        self.client = None;
         self.server_name = None;
         self.dimensions = None;
-        self.native_client = None;
+        self.pending_frame = None;
     }
 
     fn is_connected(&self) -> bool {
-        self.server_name.is_some()
+        self.client.is_some()
     }
 
     fn receive_frame(&mut self) -> Option<IpcFrame> {
-        if !self.is_connected() {
-            return None;
+        let client = self.client.as_ref()?;
+
+        // Try to receive a frame
+        match client.try_receive() {
+            Ok(Some(mut frame)) => {
+                // Update dimensions
+                self.dimensions = Some((frame.width, frame.height));
+
+                // Convert to CPU buffer (we could optimize this for GPU path later)
+                match frame.to_vec() {
+                    Ok(data) => {
+                        Some(IpcFrame::CpuBuffer {
+                            data,
+                            format: PixelFormat::BGRA, // Syphon uses BGRA on macOS
+                            width: frame.width,
+                            height: frame.height,
+                        })
+                    }
+                    Err(e) => {
+                        log::warn!("[Syphon] Failed to read frame data: {}", e);
+                        None
+                    }
+                }
+            }
+            Ok(None) => {
+                // No new frame available
+                None
+            }
+            Err(e) => {
+                log::warn!("[Syphon] Error receiving frame: {}", e);
+                None
+            }
         }
-
-        // TODO: Implement frame receiving:
-        // 1. Check if new frame available from SyphonClient
-        // 2. Get IOSurface reference
-        // 3. Option A: Return GPU handle (zero-copy)
-        // 4. Option B: Read to CPU buffer (fallback)
-
-        // Placeholder: Return None for now
-        None
     }
 
     fn resolution(&self) -> Option<(u32, u32)> {
@@ -156,50 +217,123 @@ impl Drop for SyphonInput {
 /// Syphon output server
 ///
 /// Publishes video frames as a Syphon server that other apps can receive.
+/// Uses syphon_wgpu::SyphonWgpuOutput for zero-copy GPU texture sharing.
 pub struct SyphonOutput {
     /// Server name
     server_name: Option<String>,
     /// Current dimensions
     dimensions: Option<(u32, u32)>,
-    /// Native Syphon server (opaque pointer)
-    #[allow(dead_code)]
-    native_server: Option<*mut std::ffi::c_void>,
-    /// Whether to use IOSurface sharing (zero-copy)
-    use_gpu_sharing: bool,
+    /// Zero-copy wgpu output (only available when created with device/queue)
+    wgpu_output: Option<SyphonWgpuOutput>,
+    /// Whether we have a valid server
+    has_server: bool,
 }
 
-// Safety: The native server pointer is only accessed from the thread that created it
-unsafe impl Send for SyphonOutput {}
-
 impl SyphonOutput {
-    /// Create a new Syphon output server
+    /// Create a new Syphon output server (for CPU fallback mode)
     pub fn new() -> Self {
         Self {
             server_name: None,
             dimensions: None,
-            native_server: None,
-            use_gpu_sharing: true,
+            wgpu_output: None,
+            has_server: false,
         }
     }
 
-    /// Create with GPU sharing disabled (CPU fallback)
-    pub fn new_cpu_only() -> Self {
-        Self {
-            server_name: None,
-            dimensions: None,
-            native_server: None,
-            use_gpu_sharing: false,
+    /// Create with GPU sharing enabled (requires device and queue)
+    /// 
+    /// This is the recommended way to create a Syphon output for zero-copy operation.
+    /// 
+    /// # GPU Device Compatibility
+    /// 
+    /// On multi-GPU systems, this method will attempt to use the same GPU as the
+    /// wgpu device. If the Syphon framework has loading issues (e.g., incorrect
+    /// install name), it will fall back to the framework's internal device selection
+    /// with a warning.
+    ///
+    /// # Errors
+    /// Returns `IpcError::NativeError` if the Syphon framework is not available
+    /// or if server creation fails.
+    pub fn new_with_wgpu(
+        name: &str,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+    ) -> IpcResult<Self> {
+        // Log available GPUs for debugging (helpful for multi-GPU systems)
+        #[cfg(target_os = "macos")]
+        if log::log_enabled!(log::Level::Debug) {
+            match available_devices() {
+                gpus if !gpus.is_empty() => {
+                    log::debug!("[Syphon] Available GPUs:");
+                    for gpu in &gpus {
+                        log::debug!("  - {} (default={}, low_power={}, unified={})",
+                            gpu.name, gpu.is_default, gpu.is_low_power, gpu.has_unified_memory);
+                    }
+                }
+                _ => {
+                    log::debug!("[Syphon] Could not enumerate GPUs");
+                }
+            }
+        }
+        
+        match SyphonWgpuOutput::new(name, device, queue, width, height) {
+            Ok(output) => {
+                let is_zero_copy = output.is_zero_copy();
+                log::info!("[Syphon] Created wgpu output '{}' at {}x{} (zero-copy: {})",
+                    name, width, height, is_zero_copy);
+                
+                if !is_zero_copy {
+                    log::warn!("[Syphon] Zero-copy not available - falling back to CPU readback. \
+                        This may impact performance.");
+                }
+                
+                Ok(Self {
+                    server_name: Some(name.to_string()),
+                    dimensions: Some((width, height)),
+                    wgpu_output: Some(output),
+                    has_server: true,
+                })
+            }
+            Err(syphon_core::SyphonError::FrameworkNotFound(ref msg)) => {
+                log::error!("[Syphon] Framework not found: {}", msg);
+                log::error!("[Syphon] Ensure Syphon.framework is installed at /Library/Frameworks/");
+                log::error!("[Syphon] Download from: https://github.com/Syphon/Syphon-Framework/releases");
+                Err(IpcError::NativeError(format!(
+                    "Syphon framework not found. Install from https://github.com/Syphon/Syphon-Framework/releases: {}", 
+                    msg
+                )))
+            }
+            Err(e) => {
+                log::error!("[Syphon] Failed to create wgpu output: {}", e);
+                Err(IpcError::NativeError(format!("Failed to create Syphon output: {}", e)))
+            }
         }
     }
 
     /// Check if Syphon framework is available
     pub fn is_available() -> bool {
-        SyphonInput::is_available()
+        is_available()
     }
 
-    /// Enable/disable GPU sharing
-    pub fn set_gpu_sharing(&mut self, enabled: bool) {
-        self.use_gpu_sharing = enabled;
+    /// Get the underlying wgpu output (for advanced usage)
+    pub fn wgpu_output(&self) -> Option<&SyphonWgpuOutput> {
+        self.wgpu_output.as_ref()
+    }
+
+    /// Get mutable reference to wgpu output
+    pub fn wgpu_output_mut(&mut self) -> Option<&mut SyphonWgpuOutput> {
+        self.wgpu_output.as_mut()
+    }
+
+    /// Publish a texture using zero-copy path (requires wgpu output)
+    ///
+    /// This is the most efficient way to publish frames when using wgpu.
+    pub fn publish_texture(&mut self, texture: &wgpu::Texture, device: &wgpu::Device, queue: &wgpu::Queue) {
+        if let Some(ref mut output) = self.wgpu_output {
+            output.publish(texture, device, queue);
+        }
     }
 }
 
@@ -209,7 +343,7 @@ impl Debug for SyphonOutput {
             .field("server_name", &self.server_name)
             .field("dimensions", &self.dimensions)
             .field("active", &self.is_active())
-            .field("gpu_sharing", &self.use_gpu_sharing)
+            .field("zero_copy", &self.wgpu_output.as_ref().map_or(false, |o| o.is_zero_copy()))
             .finish()
     }
 }
@@ -224,15 +358,13 @@ impl IpcOutput for SyphonOutput {
             return Err(IpcError::InvalidDimensions { width, height });
         }
 
-        log::info!("[Syphon] Creating server '{}' at {}x{}", name, width, height);
+        log::info!("[Syphon] Creating server '{}' at {}x{} (CPU fallback mode)", name, width, height);
 
-        // TODO: Implement using objc crate:
-        // 1. Create SyphonServer with name
-        // 2. Configure for IOSurface publishing if GPU sharing enabled
-        // 3. Store native server pointer
-
+        // Without device/queue, we can only do CPU fallback
+        // The wgpu output should be created via new_with_wgpu() for GPU sharing
         self.server_name = Some(name.to_string());
         self.dimensions = Some((width, height));
+        self.has_server = true;
 
         Ok(())
     }
@@ -244,49 +376,34 @@ impl IpcOutput for SyphonOutput {
 
         log::info!("[Syphon] Destroying server: {:?}", self.server_name);
 
-        // TODO: Release SyphonServer
-        // 1. Stop publishing
-        // 2. Release native server
-        // 3. Clean up resources
-
+        self.wgpu_output = None;
         self.server_name = None;
         self.dimensions = None;
-        self.native_server = None;
+        self.has_server = false;
     }
 
     fn is_active(&self) -> bool {
-        self.server_name.is_some()
+        self.has_server
     }
 
     fn send_texture(
         &mut self,
         _texture: &wgpu::Texture,
-        _device: &wgpu::Device,
-        _queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
     ) -> IpcResult<()> {
         if !self.is_active() {
             return Err(IpcError::NotInitialized);
         }
 
-        if !self.use_gpu_sharing {
-            return Err(IpcError::SharingNotAvailable);
+        // If we have a wgpu output, use zero-copy path
+        if let Some(ref mut output) = self.wgpu_output {
+            output.publish(_texture, device, queue);
+            return Ok(());
         }
 
-        // TODO: Implement zero-copy texture sharing:
-        // 1. Get underlying Metal texture from wgpu texture
-        //    - Access via wgpu::hal::metal or custom surface
-        // 2. Get IOSurface from Metal texture
-        // 3. Publish IOSurface to SyphonServer
-        //
-        // This requires either:
-        // - Access to wgpu's HAL layer
-        // - Custom Metal surface implementation
-        // - Or: Copy to CPU and use send_buffer (fallback)
-
-        log::debug!("[Syphon] Publishing GPU texture");
-
-        // Placeholder: Would return Err on actual failure
-        Ok(())
+        // Otherwise, we need to use CPU fallback
+        Err(IpcError::SharingNotAvailable)
     }
 
     fn send_buffer(
@@ -315,14 +432,11 @@ impl IpcOutput for SyphonOutput {
             ));
         }
 
-        // TODO: Implement CPU buffer publishing:
-        // 1. Convert to Syphon-compatible format (usually RGBA/BGRA)
-        // 2. Create CGImage or texture from buffer
-        // 3. Publish to SyphonServer
+        // TODO: Implement CPU buffer publishing through syphon-core
+        // This requires creating a Metal texture from the buffer and publishing it
+        log::debug!("[Syphon] CPU buffer publishing not yet implemented ({}x{} {:?})", 
+            width, height, format);
 
-        log::debug!("[Syphon] Publishing CPU buffer: {}x{} {:?}", width, height, format);
-
-        // Placeholder
         Ok(())
     }
 
@@ -350,6 +464,7 @@ impl Drop for SyphonOutput {
 /// Syphon source discovery
 ///
 /// Scans for available Syphon servers on the local machine.
+/// Wraps syphon_core::SyphonServerDirectory.
 pub struct SyphonDiscovery {
     /// Last discovered sources
     sources: Vec<IpcSourceInfo>,
@@ -362,6 +477,28 @@ impl SyphonDiscovery {
             sources: Vec::new(),
         }
     }
+
+    /// Refresh the server list immediately
+    pub fn refresh(&mut self) {
+        self.sources = Self::discover_now();
+    }
+
+    /// Discover servers synchronously
+    fn discover_now() -> Vec<IpcSourceInfo> {
+        let servers = SyphonServerDirectory::servers();
+        
+        log::debug!("[Syphon] Discovered {} servers", servers.len());
+        
+        servers
+            .into_iter()
+            .map(|info| IpcSourceInfo {
+                name: info.name,
+                app_name: info.app_name,
+                dimensions: None, // Could be fetched from a connected client
+                handle: info.uuid,
+            })
+            .collect()
+    }
 }
 
 impl Default for SyphonDiscovery {
@@ -372,16 +509,7 @@ impl Default for SyphonDiscovery {
 
 impl IpcDiscovery for SyphonDiscovery {
     fn discover_sources(&mut self, _timeout_ms: u32) -> Vec<IpcSourceInfo> {
-        log::debug!("[Syphon] Discovering sources...");
-
-        // TODO: Implement discovery:
-        // 1. Use SyphonServerDirectory (NSNotification-based)
-        // 2. Get list of available servers
-        // 3. Filter by type if needed
-        // 4. Update self.sources
-
-        // Placeholder: Return empty list
-        self.sources.clear();
+        self.refresh();
         self.sources.clone()
     }
 
@@ -390,18 +518,106 @@ impl IpcDiscovery for SyphonDiscovery {
     }
 }
 
-/// Convert pixel format to CoreGraphics format
-#[allow(dead_code)]
-fn pixel_format_to_core_graphics(format: PixelFormat) -> u32 {
-    // kCGImageAlphaPremultipliedLast = 1 (RGBA)
-    // kCGImageAlphaPremultipliedFirst = 2 (ARGB)
-    // kCGImageAlphaNoneSkipLast = 5 (RGBX)
-    // etc.
-    match format {
-        PixelFormat::RGBA => 1, // kCGImageAlphaPremultipliedLast
-        PixelFormat::BGRA => 2, // kCGImageAlphaPremultipliedFirst (needs swap)
-        _ => 1, // Default to RGBA
+/// Conversion from external crate's ServerInfo to our IpcSourceInfo
+impl From<ServerInfo> for IpcSourceInfo {
+    fn from(info: ServerInfo) -> Self {
+        Self {
+            name: info.name,
+            app_name: info.app_name,
+            dimensions: None,
+            handle: info.uuid,
+        }
     }
+}
+
+/// List all available GPUs on the system
+///
+/// Useful for debugging multi-GPU setups and verifying which GPUs
+/// are available for Syphon texture sharing.
+///
+/// # Example
+/// ```rust,no_run
+/// let gpus = list_available_gpus()?;
+/// for gpu in gpus {
+///     println!("GPU: {} (high-performance: {})", 
+///         gpu.name, gpu.is_high_performance());
+/// }
+/// ```
+pub fn list_available_gpus() -> IpcResult<Vec<MetalDeviceInfo>> {
+    let devices = available_devices();
+    if devices.is_empty() {
+        return Err(IpcError::NativeError(
+            "No Metal GPUs found. This may indicate a system issue.".to_string()
+        ));
+    }
+    Ok(devices)
+}
+
+/// Get the recommended GPU for high-performance rendering
+///
+/// On multi-GPU systems, this returns the discrete/high-performance GPU
+/// rather than the integrated/low-power GPU.
+pub fn get_recommended_gpu() -> IpcResult<MetalDeviceInfo> {
+    recommended_high_performance_device()
+        .ok_or_else(|| IpcError::NativeError(
+            "No suitable GPU found for high-performance rendering".to_string()
+        ))
+}
+
+/// Check GPU compatibility for Syphon texture sharing
+///
+/// Returns information about GPU compatibility. This is useful for
+/// diagnosing performance issues on multi-GPU systems.
+///
+/// # Returns
+/// - `Ok(())` if GPUs are compatible
+/// - `Err` with details if there may be performance issues
+pub fn check_gpu_compatibility() -> IpcResult<String> {
+    let devices = available_devices();
+    
+    if devices.is_empty() {
+        return Err(IpcError::NativeError(
+            "No Metal GPUs found".to_string()
+        ));
+    }
+    
+    if devices.len() == 1 {
+        let gpu = &devices[0];
+        return Ok(format!(
+            "Single GPU system: {} (high-performance: {})",
+            gpu.name,
+            gpu.is_high_performance()
+        ));
+    }
+    
+    // Multi-GPU system
+    let mut report = format!("Multi-GPU system ({} GPUs):\n", devices.len());
+    
+    for gpu in &devices {
+        report.push_str(&format!(
+            "  - {} (default={}, high-performance={})\n",
+            gpu.name,
+            gpu.is_default,
+            gpu.is_high_performance()
+        ));
+    }
+    
+    // Check for potential issues
+    let high_perf_gpus: Vec<_> = devices.iter()
+        .filter(|d| d.is_high_performance())
+        .collect();
+    
+    if high_perf_gpus.is_empty() {
+        report.push_str("\nWarning: No high-performance GPU detected.");
+    } else if high_perf_gpus.len() > 1 {
+        report.push_str(&format!(
+            "\nNote: Multiple high-performance GPUs detected ({}). \
+             Ensure rendering and Syphon use the same GPU for optimal performance.",
+            high_perf_gpus.len()
+        ));
+    }
+    
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -423,8 +639,14 @@ mod tests {
     }
 
     #[test]
-    fn test_syphon_output_cpu_fallback() {
-        let output = SyphonOutput::new_cpu_only();
-        assert!(!output.use_gpu_sharing);
+    fn test_discovery_creation() {
+        let discovery = SyphonDiscovery::new();
+        assert!(discovery.sources.is_empty());
+    }
+
+    #[test]
+    fn test_availability() {
+        // Just make sure it doesn't panic
+        let _available = is_syphon_available();
     }
 }

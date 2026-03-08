@@ -590,7 +590,10 @@ impl ControlGui {
     fn refresh_syphon_sources(&mut self) {
         let discovery = crate::input::SyphonDiscovery::new();
         let servers = discovery.discover_servers();
-        self.syphon_sources = servers.into_iter().map(|s| s.name).collect();
+        // Use display_name() which handles empty names automatically
+        self.syphon_sources = servers.into_iter()
+            .map(|s| s.display_name().to_string())
+            .collect();
         self.syphon_sources_dirty = false;
     }
     
@@ -4429,19 +4432,25 @@ impl ControlGui {
             // Syphon source selection (macOS only)
             #[cfg(target_os = "macos")]
             if self.input1_type == InputType::Syphon {
-                let sources: Vec<&str> = self.syphon_sources.iter().map(|s| s.as_str()).collect();
+                // Build safe sources list - never pass empty strings to ImGui
+                let sources: Vec<(usize, &str)> = self.syphon_sources.iter()
+                    .enumerate()
+                    .map(|(i, s)| (i, if s.is_empty() { "(unnamed)" } else { s.as_str() }))
+                    .collect();
                 if !sources.is_empty() {
-                    let preview = if self.selected_syphon_source1 >= 0 { 
-                        self.syphon_sources[self.selected_syphon_source1 as usize].clone()
+                    let preview = if self.selected_syphon_source1 >= 0 && 
+                                     (self.selected_syphon_source1 as usize) < self.syphon_sources.len() {
+                        let name = &self.syphon_sources[self.selected_syphon_source1 as usize];
+                        if name.is_empty() { "(unnamed server)".to_string() } else { name.clone() }
                     } else { "Select Syphon source...".to_string() };
                     
                     let mut selected = self.selected_syphon_source1;
                     ComboBox::new(ui, "##syphon1_select")
                         .preview_value(&preview)
                         .build(|| {
-                            for (idx, opt) in sources.iter().enumerate() {
-                                if ui.selectable_config(opt).selected(idx == selected as usize).build() {
-                                    selected = idx as i32;
+                            for (idx, label) in sources.iter() {
+                                if ui.selectable_config(label).selected(*idx == selected as usize).build() {
+                                    selected = *idx as i32;
                                 }
                             }
                         });
@@ -4453,10 +4462,22 @@ impl ControlGui {
                         self.save_input_config();
                     }
                     
+                    // Refresh button next to dropdown
+                    ui.same_line();
+                    if ui.button("🔄") {
+                        log::info!("[GUI] Refreshing Syphon sources for Input 1");
+                        self.refresh_syphon_sources();
+                    }
+                    
                     if ui.button("Start Syphon Input 1") && self.selected_syphon_source1 >= 0 {
                         let source_name = self.syphon_sources[self.selected_syphon_source1 as usize].clone();
-                        // TODO: Implement Syphon input start via InputChangeRequest
-                        log::info!("Start Syphon Input 1: {}", source_name);
+                        log::info!("[GUI] Requesting Syphon Input 1: {}", source_name);
+                        if let Ok(mut state) = self.shared_state.lock() {
+                            state.input1_change_request = InputChangeRequest::StartSyphon { 
+                                input_id: 1, 
+                                server_name: source_name 
+                            };
+                        }
                     }
                 } else {
                     ui.text_disabled("No Syphon sources found");
@@ -4632,19 +4653,25 @@ impl ControlGui {
             // Syphon source selection (macOS only)
             #[cfg(target_os = "macos")]
             if self.input2_type == InputType::Syphon {
-                let sources: Vec<&str> = self.syphon_sources.iter().map(|s| s.as_str()).collect();
+                // Build safe sources list - never pass empty strings to ImGui
+                let sources: Vec<(usize, &str)> = self.syphon_sources.iter()
+                    .enumerate()
+                    .map(|(i, s)| (i, if s.is_empty() { "(unnamed)" } else { s.as_str() }))
+                    .collect();
                 if !sources.is_empty() {
-                    let preview = if self.selected_syphon_source2 >= 0 { 
-                        self.syphon_sources[self.selected_syphon_source2 as usize].clone()
+                    let preview = if self.selected_syphon_source2 >= 0 &&
+                                     (self.selected_syphon_source2 as usize) < self.syphon_sources.len() {
+                        let name = &self.syphon_sources[self.selected_syphon_source2 as usize];
+                        if name.is_empty() { "(unnamed server)".to_string() } else { name.clone() }
                     } else { "Select Syphon source...".to_string() };
                     
                     let mut selected = self.selected_syphon_source2;
                     ComboBox::new(ui, "##syphon2_select")
                         .preview_value(&preview)
                         .build(|| {
-                            for (idx, opt) in sources.iter().enumerate() {
-                                if ui.selectable_config(opt).selected(idx == selected as usize).build() {
-                                    selected = idx as i32;
+                            for (idx, label) in sources.iter() {
+                                if ui.selectable_config(label).selected(*idx == selected as usize).build() {
+                                    selected = *idx as i32;
                                 }
                             }
                         });
@@ -4656,10 +4683,22 @@ impl ControlGui {
                         self.save_input_config();
                     }
                     
+                    // Refresh button next to dropdown
+                    ui.same_line();
+                    if ui.button("🔄") {
+                        log::info!("[GUI] Refreshing Syphon sources for Input 2");
+                        self.refresh_syphon_sources();
+                    }
+                    
                     if ui.button("Start Syphon Input 2") && self.selected_syphon_source2 >= 0 {
                         let source_name = self.syphon_sources[self.selected_syphon_source2 as usize].clone();
-                        // TODO: Implement Syphon input start via InputChangeRequest
-                        log::info!("Start Syphon Input 2: {}", source_name);
+                        log::info!("[GUI] Requesting Syphon Input 2: {}", source_name);
+                        if let Ok(mut state) = self.shared_state.lock() {
+                            state.input2_change_request = InputChangeRequest::StartSyphon { 
+                                input_id: 2, 
+                                server_name: source_name 
+                            };
+                        }
                     }
                 } else {
                     ui.text_disabled("No Syphon sources found");

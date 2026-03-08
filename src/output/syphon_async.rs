@@ -1,16 +1,24 @@
 //! # Async Syphon Output (macOS)
 //!
-//! High-performance Syphon output with concurrent buffer processing.
+//! High-performance Syphon output with zero-copy GPU texture publishing.
 //!
-//! Mirrors AsyncNdiOutput architecture:
-//! - Main thread: Record copy command, submit, start map_async
-//! - Callback thread: When map completes, read data, send to Syphon, unmap
-//! - Triple buffering prevents frame drops
+//! ## Architecture
+//!
+//! This module provides two modes:
+//! 1. **Zero-copy mode** (recommended): Uses syphon-wgpu's `SyphonWgpuOutput` for direct
+//!    GPU-to-GPU texture sharing via IOSurface.
+//! 2. **Async readback mode**: Triple-buffered GPU readback with background Syphon publishing
+//!    (fallback for compatibility).
+//!
+//! The zero-copy mode is automatically used when a wgpu device is available.
 
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::thread::{self, JoinHandle};
 
-/// Buffer state
+// Re-export high-performance sender
+pub use crate::output::syphon_sender::{SyphonWgpuSender, SyphonSender};
+
+/// Buffer state for async readback mode
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum BufferState {
     /// Buffer is free and ready for copy
@@ -25,14 +33,15 @@ struct TrackedBuffer {
     state: Arc<Mutex<BufferState>>,
 }
 
-/// Async Syphon output processor
+/// Async Syphon output processor (readback mode)
 ///
 /// Triple-buffered GPU readback with concurrent Syphon publishing.
+/// This is the fallback mode - prefer `SyphonWgpuSender` for zero-copy.
 pub struct AsyncSyphonOutput {
     /// Triple buffered wgpu buffers
     buffers: Vec<TrackedBuffer>,
-    /// Syphon sender (cloneable)
-    syphon_sender: crate::output::SyphonSender,
+    /// Syphon sender (CPU-based)
+    syphon_sender: SyphonSender,
     /// Device for polling
     _device: Arc<wgpu::Device>,
     /// Frame dimensions
@@ -45,16 +54,19 @@ pub struct AsyncSyphonOutput {
 }
 
 impl AsyncSyphonOutput {
-    /// Create new async Syphon output
+    /// Create new async Syphon output (readback mode)
     ///
     /// # Arguments
     /// * `device` - wgpu device
     /// * `syphon_sender` - Syphon sender instance
     /// * `width` - Frame width
     /// * `height` - Frame height
+    ///
+    /// # Deprecated
+    /// Use `SyphonWgpuSender` for zero-copy GPU publishing instead.
     pub fn new(
         device: &wgpu::Device,
-        syphon_sender: crate::output::SyphonSender,
+        syphon_sender: SyphonSender,
         width: u32,
         height: u32,
     ) -> Self {
@@ -87,7 +99,7 @@ impl AsyncSyphonOutput {
             }
         });
         
-        log::info!("[Syphon] Async output created: {}x{}", width, height);
+        log::info!("[Syphon] Async CPU output created: {}x{} (consider zero-copy mode)", width, height);
         
         Self {
             buffers,
@@ -183,7 +195,7 @@ impl AsyncSyphonOutput {
                 drop(data);
                 buffer.unmap();
                 
-                // Send to Syphon
+                // Send to Syphon (BGRA data)
                 syphon_sender.submit_frame(&frame_data, width, height);
             } else {
                 buffer.unmap();
@@ -222,40 +234,82 @@ impl Drop for AsyncSyphonOutput {
 
 /// Helper to integrate with the render loop
 ///
-/// Usage in engine:
-/// ```ignore
-/// // In render loop:
-/// if let Some((idx, buffer)) = syphon_output.acquire_buffer() {
-///     encoder.copy_texture_to_buffer(output_texture, buffer, ...);
-///     queue.submit([encoder.finish()]);
-///     syphon_output.process_buffer_async(idx);
-/// }
-/// ```
+/// This integration uses zero-copy when possible, falling back to
+/// async readback mode if needed.
 pub struct SyphonOutputIntegration {
+    /// Zero-copy wgpu output (preferred)
+    zero_copy_output: Option<SyphonWgpuSender>,
+    /// Async readback output (fallback)
     async_output: Option<AsyncSyphonOutput>,
     enabled: bool,
+    /// Output dimensions
+    width: u32,
+    height: u32,
 }
 
 impl SyphonOutputIntegration {
     /// Create new integration (disabled by default)
     pub fn new() -> Self {
         Self {
+            zero_copy_output: None,
             async_output: None,
             enabled: false,
+            width: 1920,
+            height: 1080,
         }
     }
     
-    /// Enable Syphon output
-    pub fn enable(&mut self, device: &wgpu::Device, name: &str, width: u32, height: u32) -> anyhow::Result<()> {
-        let sender = crate::output::SyphonSender::new(name, width, height)?;
+    /// Enable Syphon output with zero-copy
+    ///
+    /// This is the recommended method - it uses syphon-wgpu's zero-copy
+    /// GPU texture sharing for maximum performance.
+    pub fn enable(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        name: &str,
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<()> {
+        // Try zero-copy mode first
+        match SyphonWgpuSender::new(name, device, queue, width, height) {
+            Ok(sender) => {
+                self.zero_copy_output = Some(sender);
+                self.async_output = None;
+                self.enabled = true;
+                self.width = width;
+                self.height = height;
+                log::info!("[Syphon] Output enabled: {} at {}x{} (zero-copy)", name, width, height);
+                Ok(())
+            }
+            Err(e) => {
+                log::warn!("[Syphon] Zero-copy failed ({}), falling back to CPU mode", e);
+                self.enable_fallback(device, name, width, height)
+            }
+        }
+    }
+    
+    /// Enable with CPU fallback (async readback)
+    fn enable_fallback(
+        &mut self,
+        device: &wgpu::Device,
+        name: &str,
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<()> {
+        let sender = SyphonSender::new(name, width, height)?;
         self.async_output = Some(AsyncSyphonOutput::new(device, sender, width, height));
+        self.zero_copy_output = None;
         self.enabled = true;
-        log::info!("[Syphon] Output enabled: {} at {}x{}", name, width, height);
+        self.width = width;
+        self.height = height;
+        log::info!("[Syphon] Output enabled: {} at {}x{} (CPU fallback)", name, width, height);
         Ok(())
     }
     
     /// Disable output
     pub fn disable(&mut self) {
+        self.zero_copy_output = None;
         self.async_output = None;
         self.enabled = false;
         log::info!("[Syphon] Output disabled");
@@ -263,11 +317,26 @@ impl SyphonOutputIntegration {
     
     /// Check if enabled
     pub fn is_enabled(&self) -> bool {
-        self.enabled && self.async_output.is_some()
+        self.enabled && (self.zero_copy_output.is_some() || self.async_output.is_some())
     }
     
-    /// Submit a frame (convenience method)
-    pub fn submit_frame(&self, texture: &wgpu::Texture, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder) {
+    /// Check if using zero-copy mode
+    pub fn is_zero_copy(&self) -> bool {
+        self.zero_copy_output.as_ref().map_or(false, |o| o.is_zero_copy())
+    }
+    
+    /// Submit a frame (auto-detects zero-copy vs readback)
+    ///
+    /// For zero-copy mode, this just publishes the texture.
+    /// For readback mode, you need to manually manage the buffer lifecycle.
+    pub fn submit_frame(&mut self, texture: &wgpu::Texture, device: &wgpu::Device, queue: &wgpu::Queue) {
+        // Use zero-copy path if available
+        if let Some(ref mut output) = self.zero_copy_output {
+            output.publish(texture, device, queue);
+            return;
+        }
+        
+        // Fall back to async readback
         let Some(ref output) = self.async_output else {
             return;
         };
@@ -276,6 +345,11 @@ impl SyphonOutputIntegration {
             return;
         };
         
+        // Create encoder for copy
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Syphon Copy"),
+        });
+        
         // Copy texture to buffer
         encoder.copy_texture_to_buffer(
             texture.as_image_copy(),
@@ -283,23 +357,34 @@ impl SyphonOutputIntegration {
                 buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(self.async_output.as_ref().unwrap().width * 4),
-                    rows_per_image: Some(self.async_output.as_ref().unwrap().height),
+                    bytes_per_row: Some(self.width * 4),
+                    rows_per_image: Some(self.height),
                 },
             },
             wgpu::Extent3d {
-                width: self.async_output.as_ref().unwrap().width,
-                height: self.async_output.as_ref().unwrap().height,
+                width: self.width,
+                height: self.height,
                 depth_or_array_layers: 1,
             },
         );
         
-        // Note: caller must submit and call process_buffer_async
+        // Submit and start async processing
+        queue.submit(std::iter::once(encoder.finish()));
+        output.process_buffer_async(idx);
     }
     
-    /// Get the async output for manual control
-    pub fn async_output(&self) -> Option<&AsyncSyphonOutput> {
-        self.async_output.as_ref()
+    /// Get client count (for monitoring)
+    pub fn client_count(&self) -> usize {
+        if let Some(ref output) = self.zero_copy_output {
+            output.client_count()
+        } else {
+            0
+        }
+    }
+    
+    /// Check if any clients are connected
+    pub fn has_clients(&self) -> bool {
+        self.client_count() > 0
     }
 }
 
@@ -322,5 +407,6 @@ mod tests {
     fn test_integration_creation() {
         let integration = SyphonOutputIntegration::new();
         assert!(!integration.is_enabled());
+        assert!(!integration.is_zero_copy());
     }
 }

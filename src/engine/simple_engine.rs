@@ -212,7 +212,14 @@ impl SimpleEngine {
         );
         
         // Create input manager
-        let input_manager = InputManager::new();
+        let mut input_manager = InputManager::new();
+        
+        // Initialize input manager with device and queue
+        if let Err(e) = input_manager.initialize(device.clone(), queue.clone()) {
+            log::warn!("[SIMPLE_ENGINE] Failed to initialize input manager: {}", e);
+        } else {
+            log::info!("[SIMPLE_ENGINE] Input manager initialized");
+        }
         
         // Create LFO bank at 120 BPM
         let lfo_bank = TempoLfoBank::with_bpm(120.0);
@@ -278,6 +285,25 @@ impl SimpleEngine {
         match result {
             Ok(_) => log::info!("[SIMPLE_ENGINE] Webcam 1 started successfully"),
             Err(e) => log::error!("[SIMPLE_ENGINE] Failed to start webcam 1: {}", e),
+        }
+    }
+    
+    /// Start Syphon input on input 1 (macOS only)
+    #[cfg(target_os = "macos")]
+    pub fn start_input1_syphon(&mut self, server_name: &str) {
+        log::info!("[SIMPLE_ENGINE] Starting Syphon input from '{}'...", server_name);
+        
+        // Initialize input manager with device/queue if not already done
+        if let Err(e) = self.input_manager.initialize(self.device.clone(), self.queue.clone()) {
+            log::error!("[SIMPLE_ENGINE] Failed to initialize input manager: {}", e);
+            return;
+        }
+        
+        let result = self.input_manager.start_input1_syphon(server_name);
+        
+        match result {
+            Ok(_) => log::info!("[SIMPLE_ENGINE] Syphon input 1 started successfully from '{}'", server_name),
+            Err(e) => log::error!("[SIMPLE_ENGINE] Failed to start Syphon input 1: {}", e),
         }
     }
     
@@ -514,6 +540,63 @@ impl SimpleEngine {
                         },
                         wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
                     );
+                }
+            }
+        }
+        
+        // Handle GPU Syphon texture input (macOS only)
+        #[cfg(target_os = "macos")]
+        {
+            // Check for GPU Syphon texture on input 1
+            if self.input_manager.input1_is_gpu_syphon() {
+                if let Some(syphon_texture) = self.input_manager.get_input1_syphon_texture() {
+                    let width = syphon_texture.size().width;
+                    let height = syphon_texture.size().height;
+                    
+                    // Create or resize input texture if needed
+                    let current_size = self.input1_texture.as_ref()
+                        .map(|t| (t.width, t.height));
+                    let needs_create = current_size.map(|(w, h)| w != width || h != height).unwrap_or(true);
+                    
+                    if needs_create {
+                        log::info!("[SIMPLE_ENGINE] Creating input 1 texture for Syphon: {}x{}", width, height);
+                        // Syphon-wgpu outputs Rgba8Unorm, so we need to match that format
+                        let syphon_format = wgpu::TextureFormat::Rgba8Unorm;
+                        self.input1_texture = Some(SimpleInputTexture {
+                            texture: Texture::create_render_target_with_format(
+                                &self.device, width, height, "Input 1 Syphon Texture", syphon_format,
+                            ),
+                            width,
+                            height,
+                        });
+                    }
+                    
+                    // Copy from Syphon texture to input texture
+                    if let Some(ref input_tex) = self.input1_texture {
+                        log::debug!("[SIMPLE_ENGINE] Copying Syphon texture {}x{} to input", width, height);
+                        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("Syphon Input Copy"),
+                        });
+                        
+                        encoder.copy_texture_to_texture(
+                            wgpu::TexelCopyTextureInfo {
+                                texture: syphon_texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d::ZERO,
+                                aspect: wgpu::TextureAspect::All,
+                            },
+                            wgpu::TexelCopyTextureInfo {
+                                texture: &input_tex.texture.texture,
+                                mip_level: 0,
+                                origin: wgpu::Origin3d::ZERO,
+                                aspect: wgpu::TextureAspect::All,
+                            },
+                            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                        );
+                        
+                        self.queue.submit(std::iter::once(encoder.finish()));
+                        log::debug!("[SIMPLE_ENGINE] Syphon texture copy complete");
+                    }
                 }
             }
         }

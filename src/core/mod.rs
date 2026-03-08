@@ -38,6 +38,7 @@ pub enum InputChangeRequest {
     None,
     StartWebcam { input_id: u8, device_index: usize, width: u32, height: u32, fps: u32 },
     StartNdi { input_id: u8, source_name: String },
+    StartSyphon { input_id: u8, server_name: String },
     StopInput { input_id: u8 },
     /// Set output window VSync
     SetVsync(bool),

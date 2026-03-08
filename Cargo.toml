@@ -8,6 +8,10 @@ license = "MIT"
 repository = "https://github.com/yourusername/rustjay_waaaves"
 keywords = ["vj", "visuals", "wgpu", "shaders", "real-time"]
 categories = ["graphics", "multimedia"]
+build = "build.rs"
+
+# Make this package its own workspace to avoid conflicts with parent
+[workspace]
 
 [dependencies]
 # Windowing
@@ -66,21 +70,17 @@ imgui = "0.12"
 imgui-wgpu = "0.25"
 imgui-winit-support = "0.13"
 
+# Syphon crate (local path)
+# Provides zero-copy GPU-to-GPU Syphon output for macOS
+syphon-core = { path = "../crates/syphon/syphon-core", optional = true }
+syphon-wgpu = { path = "../crates/syphon/syphon-wgpu", optional = true }
+
 # Platform-specific IPC dependencies
 [target.'cfg(target_os = "macos")'.dependencies]
-# Syphon uses Objective-C runtime
-objc = { version = "0.2", optional = true }
-objc-foundation = { version = "0.1", optional = true }
-objc_id = { version = "0.1", optional = true }
-core-foundation = { version = "0.9", optional = true }
-core-graphics = { version = "0.23", optional = true }
-# macOS frameworks
-cocoa = { version = "0.25", optional = true }
-cocoa-foundation = { version = "0.1", optional = true }
-# For IOSurface sharing
-io-surface = { version = "0.16", optional = true }
-# For dlopen to load frameworks
-libc = { version = "0.2", optional = true }
+# Metal for zero-copy texture sharing (used by syphon-wgpu)
+metal = { version = "0.31", optional = true }
+# Objective-C runtime for autoreleasepool
+objc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Spout uses Windows API
@@ -102,9 +102,41 @@ default = ["webcam", "ipc"]
 webcam = ["nokhwa"]
 # Inter-process video sharing (platform-specific)
 ipc = ["ipc-syphon", "ipc-spout", "ipc-v4l2"]
-ipc-syphon = ["objc", "objc-foundation", "objc_id", "core-foundation", "core-graphics", "cocoa", "cocoa-foundation", "io-surface", "libc"]
+ipc-syphon = ["syphon-core", "syphon-wgpu", "metal"]
 ipc-spout = ["winapi"]
 ipc-v4l2 = ["v4l", "nix"]
 
 [profile.dev]
 opt-level = 1
+
+# macOS App Bundle Configuration
+# Install cargo-bundle: cargo install cargo-bundle
+# Create bundle: cargo bundle --release
+[package.metadata.bundle]
+name = "RustJay Waaaves"
+identifier = "com.rustjay.waaaves"
+icon = ["icons/32x32.png", "icons/128x128.png", "icons/icon.icns"]
+version = "0.1.0"
+# Embed the local Syphon framework into the app bundle
+# This path is relative to the crate root (where Cargo.toml is)
+resources = ["../crates/syphon/syphon-lib/Syphon.framework"]
+copyright = "Copyright (c) 2024"
+category = "Developer Tool"
+short_description = "High-performance VJ application"
+long_description = """
+RustJay Waaaves is a high-performance VJ application built with Rust and wgpu.
+Features real-time shader effects, video mixing, and Syphon output support.
+"""
+# macOS-specific settings
+# Note: We embed Syphon via resources above, not via osx_frameworks
+# This ensures the framework is bundled with the app
+osx_minimum_system_version = "11.0"
+# Codesigning (optional - for distribution)
+#osx_signing_identity = "Developer ID Application: Your Name (TEAM_ID)"
+# Notarization (optional - for distribution)
+#osx_notarization_username = "your@email.com"
+#osx_notarization_password = "@keychain:AC_PASSWORD"
+
+# Windows-specific settings (for future Windows builds)
+#[package.metadata.bundle.windows]
+#icon = ["icons/icon.ico"]

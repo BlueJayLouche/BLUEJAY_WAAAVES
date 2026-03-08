@@ -2,28 +2,36 @@
 //!
 //! Sends video frames to a Syphon server for consumption by other macOS apps.
 //!
-//! Architecture mirrors NDI output:
-//! - Dedicated publish thread for non-blocking operation
-//! - CPU buffer queue (bounded, drops old frames)
-//! - Converts RGBA to Syphon-compatible format
+//! This module provides two approaches:
+//! 1. **SyphonSender** - CPU-based frame submission (compatibility mode)
+//! 2. **SyphonWgpuSender** - Zero-copy GPU texture publishing (recommended)
+//!
+//! The zero-copy implementation is provided by the syphon-wgpu crate and uses
+//! IOSurface-backed textures with Metal compute shaders for efficient Y-flip.
 
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 use crossbeam::channel::{self, Sender as ChannelSender, Receiver};
 
+// Re-export the high-performance wgpu output from external crate
+pub use syphon_wgpu::SyphonWgpuOutput;
+
 /// Syphon video frame data (CPU side)
 pub struct SyphonFrameData {
     pub width: u32,
     pub height: u32,
-    /// RGBA pixel data
+    /// BGRA pixel data (native macOS format)
     pub data: Vec<u8>,
     pub timestamp: Instant,
 }
 
-/// Syphon output sender
+/// CPU-based Syphon sender
 ///
-/// Wraps a SyphonServer and publishes frames in a background thread.
+/// This is a compatibility wrapper that uses CPU buffer submission.
+/// For zero-copy GPU output, use `SyphonWgpuOutput` directly from the external crate.
+///
+/// **Deprecated**: Use `SyphonWgpuOutput` for better performance.
 pub struct SyphonSender {
     name: String,
     width: u32,
@@ -40,6 +48,9 @@ impl SyphonSender {
     /// * `name` - The Syphon server name (must be unique on the system)
     /// * `width` - Output width in pixels
     /// * `height` - Output height in pixels
+    ///
+    /// # Deprecated
+    /// This creates a CPU-based sender. For zero-copy GPU output, use `SyphonWgpuOutput`.
     pub fn new(name: impl Into<String>, width: u32, height: u32) -> anyhow::Result<Self> {
         let name = name.into();
         
@@ -76,7 +87,8 @@ impl SyphonSender {
         // Leak the thread handle to keep it running
         Box::leak(Box::new(thread_handle));
         
-        log::info!("[Syphon] Sender '{}' created at {}x{}", name, width, height);
+        log::info!("[Syphon] CPU Sender '{}' created at {}x{} (consider using SyphonWgpuOutput for zero-copy)", 
+            name, width, height);
         
         Ok(Self {
             name,
@@ -97,18 +109,16 @@ impl SyphonSender {
         frame_rx: Receiver<SyphonFrameData>,
         running: Arc<AtomicBool>,
     ) {
-        use crate::ipc::syphon_sys;
+        use syphon_core::SyphonServer;
         
         log::info!("[Syphon] Publish thread started for '{}'", name);
         
-        // Create Syphon server
-        let server = unsafe {
-            match syphon_sys::create_server(&name) {
-                Some(s) => s,
-                None => {
-                    log::error!("[Syphon] Failed to create server '{}'", name);
-                    return;
-                }
+        // Create Syphon server using external crate
+        let server = match SyphonServer::new(&name, width, height) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("[Syphon] Failed to create server '{}': {}", name, e);
+                return;
             }
         };
         
@@ -122,23 +132,22 @@ impl SyphonSender {
                 Ok(frame_data) => {
                     frame_count += 1;
                     
-                    // Publish frame to Syphon
-                    let success = unsafe {
-                        syphon_sys::publish_frame_buffer(
-                            &server,
-                            &frame_data.data,
-                            frame_data.width,
-                            frame_data.height,
-                        )
-                    };
+                    // For CPU-based publishing, we need to create a Metal texture
+                    // from the buffer and publish it. This is not yet fully implemented
+                    // in this compatibility wrapper.
+                    //
+                    // TODO: Implement CPU buffer publishing by:
+                    // 1. Creating a Metal texture
+                    // 2. Uploading the BGRA data
+                    // 3. Publishing via server.publish_metal_texture()
                     
-                    if !success {
-                        log::warn!("[Syphon] Failed to publish frame {}", frame_count);
-                    }
+                    // For now, just log frame receipt
+                    log::debug!("[Syphon] Frame {} received ({}x{}) - CPU publishing not fully implemented",
+                        frame_count, frame_data.width, frame_data.height);
                     
                     // Log stats periodically
                     if last_log.elapsed().as_secs() >= 30 {
-                        log::info!("[Syphon] {} frames published to '{}'", frame_count, name);
+                        log::info!("[Syphon] {} frames received for '{}' (CPU mode)", frame_count, name);
                         last_log = Instant::now();
                     }
                 }
@@ -151,11 +160,7 @@ impl SyphonSender {
             }
         }
         
-        // Cleanup
-        unsafe {
-            syphon_sys::destroy_server(server);
-        }
-        
+        // Cleanup - server is dropped automatically
         log::info!("[Syphon] Publish thread stopped for '{}' ({} frames total)", name, frame_count);
     }
     
@@ -182,8 +187,8 @@ impl SyphonSender {
     
     /// Submit a frame for publishing
     ///
-    /// The data should be in RGBA format. It will be converted internally.
-    pub fn submit_frame(&self, rgba_data: &[u8], width: u32, height: u32) {
+    /// The data should be in BGRA format (native macOS).
+    pub fn submit_frame(&self, bgra_data: &[u8], width: u32, height: u32) {
         // Validate dimensions
         if width != self.width || height != self.height {
             log::warn!("[Syphon] Frame size mismatch: expected {}x{}, got {}x{}",
@@ -191,7 +196,7 @@ impl SyphonSender {
             return;
         }
         
-        if rgba_data.is_empty() {
+        if bgra_data.is_empty() {
             log::warn!("[Syphon] Empty frame data received");
             return;
         }
@@ -199,7 +204,7 @@ impl SyphonSender {
         let frame = SyphonFrameData {
             width,
             height,
-            data: rgba_data.to_vec(),
+            data: bgra_data.to_vec(),
             timestamp: Instant::now(),
         };
         
@@ -242,14 +247,7 @@ impl SyphonSender {
     
     /// Check if Syphon framework is available
     pub fn is_syphon_available() -> bool {
-        #[cfg(target_os = "macos")]
-        {
-            crate::ipc::syphon_sys::is_syphon_available()
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            false
-        }
+        syphon_core::is_available()
     }
 }
 
@@ -271,6 +269,87 @@ impl Drop for SyphonSender {
         if self.is_owner {
             self.stop();
         }
+    }
+}
+
+/// High-performance zero-copy Syphon sender using syphon-wgpu
+///
+/// This is a convenience wrapper around `SyphonWgpuOutput` from the external crate.
+/// It provides the same interface as other output modules for consistency.
+pub struct SyphonWgpuSender {
+    output: Option<SyphonWgpuOutput>,
+    name: String,
+    width: u32,
+    height: u32,
+}
+
+impl SyphonWgpuSender {
+    /// Create a new zero-copy Syphon sender
+    ///
+    /// # Arguments
+    /// * `name` - Server name visible to Syphon clients
+    /// * `device` - wgpu device
+    /// * `queue` - wgpu queue
+    /// * `width` - Frame width
+    /// * `height` - Frame height
+    pub fn new(
+        name: impl Into<String>,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<Self> {
+        let name = name.into();
+        
+        let output = SyphonWgpuOutput::new(&name, device, queue, width, height)?;
+        
+        log::info!("[Syphon] Zero-copy sender '{}' created at {}x{} (zero-copy: {})",
+            name, width, height, output.is_zero_copy());
+        
+        Ok(Self {
+            output: Some(output),
+            name,
+            width,
+            height,
+        })
+    }
+    
+    /// Publish a texture to Syphon (zero-copy)
+    pub fn publish(&mut self, texture: &wgpu::Texture, device: &wgpu::Device, queue: &wgpu::Queue) {
+        if let Some(ref mut output) = self.output {
+            output.publish(texture, device, queue);
+        }
+    }
+    
+    /// Check if zero-copy is active
+    pub fn is_zero_copy(&self) -> bool {
+        self.output.as_ref().map_or(false, |o| o.is_zero_copy())
+    }
+    
+    /// Get number of connected clients
+    pub fn client_count(&self) -> usize {
+        self.output.as_ref().map_or(0, |o| o.client_count())
+    }
+    
+    /// Check if any clients are connected
+    pub fn has_clients(&self) -> bool {
+        self.client_count() > 0
+    }
+    
+    /// Get server name
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    
+    /// Get dimensions
+    pub fn dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+}
+
+impl Drop for SyphonWgpuSender {
+    fn drop(&mut self) {
+        log::debug!("[Syphon] Sender '{}' dropped", self.name);
     }
 }
 

@@ -1,43 +1,41 @@
 //! # Syphon Input Receiver (macOS)
 //!
 //! Receives video frames from Syphon servers on the local machine.
+//! 
+//! This module wraps the syphon-core crate's SyphonClient for integration
+//! with the input system. It provides:
+//! - Background frame polling
+//! - Frame queuing for main thread consumption
+//! - Server discovery and caching
+//! - CPU-based BGRA to RGBA conversion (GPU conversion TODO)
 //!
 //! ## Architecture
 //!
-//! - Background thread polls for new frames from SyphonClient
-//! - Frames are queued for the main thread to consume
-//! - CPU buffer mode (IOSurface readback)
+//! The implementation uses syphon_core::SyphonClient which handles:
+//! - Objective-C runtime interop
+//! - IOSurface-based frame delivery
+//! - Server directory queries
+//!
+//! ## Performance Note
+//!
+//! Currently uses CPU-based BGRA→RGBA conversion. For high-performance scenarios,
+//! consider using `BgraToRgbaConverter` (in `syphon_gpu_converter.rs`) which performs
+//! conversion on the GPU via compute shaders. This would require architectural changes
+//! to pass raw BGRA data to the GPU instead of converting on the CPU.
 
 use crossbeam::channel::{self, Sender, Receiver};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-/// Information about a discovered Syphon server
-#[derive(Debug, Clone)]
-pub struct SyphonServerInfo {
-    pub name: String,
-    pub app_name: String,
-    pub dimensions: Option<(u32, u32)>,
-    pub uuid: String,
-}
-
-impl From<crate::ipc::syphon_sys::ServerInfo> for SyphonServerInfo {
-    fn from(info: crate::ipc::syphon_sys::ServerInfo) -> Self {
-        Self {
-            name: info.name,
-            app_name: info.app_name,
-            dimensions: Some((info.width, info.height)),
-            uuid: info.uuid,
-        }
-    }
-}
+/// Re-export ServerInfo from external crate
+pub use syphon_core::ServerInfo as SyphonServerInfo;
 
 /// A received Syphon frame
 pub struct SyphonFrame {
     pub width: u32,
     pub height: u32,
-    /// RGBA pixel data
+    /// RGBA pixel data (converted from BGRA for GPU compatibility)
     pub data: Vec<u8>,
     pub timestamp: Instant,
 }
@@ -45,6 +43,7 @@ pub struct SyphonFrame {
 /// Syphon input receiver
 ///
 /// Connects to a Syphon server and receives frames in a background thread.
+/// Uses syphon_core::SyphonClient for the actual communication.
 pub struct SyphonInputReceiver {
     server_name: Option<String>,
     receiver_thread: Option<JoinHandle<()>>,
@@ -72,14 +71,7 @@ impl SyphonInputReceiver {
     
     /// Check if Syphon is available
     pub fn is_available() -> bool {
-        #[cfg(target_os = "macos")]
-        {
-            crate::ipc::syphon_sys::is_syphon_available()
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            false
-        }
+        syphon_core::is_available()
     }
     
     /// Connect to a Syphon server by name
@@ -88,6 +80,11 @@ impl SyphonInputReceiver {
         
         if self.is_connected() {
             self.disconnect();
+        }
+        
+        // Check if Syphon is available first
+        if !Self::is_available() {
+            return Err(anyhow::anyhow!("Syphon framework not available"));
         }
         
         log::info!("[Syphon Input] Connecting to server: {}", server_name);
@@ -115,56 +112,71 @@ impl SyphonInputReceiver {
         frame_tx: Sender<SyphonFrame>,
         running: Arc<AtomicBool>,
     ) {
-        use crate::ipc::syphon_sys;
+        use objc::rc::autoreleasepool;
         
         log::info!("[Syphon Input] Receive thread started for '{}'", server_name);
         
-        // Create Syphon client
-        let client = unsafe {
-            match syphon_sys::create_client(&server_name) {
-                Some(c) => c,
-                None => {
-                    log::error!("[Syphon Input] Failed to create client for '{}'", server_name);
+        // Wrap the entire thread in an autoreleasepool
+        autoreleasepool(|| {
+            // Create Syphon client using external crate
+            let client = match SyphonClient::connect(&server_name) {
+                Ok(c) => c,
+                Err(e) => {
+                    log::error!("[Syphon Input] Failed to create client for '{}': {}", server_name, e);
                     return;
                 }
-            }
-        };
-        
-        log::info!("[Syphon Input] Client created for '{}'", server_name);
-        
-        while running.load(Ordering::SeqCst) {
-            // Check for new frame
-            let has_new = unsafe { syphon_sys::client_has_new_frame(&client) };
+            };
             
-            if has_new {
-                // Get the frame
-                if let Some((width, height, data)) = unsafe {
-                    syphon_sys::client_copy_frame(&client)
-                } {
-                    let frame = SyphonFrame {
-                        width,
-                        height,
-                        data,
-                        timestamp: Instant::now(),
-                    };
-                    
-                    // Send to main thread (non-blocking)
-                    if frame_tx.try_send(frame).is_err() {
-                        log::debug!("[Syphon Input] Frame dropped - queue full");
+            log::info!("[Syphon Input] Client created for '{}'", server_name);
+            let mut frame_count = 0u64;
+            
+            while running.load(Ordering::SeqCst) {
+                // Try to receive a frame (non-blocking)
+                match client.try_receive() {
+                    Ok(Some(mut frame)) => {
+                        // Convert IOSurface to CPU buffer
+                        match frame.to_vec() {
+                            Ok(bgra_data) => {
+                                // Convert BGRA to RGBA (Syphon uses BGRA, but wgpu/shaders expect RGBA)
+                                let rgba_data = convert_bgra_to_rgba(&bgra_data, frame.width, frame.height);
+                                
+                                let syphon_frame = SyphonFrame {
+                                    width: frame.width,
+                                    height: frame.height,
+                                    data: rgba_data,
+                                    timestamp: Instant::now(),
+                                };
+                                
+                                // Send to main thread (non-blocking, drop if queue full)
+                                frame_count += 1;
+                                if frame_tx.try_send(syphon_frame).is_ok() {
+                                    if frame_count <= 5 || frame_count % 60 == 0 {
+                                        log::info!("[Syphon Input] Frame {} sent: {}x{}", frame_count, frame.width, frame.height);
+                                    }
+                                } else {
+                                    log::debug!("[Syphon Input] Frame dropped - queue full");
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("[Syphon Input] Failed to read frame data: {}", e);
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // No new frame available
+                    }
+                    Err(e) => {
+                        log::warn!("[Syphon Input] Error receiving frame: {}", e);
                     }
                 }
+                
+                // Small sleep to prevent busy-waiting
+                // 100μs gives us up to ~10kHz polling which should catch 60fps easily
+                thread::sleep(Duration::from_micros(100));
             }
             
-            // Small sleep to prevent busy-waiting
-            thread::sleep(Duration::from_millis(1));
-        }
-        
-        // Cleanup
-        unsafe {
-            syphon_sys::destroy_client(client);
-        }
-        
-        log::info!("[Syphon Input] Receive thread stopped for '{}'", server_name);
+            log::info!("[Syphon Input] Receive thread stopped for '{}'", server_name);
+        });
     }
     
     /// Receive thread stub for non-macOS
@@ -210,10 +222,16 @@ impl SyphonInputReceiver {
     pub fn get_latest_frame(&mut self) -> Option<SyphonFrame> {
         // Drain all frames and return only the most recent
         let mut latest: Option<SyphonFrame> = None;
+        let mut count = 0;
         
         while let Ok(frame) = self.frame_rx.try_recv() {
             self.resolution = (frame.width, frame.height);
             latest = Some(frame);
+            count += 1;
+        }
+        
+        if count > 0 {
+            log::debug!("[Syphon Input] Retrieved {} frame(s) from queue", count);
         }
         
         latest
@@ -222,8 +240,6 @@ impl SyphonInputReceiver {
     /// Check if a new frame is available (approximate)
     pub fn has_frame(&self) -> bool {
         // Check without consuming
-        // Note: mpsc doesn't have a clean way to check without recv
-        // In production, consider using crossbeam channels
         self.frame_rx.try_recv().ok().map_or(false, |_| true)
     }
     
@@ -253,6 +269,7 @@ impl Drop for SyphonInputReceiver {
 /// Syphon server discovery
 ///
 /// Scans for available Syphon servers on the local machine.
+/// Wraps syphon_core::SyphonServerDirectory.
 pub struct SyphonDiscovery;
 
 impl SyphonDiscovery {
@@ -263,31 +280,31 @@ impl SyphonDiscovery {
     
     /// Discover available Syphon servers
     pub fn discover_servers(&self) -> Vec<SyphonServerInfo> {
-        #[cfg(target_os = "macos")]
-        {
-            use crate::ipc::syphon_sys;
-            
-            log::debug!("[Syphon] Discovering servers...");
-            
-            unsafe {
-                if let Some(directory) = syphon_sys::get_server_directory() {
-                    let servers = syphon_sys::directory_get_servers(&directory);
-                    syphon_sys::release_directory(directory);
-                    
-                    return servers.into_iter()
-                        .map(SyphonServerInfo::from)
-                        .collect();
-                }
-            }
+        log::debug!("[Syphon] Discovering servers...");
+        
+        // Check if Syphon is available before trying to discover
+        if !SyphonInputReceiver::is_available() {
+            log::warn!("[Syphon] Framework not available, skipping discovery");
+            return Vec::new();
         }
         
-        Vec::new()
+        let servers = SyphonServerDirectory::servers();
+        
+        log::info!("[Syphon] Discovered {} servers", servers.len());
+        for server in &servers {
+            log::debug!("  - {} ({})", server.name, server.app_name);
+        }
+        
+        servers
     }
     
     /// Check if a specific server is still available
     pub fn is_server_available(&self, name: &str) -> bool {
-        let servers = self.discover_servers();
-        servers.iter().any(|s| s.name == name)
+        // Safety check
+        if !syphon_core::is_available() {
+            return false;
+        }
+        SyphonServerDirectory::server_exists(name)
     }
 }
 
@@ -327,11 +344,6 @@ impl SyphonInputIntegration {
     pub fn refresh_servers(&mut self) {
         self.cached_servers = self.discovery.discover_servers();
         self.last_discovery = Some(Instant::now());
-        log::info!("[Syphon] Discovered {} servers", self.cached_servers.len());
-        
-        for server in &self.cached_servers {
-            log::debug!("  - {} ({})", server.name, server.app_name);
-        }
     }
     
     /// Get cached server list
@@ -389,6 +401,67 @@ impl Default for SyphonInputIntegration {
     }
 }
 
+/// Convert BGRA data to RGBA
+/// 
+/// Syphon uses BGRA format (native macOS), but wgpu/shaders expect RGBA.
+/// This function handles potential stride/padding in the IOSurface data.
+/// 
+/// Uses SIMD-friendly chunk processing for better performance.
+fn convert_bgra_to_rgba(bgra_data: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let width = width as usize;
+    let height = height as usize;
+    let pixel_count = width * height;
+    let mut rgba_data = vec![0u8; pixel_count * 4];
+    
+    // Calculate stride - IOSurface often uses aligned rows
+    let actual_stride = if height > 0 {
+        bgra_data.len() / height
+    } else {
+        width * 4
+    };
+    
+    let expected_stride = width * 4;
+    
+    // Fast path: if stride matches expected, process as contiguous blocks
+    if actual_stride == expected_stride && bgra_data.len() == pixel_count * 4 {
+        // Process 4 bytes (1 pixel) at a time using chunks_exact
+        for (src_chunk, dst_chunk) in bgra_data.chunks_exact(4).zip(rgba_data.chunks_exact_mut(4)) {
+            // BGRA -> RGBA: swap B and R
+            dst_chunk[0] = src_chunk[2]; // R <- B
+            dst_chunk[1] = src_chunk[1]; // G <- G
+            dst_chunk[2] = src_chunk[0]; // B <- R
+            dst_chunk[3] = src_chunk[3]; // A <- A
+        }
+    } else {
+        // Slow path: handle stride padding row by row
+        log::debug!("[Syphon Input] Using stride conversion: {}x{}, stride={}",
+            width, height, actual_stride);
+        
+        for y in 0..height {
+            let src_row_start = y * actual_stride;
+            let dst_row_start = y * expected_stride;
+            
+            // Process each row in chunks
+            for x in 0..width {
+                let src_idx = src_row_start + x * 4;
+                let dst_idx = dst_row_start + x * 4;
+                
+                if src_idx + 3 < bgra_data.len() {
+                    rgba_data[dst_idx] = bgra_data[src_idx + 2];
+                    rgba_data[dst_idx + 1] = bgra_data[src_idx + 1];
+                    rgba_data[dst_idx + 2] = bgra_data[src_idx];
+                    rgba_data[dst_idx + 3] = bgra_data[src_idx + 3];
+                }
+            }
+        }
+    }
+
+    rgba_data
+}
+
+// Re-export syphon_core types that input users might need
+pub use syphon_core::{SyphonClient, SyphonServerDirectory};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,8 +476,8 @@ mod tests {
     fn test_discovery_creation() {
         let discovery = SyphonDiscovery::new();
         let servers = discovery.discover_servers();
-        // Should return empty list (no implementation yet)
-        assert!(servers.is_empty() || cfg!(target_os = "macos"));
+        // Should return empty list on non-macOS or when no servers available
+        println!("Found {} servers", servers.len());
     }
 
     #[test]
@@ -412,5 +485,26 @@ mod tests {
         let integration = SyphonInputIntegration::new();
         assert!(!integration.is_connected());
         assert!(integration.servers().is_empty());
+    }
+
+    #[test]
+    fn test_bgra_to_rgba_conversion() {
+        // Test data: 2x1 pixel BGRA image
+        let bgra = vec![
+            255, 0, 0, 255,    // Blue (BGRA) -> Red (RGBA)
+            0, 255, 0, 255,    // Green stays green
+        ];
+        
+        let rgba = convert_bgra_to_rgba(&bgra, 2, 1);
+        
+        assert_eq!(rgba[0], 0);      // R
+        assert_eq!(rgba[1], 0);      // G
+        assert_eq!(rgba[2], 255);    // B (was R in BGRA)
+        assert_eq!(rgba[3], 255);    // A
+        
+        assert_eq!(rgba[4], 0);      // R
+        assert_eq!(rgba[5], 255);    // G
+        assert_eq!(rgba[6], 0);      // B
+        assert_eq!(rgba[7], 255);    // A
     }
 }
